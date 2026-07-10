@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Settings</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 320px;
+      --radius: 10px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: clamp(220px, 22vw, var(--inspector));
+    }
+
+    body.sidebar-left-collapsed { --left-sidebar-width: 52px; }
+    body.sidebar-right-collapsed { --right-inspector-width: 52px; }
+
+    a { color: inherit; text-decoration: none; }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    select {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .button-label,
+    .field-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      width: min(100%, 1560px);
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .panel-head,
+    .meta-row,
+    .setting-row,
+    .status-line,
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .workspace-group,
+    .actions {
+      gap: 10px;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar,
+    .control,
+    .select,
+    .textarea {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .status-dot {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: 4px;
+    }
+
+    .crumbs,
+    .breadcrumb {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .actions {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--ink);
+    }
+
+    .btn { padding: 0 12px; }
+    .icon-btn,
+    .avatar { width: 32px; padding: 0; }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open { display: grid; }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      border-color: var(--line);
+      background: var(--block);
+      outline: none;
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0.08em;
+    }
+
+    .layout {
+      min-height: calc(100vh - 40px - var(--topbar));
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .inspector {
+      position: relative;
+      min-width: 0;
+      background: #f4f4f6;
+      transition: padding 180ms ease;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--ink);
+      padding: 18px 14px;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--ink);
+      padding: 18px 14px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      grid-auto-rows: max-content;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      display: flex;
+      margin-left: auto;
+      margin-bottom: 12px;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+      justify-self: start;
+      grid-column: 1 / -1;
+      margin-left: 0;
+    }
+
+    body.sidebar-right-collapsed .inspector > .side-collapse-toggle {
+      justify-self: center;
+      margin-left: 0;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      content: "";
+      position: absolute;
+      inset: 52px 0 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.14em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    body.sidebar-left-collapsed .sidebar::after { content: "NAVIGATION"; }
+    body.sidebar-right-collapsed .inspector::after { content: "METADATA"; }
+
+    .nav-section + .nav-section { margin-top: 22px; }
+    .nav-section > .object-title { margin: 0 0 8px 8px; }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px;
+      border-radius: var(--radius);
+      color: var(--muted);
+    }
+
+    .nav-item.active {
+      color: var(--ink);
+      background: var(--block);
+      border: 1px solid var(--line);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    .badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+    }
+
+    .nav-branch {
+      margin-left: 15px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-group-label {
+      margin: 7px 0 3px;
+      color: var(--muted);
+      font: 700 10px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .nav-child {
+      min-height: 28px;
+      font-size: 10px;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .storage {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 16px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 18px;
+      background: var(--surface);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .page-head,
+    .panel,
+    .inspector-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+    }
+
+    .page-head {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .title-stack,
+    .panel,
+    .inspector-card,
+    .settings-grid,
+    .settings-section,
+    .form-grid,
+    .field-stack,
+    .status-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .settings-grid {
+      margin-top: 14px;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .panel,
+    .inspector-card {
+      padding: 14px;
+    }
+
+    .panel-head {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .settings-section {
+      gap: 10px;
+    }
+
+    .form-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .form-grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .field-stack {
+      gap: 5px;
+    }
+
+    .control,
+    .select,
+    .textarea {
+      width: 100%;
+      min-height: 34px;
+      padding: 0 9px;
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .textarea {
+      min-height: 68px;
+      padding: 9px;
+      resize: vertical;
+      font: 11px/1.45 var(--mono);
+      background: var(--surface);
+    }
+
+    .setting-row,
+    .status-line,
+    .meta-row,
+    .toggle-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 34px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .connection-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .connection-chip {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      white-space: nowrap;
+    }
+
+    .connection-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      border: 1px solid #9f2525;
+      background: #c53c3c;
+      flex: 0 0 auto;
+    }
+
+    .connection-dot.online {
+      border-color: #1f7a3b;
+      background: #2f8f4e;
+    }
+
+    .connection-chip .object-title {
+      font-size: 10px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--block-2);
+    }
+
+    .status-dot.ready {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .toggle-row input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--active);
+      flex: 0 0 auto;
+    }
+
+    .provider-fields[hidden] {
+      display: none;
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .redline-one {
+      top: 112px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    .redline-two {
+      top: 408px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .layout,
+      .sidebar,
+      .inspector {
+        transition: none;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) minmax(52px, var(--right-inspector-width));
+      }
+    }
+
+    @media (max-width: 820px) {
+      body { padding: 0; }
+      .wireframe { min-height: 100vh; border-radius: 0; border: 0; }
+      .topbar,
+      .page-head {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar,
+      .inspector { display: none; }
+      .form-grid,
+      .form-grid.three {
+        grid-template-columns: 1fr;
+      }
+      .redline { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="settings-screen">
+    <div class="redline redline-one">01 - provider configuration</div>
+    <div class="redline redline-two">02 - storage roots</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="workspace-group" data-od-id="workspace-switcher-zone">
+        <div class="workspace-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Settings</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search assets, runs, model files...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></a>
+            <div class="nav-branch">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item active" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span class="badge"></span></a>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="settings-main">
+        <section class="page-head" data-od-id="settings-page-header">
+          <div class="title-stack">
+            <div class="object-title" style="font-size: 18px;">Settings</div>
+            <div class="object-note">Provider credentials, storage roots, and generation defaults for the workspace</div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="save-settings" data-od-id="button-save-settings" type="button">Save settings</button>
+          </div>
+        </section>
+
+        <div class="settings-grid">
+          <section class="panel settings-section" data-od-id="settings-account-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Account</div>
+                <div class="object-note">Operator identity used on notes, reviews, and generated activity</div>
+              </div>
+            </div>
+            <div class="form-grid">
+              <label class="field-stack" data-od-id="field-username">
+                <span class="field-label">Username</span>
+                <input class="control" id="username" value="edkennedy" autocomplete="username" aria-label="Username">
+              </label>
+              <label class="field-stack" data-od-id="field-default-workspace">
+                <span class="field-label">Default workspace</span>
+                <select class="select" id="default-workspace" aria-label="Default workspace">
+                  <option>Titles XYZ</option>
+                  <option>Client Archive</option>
+                  <option>Personal Tests</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel settings-section" data-od-id="settings-llm-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">LLM</div>
+                <div class="object-note">Used for caption drafting, prompt-set generation, and metadata cleanup</div>
+              </div>
+              <div class="connection-actions" data-od-id="llm-connectivity">
+                <span class="connection-chip"><span class="connection-dot" id="dot-llm"></span><span class="object-title" id="llm-connection-label">Offline</span></span>
+                <button class="btn" data-test-provider="llm" data-od-id="button-test-llm" type="button">Test LLM</button>
+              </div>
+            </div>
+            <div class="form-grid three">
+              <label class="field-stack" data-od-id="field-llm-provider">
+                <span class="field-label">Provider</span>
+                <select class="select" id="llm-provider" aria-label="LLM provider">
+                  <option value="gemini">Gemini</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="claude">Claude</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="openai-compatible">OpenAI Compatible</option>
+                </select>
+              </label>
+              <label class="field-stack" data-od-id="field-llm-model">
+                <span class="field-label">Default model</span>
+                <input class="control" id="llm-model" value="gemini-2.5-pro" aria-label="Default LLM model">
+              </label>
+              <label class="field-stack" data-od-id="field-llm-key">
+                <span class="field-label">API key</span>
+                <input class="control" id="llm-key" value="stored in keychain" aria-label="LLM API key">
+              </label>
+            </div>
+            <div class="form-grid provider-fields" id="compatible-fields" data-od-id="openai-compatible-fields" hidden>
+              <label class="field-stack" data-od-id="field-compatible-base-url">
+                <span class="field-label">Base URL</span>
+                <input class="control" id="compatible-base-url" value="https://api.example.com/v1" aria-label="OpenAI compatible base URL">
+              </label>
+              <label class="field-stack" data-od-id="field-compatible-headers">
+                <span class="field-label">Extra headers</span>
+                <input class="control" id="compatible-headers" value="none" aria-label="OpenAI compatible extra headers">
+              </label>
+            </div>
+            <div class="status-line" data-od-id="llm-status-row"><span class="object-note">Connection</span><span class="object-title" id="llm-status">not tested</span></div>
+          </section>
+
+          <section class="panel settings-section" data-od-id="settings-fal-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">FAL</div>
+                <div class="object-note">Model upload, LoRA endpoint execution, and generated sample batches</div>
+              </div>
+              <div class="connection-actions" data-od-id="fal-connectivity">
+                <span class="connection-chip"><span class="connection-dot" id="dot-fal"></span><span class="object-title" id="fal-connection-label">Offline</span></span>
+                <button class="btn" data-test-provider="fal" data-od-id="button-test-fal" type="button">Test FAL</button>
+              </div>
+            </div>
+            <div class="form-grid three">
+              <label class="field-stack" data-od-id="field-fal-key">
+                <span class="field-label">API key</span>
+                <input class="control" id="fal-key" value="stored in keychain" aria-label="FAL API key">
+              </label>
+              <label class="field-stack" data-od-id="field-fal-default-endpoint">
+                <span class="field-label">Default endpoint</span>
+                <select class="select" id="fal-endpoint" aria-label="Default FAL endpoint">
+                  <option>Ideogram 4</option>
+                  <option>Krea 2 LoRA</option>
+                  <option>Flux LoRA</option>
+                </select>
+              </label>
+              <label class="field-stack" data-od-id="field-fal-concurrency">
+                <span class="field-label">Max parallel jobs</span>
+                <input class="control" id="fal-concurrency" value="4" inputmode="numeric" aria-label="FAL max parallel jobs">
+              </label>
+            </div>
+            <div class="status-line" data-od-id="fal-status-row"><span class="object-note">Connection</span><span class="object-title" id="fal-status">not tested</span></div>
+          </section>
+
+          <section class="panel settings-section" data-od-id="settings-storage-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Storage</div>
+                <div class="object-note">Cloud object storage plus local paths for imports, caches, and exports</div>
+              </div>
+              <div class="connection-actions" data-od-id="storage-connectivity">
+                <span class="connection-chip"><span class="connection-dot" id="dot-storage"></span><span class="object-title" id="storage-connection-label">Offline</span></span>
+                <button class="btn" data-test-provider="storage" data-od-id="button-test-storage" type="button">Test storage</button>
+              </div>
+            </div>
+            <div class="form-grid three">
+              <label class="field-stack" data-od-id="field-s3-bucket">
+                <span class="field-label">S3 bucket</span>
+                <input class="control" id="s3-bucket" value="titles-dam-production" aria-label="S3 bucket">
+              </label>
+              <label class="field-stack" data-od-id="field-s3-region">
+                <span class="field-label">S3 region</span>
+                <input class="control" id="s3-region" value="us-west-2" aria-label="S3 region">
+              </label>
+              <label class="field-stack" data-od-id="field-s3-prefix">
+                <span class="field-label">S3 prefix</span>
+                <input class="control" id="s3-prefix" value="visual-dam/" aria-label="S3 prefix">
+              </label>
+              <label class="field-stack" data-od-id="field-s3-access-key">
+                <span class="field-label">Access key</span>
+                <input class="control" id="s3-access-key" value="stored in keychain" aria-label="S3 access key">
+              </label>
+              <label class="field-stack" data-od-id="field-s3-secret-key">
+                <span class="field-label">Secret key</span>
+                <input class="control" id="s3-secret-key" value="stored in keychain" aria-label="S3 secret key">
+              </label>
+              <label class="field-stack" data-od-id="field-s3-signed-url-ttl">
+                <span class="field-label">Signed URL TTL</span>
+                <input class="control" id="s3-ttl" value="24h" aria-label="S3 signed URL TTL">
+              </label>
+            </div>
+            <div class="form-grid">
+              <label class="field-stack" data-od-id="field-local-storage-dir">
+                <span class="field-label">Local storage dir</span>
+                <input class="control" id="local-storage-dir" value="/Volumes/Production/visual-dam" aria-label="Local storage directory">
+              </label>
+              <div class="field-stack" data-od-id="field-local-storage-action">
+                <span class="field-label">Action</span>
+                <button class="btn" id="choose-local-dir" data-od-id="button-choose-local-storage-dir" type="button">Choose folder</button>
+              </div>
+            </div>
+            <div class="status-line" data-od-id="storage-status-row"><span class="object-note">Storage</span><span class="object-title" id="storage-status">not tested</span></div>
+          </section>
+
+        </div>
+      </main>
+
+      <aside class="inspector" data-od-id="right-inspector">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="settings-context-metadata">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Settings metadata</div>
+              <div class="object-note">Workspace-scoped configuration</div>
+            </div>
+          </div>
+          <div class="status-list">
+            <div class="meta-row"><span class="object-note">Workspace</span><span class="object-title">Titles XYZ</span></div>
+            <div class="meta-row"><span class="object-note">User</span><span class="object-title" id="inspector-username">edkennedy</span></div>
+            <div class="meta-row"><span class="object-note">LLM</span><span class="object-title" id="inspector-llm">Gemini</span></div>
+            <div class="meta-row"><span class="object-note">Storage</span><span class="object-title" id="inspector-storage">local + S3</span></div>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const providerLabels = {
+        gemini: "Gemini",
+        openai: "OpenAI",
+        claude: "Claude",
+        openrouter: "OpenRouter",
+        "openai-compatible": "OpenAI Compatible"
+      };
+
+      const providerModels = {
+        gemini: "gemini-2.5-pro",
+        openai: "gpt-4.1",
+        claude: "claude-3.5-sonnet",
+        openrouter: "openrouter/auto",
+        "openai-compatible": "custom-model"
+      };
+
+      const llmProvider = document.getElementById("llm-provider");
+      const llmModel = document.getElementById("llm-model");
+      const compatibleFields = document.getElementById("compatible-fields");
+      const inspectorLlm = document.getElementById("inspector-llm");
+      const username = document.getElementById("username");
+      const inspectorUsername = document.getElementById("inspector-username");
+
+      function syncLlmProvider() {
+        const value = llmProvider.value;
+        inspectorLlm.textContent = providerLabels[value];
+        compatibleFields.hidden = value !== "openai-compatible";
+        llmModel.value = providerModels[value];
+      }
+
+      function markConnection(target, online) {
+        const dot = document.getElementById(`dot-${target}`);
+        const label = document.getElementById(`${target}-connection-label`);
+        dot.classList.toggle("online", online);
+        label.textContent = online ? "Online" : "Offline";
+      }
+
+      document.querySelectorAll("[data-test-provider]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = button.dataset.testProvider;
+          const statusId = target === "storage" ? "storage-status" : `${target}-status`;
+          document.getElementById(statusId).textContent = "online";
+          markConnection(target, true);
+        });
+      });
+
+      document.getElementById("save-settings").addEventListener("click", () => {
+        const button = document.getElementById("save-settings");
+        button.textContent = "Saved";
+        window.setTimeout(() => {
+          button.textContent = "Save settings";
+        }, 1200);
+      });
+
+      document.getElementById("choose-local-dir").addEventListener("click", () => {
+        document.getElementById("storage-status").textContent = "local path selected";
+      });
+
+      llmProvider.addEventListener("change", () => {
+        syncLlmProvider();
+        document.getElementById("llm-status").textContent = "not tested";
+        markConnection("llm", false);
+      });
+
+      username.addEventListener("input", () => {
+        inspectorUsername.textContent = username.value.trim() || "unnamed";
+      });
+
+      function bindSidebarToggle(id, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        const sync = () => {
+          const collapsed = document.body.classList.contains(className);
+          toggle.textContent = collapsed ? expandText : collapseText;
+          toggle.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+          toggle.setAttribute("aria-pressed", String(collapsed));
+        };
+        toggle.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      const closeAll = () => {
+        menus.forEach((wrap) => {
+          wrap.querySelector("[data-create-panel]").classList.remove("open");
+          wrap.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+        });
+      };
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = panel.classList.toggle("open");
+          trigger.setAttribute("aria-expanded", String(open));
+          menus.filter((item) => item !== wrap).forEach((item) => {
+            item.querySelector("[data-create-panel]").classList.remove("open");
+            item.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+          });
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      syncLlmProvider();
+    })();
+  </script>
+</body>
+</html>

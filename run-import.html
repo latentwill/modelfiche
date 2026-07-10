@@ -1,0 +1,1387 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Training Run Import</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 320px;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --radius-xs: 7px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: var(--inspector);
+    }
+
+    body.sidebar-left-collapsed { --left-sidebar-width: 52px; }
+    body.sidebar-right-collapsed { --right-inspector-width: 52px; }
+
+    a { color: inherit; text-decoration: none; }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    select {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .field-label,
+    .table-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      width: min(100%, 1560px);
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .meta-row,
+    .panel-head,
+    .checkpoint-row,
+    .timeline-marker,
+    .sample-toolbar,
+    .config-row {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .workspace-group,
+    .actions {
+      gap: 10px;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar,
+    .select,
+    .control {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .status-dot {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: var(--radius-xs);
+    }
+
+    .crumbs {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: var(--radius-xs);
+      flex-shrink: 0;
+    }
+
+    .actions {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--ink);
+    }
+
+    .btn { padding: 0 12px; }
+    .icon-btn,
+    .avatar { width: 32px; padding: 0; }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open { display: grid; }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      outline: none;
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1.2;
+    }
+
+    .avatar {
+      border-radius: 50%;
+      background: var(--block);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      min-height: calc(100vh - 40px - var(--topbar));
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .main,
+    .inspector {
+      min-width: 0;
+    }
+
+    .sidebar {
+      position: relative;
+      border-right: 1px solid var(--ink);
+      background: #f2f2f4;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      transition: padding 180ms ease;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      align-self: flex-end;
+      margin-bottom: 12px;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      overflow: hidden;
+      padding: 12px 9px;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      position: absolute;
+      top: 112px;
+      left: 50%;
+      transform: translateX(-50%) rotate(-90deg);
+      transform-origin: center;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after { content: "NAVIGATION"; }
+    body.sidebar-right-collapsed .inspector::after { content: "METADATA"; }
+
+    .nav-section + .nav-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 12px 4px;
+      color: var(--muted);
+    }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) minmax(0, 26px);
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      margin-bottom: 6px;
+    }
+
+    .nav-item.active {
+      background: var(--active);
+      color: var(--surface);
+      border-color: var(--ink);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--surface);
+      border-color: var(--surface);
+    }
+
+    .project-tree {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .project-root {
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      margin-bottom: 2px;
+    }
+
+    .tree-caret {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .nav-branch {
+      display: grid;
+      gap: 4px;
+      margin: 0 0 8px 26px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .nav-group-label {
+      min-height: 18px;
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .nav-child {
+      min-height: 28px;
+      grid-template-columns: 14px minmax(0, 1fr) minmax(0, 24px);
+      gap: 8px;
+      margin-bottom: 0;
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: var(--radius-xs);
+    }
+
+    .nav-child .square {
+      width: 10px;
+      height: 10px;
+    }
+
+    .badge {
+      width: 20px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .storage {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .meter {
+      height: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .meter span {
+      display: block;
+      width: 43%;
+      height: 100%;
+      background: var(--ink);
+      border-radius: inherit;
+    }
+
+    .main {
+      display: grid;
+      gap: 16px;
+      padding: 22px;
+      background: var(--surface);
+    }
+
+    .page-header,
+    .panel,
+    .inspector-card,
+    .summary-card,
+    .metric-card,
+    .sample-group,
+    .config-card,
+    .lineage-card {
+      border: 1px solid var(--line);
+      background: #fbfbfc;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .page-header,
+    .panel,
+    .inspector-card,
+    .summary-card,
+    .metric-card,
+    .sample-group,
+    .config-card,
+    .lineage-card {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .page-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+    }
+
+    .title-block {
+      display: grid;
+      gap: 8px;
+    }
+
+    .page-title {
+      font: 700 18px/1.2 var(--mono);
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .panel-head {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .summary-grid,
+    .metric-grid,
+    .checkpoint-list,
+    .sample-grid,
+    .config-grid,
+    .lineage-grid,
+    .activity-list,
+    .status-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .summary-grid {
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .meta-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 34px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .metric-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(220px, 0.6fr);
+    }
+
+    .metric-card {
+      background: var(--surface);
+    }
+
+    .chart {
+      width: 100%;
+      min-height: 168px;
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: #fdfdfd;
+    }
+
+    .marker-strip {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .timeline-marker {
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--ink);
+    }
+
+    .status-dot.soft {
+      background: var(--block-2);
+    }
+
+    .empty-state {
+      min-height: 168px;
+      display: grid;
+      align-content: center;
+      gap: 10px;
+      padding: 16px;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--page);
+    }
+
+    .checkpoint-list {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .checkpoint-row {
+      display: grid;
+      grid-template-columns: minmax(58px, 0.4fr) minmax(150px, 1.2fr) minmax(70px, 0.45fr) minmax(120px, 0.8fr) minmax(92px, 0.55fr) minmax(96px, 0.6fr);
+      gap: 10px;
+      min-height: 40px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .checkpoint-row:last-child {
+      border-bottom: 0;
+    }
+
+    .checkpoint-row.header {
+      background: var(--block);
+    }
+
+    .checkpoint-row.selected {
+      background: #f0f0f2;
+      box-shadow: inset 3px 0 0 var(--ink);
+    }
+
+    .checkpoint-button {
+      width: 100%;
+      min-height: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 10px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .sample-toolbar {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .step-scrubber {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: min(100%, 280px);
+    }
+
+    .step-scrubber input {
+      width: 180px;
+      accent-color: var(--active);
+    }
+
+    .sample-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .sample-group {
+      background: var(--surface);
+    }
+
+    .sample-images {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .image-placeholder {
+      min-height: 92px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .prompt-card {
+      min-height: 44px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--block);
+      display: grid;
+      gap: 5px;
+    }
+
+    .config-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+    }
+
+    .config-card {
+      background: var(--surface);
+    }
+
+    .config-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 32px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--block);
+    }
+
+    .raw-config {
+      min-height: 268px;
+      margin: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--page);
+      color: var(--ink);
+      font: 11px/1.45 var(--mono);
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+
+    .lineage-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .inspector {
+      position: relative;
+      border-left: 1px solid var(--ink);
+      background: #f4f4f6;
+      padding: 18px 14px;
+      display: grid;
+      grid-auto-rows: max-content;
+      align-content: start;
+      gap: 14px;
+      transition: padding 180ms ease;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      justify-self: end;
+      grid-column: 1 / -1;
+    }
+
+    .activity-item {
+      min-height: 52px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 9px;
+      align-items: center;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .activity-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-xs);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 2;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .redline.one {
+      top: 78px;
+      left: calc(var(--left-sidebar-width) + 46px);
+    }
+
+    .redline.two {
+      bottom: 20px;
+      right: calc(var(--right-inspector-width) + 42px);
+    }
+
+    @media (max-width: 1180px) {
+      body {
+        --right-inspector-width: 280px;
+      }
+
+      .metric-grid,
+      .config-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .sample-grid,
+      .lineage-grid,
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .checkpoint-row {
+        grid-template-columns: minmax(62px, 0.5fr) minmax(140px, 1fr) minmax(70px, 0.5fr);
+      }
+
+      .checkpoint-row > :nth-child(n+4) {
+        display: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      body {
+        padding: 12px;
+      }
+
+      .wireframe {
+        min-height: calc(100vh - 24px);
+      }
+
+      .topbar,
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        height: auto;
+        min-height: var(--topbar);
+        padding: 12px;
+      }
+
+      .sidebar,
+      .inspector {
+        border: 0;
+        border-bottom: 1px solid var(--ink);
+      }
+
+      .main {
+        padding: 14px;
+      }
+
+      .page-header,
+      .summary-grid,
+      .sample-grid,
+      .lineage-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .sample-images {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .redline {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="training-run-import-wireframe">
+    <div class="redline one">01 / training run object</div>
+    <div class="redline two">storage aliases only</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="workspace-group" data-od-id="workspace-switcher-zone">
+        <div class="workspace-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set / Runs / run_019</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search runs, checkpoints, samples...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></a>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span class="badge"></span></a>
+              <div class="nav-item nav-child active" data-od-id="nav-project-run-019"><span class="square"></span><span class="nav-text">Run 019 import</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-grid-sweep-v1" href="grid-lightbox.html"><span class="square"></span><span class="nav-text">Sweep V1</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+          <div class="object-title">Storage</div>
+          <div class="meter"><span></span></div>
+          <div class="object-note">42.8 GB / 100 GB</div>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="run-import-main-content">
+        <section class="page-header" data-od-id="run-import-header">
+          <div class="title-block">
+            <div class="page-title">Training Run / Run Import</div>
+            <div class="object-note">Answers what trained, on what dataset, with what config, how it progressed, which checkpoints exist, and which checkpoint became useful downstream.</div>
+          </div>
+          <div class="chip-row" data-od-id="run-import-header-actions">
+            <a class="btn" data-od-id="button-open-linked-dataset" href="dataset.html">Dataset</a>
+            <a class="btn" data-od-id="button-open-sample-viewer" href="sample-viewer.html">Samples</a>
+            <a class="btn" data-od-id="button-export-training-run" href="transfers.html">Export</a>
+            <a class="btn primary" data-od-id="button-register-selected-checkpoint" href="models.html">Register model</a>
+          </div>
+          <div class="summary-grid" data-od-id="run-top-summary">
+            <div class="meta-row" data-od-id="run-name"><span class="object-note">Run</span><span class="object-title">Zapata v6 / run_019</span></div>
+            <div class="meta-row" data-od-id="run-base-model"><span class="object-note">Base model</span><span class="object-title">krea/Krea-2-Raw</span></div>
+            <div class="meta-row" data-od-id="run-dataset-link"><span class="object-note">Dataset</span><a class="object-title" href="dataset.html">Dataset v6</a></div>
+            <div class="meta-row" data-od-id="run-caption-version"><span class="object-note">Caption version</span><span class="object-title">captions-v6-json</span></div>
+            <div class="meta-row" data-od-id="run-trigger-words"><span class="object-note">Trigger words</span><span class="object-title">kzapata, kzpt</span></div>
+            <div class="meta-row" data-od-id="run-lora-size"><span class="object-note">LoRA size</span><span class="object-title">168 MB / updated Jul 9</span></div>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="run-metrics-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Training progress</div>
+              <div class="object-note">Scalar metrics, checkpoint markers, sample markers, and missing-metrics state.</div>
+            </div>
+            <div class="chip-row" data-od-id="run-step-range-chips">
+              <span class="meta-chip">Steps 0000-2400</span>
+              <span class="meta-chip">Save every 400</span>
+              <span class="meta-chip">Sample every 200</span>
+            </div>
+          </div>
+          <div class="metric-grid" data-od-id="run-metric-grid">
+            <article class="metric-card" data-od-id="run-loss-graph-card">
+              <div>
+                <div class="object-title">Loss graph</div>
+                <div class="object-note">Available from loss_log.db</div>
+              </div>
+              <svg class="chart" data-od-id="run-loss-graph" viewBox="0 0 420 168" role="img" aria-label="Loss graph with saved checkpoint markers">
+                <line x1="36" y1="18" x2="36" y2="132" stroke="#c9c9cf"></line>
+                <line x1="36" y1="132" x2="388" y2="132" stroke="#c9c9cf"></line>
+                <polyline points="38,36 78,51 118,63 158,76 198,88 238,94 278,105 318,113 358,120 386,124" fill="none" stroke="#1c1b1a" stroke-width="3"></polyline>
+                <g stroke="#d44a3a" stroke-width="1">
+                  <line x1="96" y1="20" x2="96" y2="132"></line>
+                  <line x1="154" y1="20" x2="154" y2="132"></line>
+                  <line x1="212" y1="20" x2="212" y2="132"></line>
+                  <line x1="270" y1="20" x2="270" y2="132"></line>
+                  <line x1="328" y1="20" x2="328" y2="132"></line>
+                </g>
+                <rect x="44" y="144" width="78" height="8" fill="#e3e3e6"></rect>
+                <rect x="136" y="144" width="96" height="8" fill="#d5d5da"></rect>
+              </svg>
+            </article>
+
+            <article class="metric-card" data-od-id="run-learning-rate-card">
+              <div>
+                <div class="object-title">Learning rate graph</div>
+                <div class="object-note">Warmup then decay with sample markers.</div>
+              </div>
+              <svg class="chart" data-od-id="run-learning-rate-graph" viewBox="0 0 420 168" role="img" aria-label="Learning rate graph with sample markers">
+                <line x1="36" y1="18" x2="36" y2="132" stroke="#c9c9cf"></line>
+                <line x1="36" y1="132" x2="388" y2="132" stroke="#c9c9cf"></line>
+                <polyline points="38,126 82,82 126,64 170,70 214,78 258,89 302,102 346,116 386,124" fill="none" stroke="#1c1b1a" stroke-width="3"></polyline>
+                <g fill="#d44a3a">
+                  <circle cx="66" cy="98" r="3"></circle>
+                  <circle cx="110" cy="68" r="3"></circle>
+                  <circle cx="154" cy="67" r="3"></circle>
+                  <circle cx="198" cy="75" r="3"></circle>
+                  <circle cx="242" cy="85" r="3"></circle>
+                  <circle cx="286" cy="97" r="3"></circle>
+                  <circle cx="330" cy="111" r="3"></circle>
+                </g>
+                <rect x="44" y="144" width="58" height="8" fill="#e3e3e6"></rect>
+                <rect x="116" y="144" width="132" height="8" fill="#d5d5da"></rect>
+              </svg>
+            </article>
+
+            <article class="metric-card" data-od-id="run-missing-metrics-state">
+              <div class="object-title">No scalar metrics found</div>
+              <div class="empty-state">
+                <span class="object-title">loss_log.db missing</span>
+                <span class="object-note">Show this state when an imported run has checkpoints and samples but no scalar metrics.</span>
+                <span class="meta-chip">Import still valid</span>
+              </div>
+            </article>
+          </div>
+          <div class="marker-strip" data-od-id="run-marker-strip">
+            <div class="timeline-marker"><span class="status-dot"></span><span class="object-title">Checkpoint markers</span><span class="object-note">400 / 800 / 1200 / 1600 / 2000 / 2400</span></div>
+            <div class="timeline-marker"><span class="status-dot soft"></span><span class="object-title">Sample markers</span><span class="object-note">Every 200 steps, grouped by prompt index below.</span></div>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="checkpoint-timeline-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Checkpoint timeline</div>
+              <div class="object-note">Checkpoint files are imported assets with verification and downstream registration state.</div>
+            </div>
+            <span class="meta-chip" id="selected-checkpoint-chip" data-od-id="selected-checkpoint-field">Recommended: step 2000</span>
+          </div>
+          <div class="checkpoint-list" data-od-id="checkpoint-list">
+            <div class="checkpoint-row header" data-od-id="checkpoint-header-row">
+              <span class="table-label">Step</span>
+              <span class="table-label">File name</span>
+              <span class="table-label">Size</span>
+              <span class="table-label">SHA256</span>
+              <span class="table-label">Marker</span>
+              <span class="table-label">FAL</span>
+            </div>
+            <div class="checkpoint-row" data-checkpoint-step="0800" data-checkpoint-file="zapata-r019-step0800.safetensors" data-checkpoint-state="Verified / available" data-od-id="checkpoint-step-0800">
+              <span class="object-title">0800</span>
+              <span class="object-note">zapata-r019-step0800.safetensors</span>
+              <span class="object-title">162 MB</span>
+              <span class="object-note">sha256: 41a9...c2e</span>
+              <span class="object-note">Saved step</span>
+              <button class="checkpoint-button" type="button" data-select-checkpoint>Available</button>
+            </div>
+            <div class="checkpoint-row" data-checkpoint-step="1200" data-checkpoint-file="zapata-r019-step1200.safetensors" data-checkpoint-state="Verified / uploaded" data-od-id="checkpoint-step-1200">
+              <span class="object-title">1200</span>
+              <span class="object-note">zapata-r019-step1200.safetensors</span>
+              <span class="object-title">165 MB</span>
+              <span class="object-note">sha256: 79ff...81b</span>
+              <span class="object-note">Saved step</span>
+              <button class="checkpoint-button" type="button" data-select-checkpoint>Uploaded</button>
+            </div>
+            <div class="checkpoint-row selected" data-checkpoint-step="2000" data-checkpoint-file="zapata-r019-step2000.safetensors" data-checkpoint-state="Recommended / uploaded" data-od-id="checkpoint-step-2000">
+              <span class="object-title">2000</span>
+              <span class="object-note">zapata-r019-step2000.safetensors</span>
+              <span class="object-title">168 MB</span>
+              <span class="object-note">sha256: 4da2...91f</span>
+              <span class="object-title">Recommended</span>
+              <button class="checkpoint-button" type="button" data-select-checkpoint>Selected</button>
+            </div>
+            <div class="checkpoint-row" data-checkpoint-step="2400" data-checkpoint-file="zapata-r019-final.safetensors" data-checkpoint-state="Final / not uploaded" data-od-id="checkpoint-step-2400">
+              <span class="object-title">2400</span>
+              <span class="object-note">zapata-r019-final.safetensors</span>
+              <span class="object-title">169 MB</span>
+              <span class="object-note">sha256: f6b1...3aa</span>
+              <span class="object-title">Final</span>
+              <button class="checkpoint-button" type="button" data-select-checkpoint>Queued</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="samples-by-step-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Samples by step</div>
+              <div class="object-note">Grouped by training step and prompt index. Each group shows the prompt used.</div>
+            </div>
+            <div class="sample-toolbar" data-od-id="sample-step-toolbar">
+              <div class="step-scrubber">
+                <span class="object-title">Step</span>
+                <input id="step-scrubber" data-od-id="step-scrubber" type="range" min="400" max="2400" step="400" value="1200" aria-label="Sample step scrubber">
+                <span class="object-note" id="step-scrubber-label">1200</span>
+              </div>
+              <select class="select" data-od-id="prompt-index-filter" aria-label="Prompt index filter">
+                <option>Prompt 01</option>
+                <option>Prompt 02</option>
+                <option>Prompt 03</option>
+              </select>
+            </div>
+          </div>
+          <div class="sample-grid" data-od-id="sample-step-grid">
+            <article class="sample-group" data-sample-step="0800" data-od-id="sample-group-step-0800">
+              <div class="panel-head">
+                <div class="object-title">Step 0800</div>
+                <span class="object-note">Prompt index 01</span>
+              </div>
+              <div class="sample-images">
+                <a class="image-placeholder" data-od-id="sample-0800-1" href="image-lightbox.html?source=sample&image=run-019-step-0800-a" aria-label="Open sample step 0800 A"></a>
+                <a class="image-placeholder" data-od-id="sample-0800-2" href="image-lightbox.html?source=sample&image=run-019-step-0800-b" aria-label="Open sample step 0800 B"></a>
+                <a class="image-placeholder" data-od-id="sample-0800-3" href="image-lightbox.html?source=sample&image=run-019-step-0800-c" aria-label="Open sample step 0800 C"></a>
+                <a class="image-placeholder" data-od-id="sample-0800-4" href="image-lightbox.html?source=sample&image=run-019-step-0800-d" aria-label="Open sample step 0800 D"></a>
+              </div>
+              <div class="prompt-card">
+                <span class="object-title">Prompt used</span>
+                <span class="object-note">Portrait of kzapata in studio light, neutral wardrobe, direct gaze.</span>
+              </div>
+            </article>
+
+            <article class="sample-group" data-sample-step="1200" data-od-id="sample-group-step-1200">
+              <div class="panel-head">
+                <div class="object-title">Step 1200</div>
+                <span class="object-note">Prompt index 02</span>
+              </div>
+              <div class="sample-images">
+                <a class="image-placeholder" data-od-id="sample-1200-1" href="image-lightbox.html?source=sample&image=run-019-step-1200-a" aria-label="Open sample step 1200 A"></a>
+                <a class="image-placeholder" data-od-id="sample-1200-2" href="image-lightbox.html?source=sample&image=run-019-step-1200-b" aria-label="Open sample step 1200 B"></a>
+                <a class="image-placeholder" data-od-id="sample-1200-3" href="image-lightbox.html?source=sample&image=run-019-step-1200-c" aria-label="Open sample step 1200 C"></a>
+                <a class="image-placeholder" data-od-id="sample-1200-4" href="image-lightbox.html?source=sample&image=run-019-step-1200-d" aria-label="Open sample step 1200 D"></a>
+              </div>
+              <div class="prompt-card">
+                <span class="object-title">Prompt used</span>
+                <span class="object-note">kzapata editorial headshot, soft background, clean face framing.</span>
+              </div>
+            </article>
+
+            <article class="sample-group" data-sample-step="2000" data-od-id="sample-group-step-2000">
+              <div class="panel-head">
+                <div class="object-title">Step 2000</div>
+                <span class="object-note">Prompt index 03</span>
+              </div>
+              <div class="sample-images">
+                <a class="image-placeholder" data-od-id="sample-2000-1" href="image-lightbox.html?source=sample&image=run-019-step-2000-a" aria-label="Open sample step 2000 A"></a>
+                <a class="image-placeholder" data-od-id="sample-2000-2" href="image-lightbox.html?source=sample&image=run-019-step-2000-b" aria-label="Open sample step 2000 B"></a>
+                <a class="image-placeholder" data-od-id="sample-2000-3" href="image-lightbox.html?source=sample&image=run-019-step-2000-c" aria-label="Open sample step 2000 C"></a>
+                <a class="image-placeholder" data-od-id="sample-2000-4" href="image-lightbox.html?source=sample&image=run-019-step-2000-d" aria-label="Open sample step 2000 D"></a>
+              </div>
+              <div class="prompt-card">
+                <span class="object-title">Prompt used</span>
+                <span class="object-note">kzapata lifestyle portrait, daylight interior, consistent identity.</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="run-config-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Training config</div>
+              <div class="object-note">Human-readable config plus raw AI Toolkit viewer.</div>
+            </div>
+            <span class="meta-chip">AI Toolkit raw config preserved</span>
+          </div>
+          <div class="config-grid">
+            <article class="config-card" data-od-id="run-config-summary">
+              <div class="config-row"><span class="object-note">LoRA rank / linear</span><span class="object-title">32 / linear</span></div>
+              <div class="config-row"><span class="object-note">Alpha</span><span class="object-title">16</span></div>
+              <div class="config-row"><span class="object-note">Steps</span><span class="object-title">2400</span></div>
+              <div class="config-row"><span class="object-note">Learning rate</span><span class="object-title">1e-4 cosine</span></div>
+              <div class="config-row"><span class="object-note">Optimizer</span><span class="object-title">adamw8bit</span></div>
+              <div class="config-row"><span class="object-note">Batch / grad accum</span><span class="object-title">2 / 4</span></div>
+              <div class="config-row"><span class="object-note">Precision / dtype</span><span class="object-title">bf16 / fp8 base</span></div>
+              <div class="config-row"><span class="object-note">Save / sample every</span><span class="object-title">400 / 200</span></div>
+              <div class="config-row"><span class="object-note">Resolution buckets</span><span class="object-title">768-1344</span></div>
+              <div class="config-row"><span class="object-note">UNet / text encoder</span><span class="object-title">train / frozen</span></div>
+              <div class="config-row"><span class="object-note">Quantization</span><span class="object-title">fp8_e4m3fn</span></div>
+            </article>
+            <article class="config-card" data-od-id="raw-config-viewer-card">
+              <div class="object-title">Raw config viewer</div>
+              <pre class="raw-config" data-od-id="ai-toolkit-raw-config">job: extension
+config:
+  name: zapata-v6-run-019
+  process:
+    - type: sd_trainer
+      training_folder: s3://workspace-runs/zapata/run_019
+      trigger_word: kzapata
+      network:
+        type: lora
+        linear: 32
+        alpha: 16
+      train:
+        steps: 2400
+        lr: 1e-4
+        optimizer: adamw8bit
+        batch_size: 2
+        gradient_accumulation: 4
+        dtype: bf16
+        save_every: 400
+        sample_every: 200</pre>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="run-lineage-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Lineage</div>
+              <div class="object-note">Storage locations are aliases only, never credentials.</div>
+            </div>
+            <span class="meta-chip">Output family: zapata-v6</span>
+          </div>
+          <div class="lineage-grid">
+            <div class="lineage-card" data-od-id="lineage-linked-dataset"><span class="object-note">Linked dataset</span><a class="object-title" href="dataset.html">Dataset v6</a></div>
+            <div class="lineage-card" data-od-id="lineage-caption-version"><span class="object-note">Caption version</span><span class="object-title">captions-v6-json</span></div>
+            <div class="lineage-card" data-od-id="lineage-trigger-word"><span class="object-note">Trigger word</span><span class="object-title">kzapata</span></div>
+            <div class="lineage-card" data-od-id="lineage-base-model"><span class="object-note">Base model</span><span class="object-title">krea/Krea-2-Raw</span></div>
+            <div class="lineage-card" data-od-id="lineage-output-family"><span class="object-note">Checkpoint family</span><span class="object-title">zapata-v6-r019</span></div>
+            <div class="lineage-card" data-od-id="lineage-source-prefix"><span class="object-note">Source prefix</span><span class="object-title">S3: workspace-runs/zapata</span></div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="right-context-panel">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+
+        <article class="inspector-card" data-od-id="run-context-metadata-card">
+          <div>
+            <div class="object-title">Run metadata</div>
+            <div class="object-note">Context for selected run and checkpoint.</div>
+          </div>
+          <div class="status-list">
+            <div class="meta-row" data-od-id="inspector-run-id"><span class="object-note">Run ID</span><span class="object-title">run_019</span></div>
+            <div class="meta-row" data-od-id="inspector-import-state"><span class="object-note">Import</span><span class="object-title">Complete</span></div>
+            <div class="meta-row" data-od-id="inspector-selected-checkpoint"><span class="object-note">Selected</span><span class="object-title" id="inspector-checkpoint-step">Step 2000</span></div>
+            <div class="meta-row" data-od-id="inspector-checkpoint-file"><span class="object-note">File</span><span class="object-title" id="inspector-checkpoint-file">zapata-r019-step2000.safetensors</span></div>
+            <div class="meta-row" data-od-id="inspector-checkpoint-state"><span class="object-note">State</span><span class="object-title" id="inspector-checkpoint-state">Recommended / uploaded</span></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="run-import-storage-card">
+          <div>
+            <div class="object-title">Storage aliases</div>
+            <div class="object-note">Credential-free source and output paths.</div>
+          </div>
+          <div class="meta-row"><span class="object-note">Source</span><span class="object-title">S3: workspace-runs/zapata</span></div>
+          <div class="meta-row"><span class="object-note">Mirror</span><span class="object-title">MEGA: Titles XYZ / runs</span></div>
+          <div class="meta-row"><span class="object-note">Local</span><span class="object-title">/runs/zapata/run_019</span></div>
+        </article>
+
+        <article class="inspector-card" data-od-id="run-downstream-card">
+          <div>
+            <div class="object-title">Downstream use</div>
+            <div class="object-note">Which checkpoint became useful.</div>
+          </div>
+          <div class="meta-row"><span class="object-note">Registered model</span><a class="object-title" href="models.html">zapata-v6.safetensors</a></div>
+          <div class="meta-row"><span class="object-note">Eval</span><a class="object-title" href="eval-viewer.html">Identity proof v2</a></div>
+          <div class="meta-row"><span class="object-note">Grid</span><a class="object-title" href="grid-lightbox.html">Sweep V1</a></div>
+        </article>
+
+        <article class="inspector-card" data-od-id="run-activity-feed">
+          <div>
+            <div class="object-title">Run activity feed</div>
+            <div class="object-note">Activity scoped to imported run.</div>
+          </div>
+          <div class="activity-list">
+            <div class="activity-item" data-od-id="activity-run-imported"><span class="activity-dot"></span><span><span class="object-title">Run imported</span><span class="object-note">AI Toolkit folder parsed</span></span></div>
+            <div class="activity-item" data-od-id="activity-checkpoints-verified"><span class="activity-dot"></span><span><span class="object-title">Checkpoints verified</span><span class="object-note">SHA256 matched for 4 files</span></span></div>
+            <div class="activity-item" data-od-id="activity-model-registered"><span class="activity-dot"></span><span><span class="object-title">Model registered</span><span class="object-note">Step 2000 promoted downstream</span></span></div>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      function bindSidebarToggle(id, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        const sync = () => {
+          const collapsed = document.body.classList.contains(className);
+          toggle.textContent = collapsed ? expandText : collapseText;
+          toggle.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+          toggle.setAttribute("aria-pressed", String(collapsed));
+        };
+        toggle.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      const closeAll = () => {
+        menus.forEach((wrap) => {
+          wrap.querySelector("[data-create-panel]")?.classList.remove("open");
+          wrap.querySelector("[data-create-trigger]")?.setAttribute("aria-expanded", "false");
+        });
+      };
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        trigger?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = !panel.classList.contains("open");
+          closeAll();
+          panel.classList.toggle("open", open);
+          trigger.setAttribute("aria-expanded", String(open));
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      const selectedChip = document.getElementById("selected-checkpoint-chip");
+      const inspectorStep = document.getElementById("inspector-checkpoint-step");
+      const inspectorFile = document.getElementById("inspector-checkpoint-file");
+      const inspectorState = document.getElementById("inspector-checkpoint-state");
+      document.querySelectorAll("[data-select-checkpoint]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const row = button.closest(".checkpoint-row");
+          document.querySelectorAll(".checkpoint-row.selected").forEach((item) => item.classList.remove("selected"));
+          row.classList.add("selected");
+          const step = row.dataset.checkpointStep;
+          selectedChip.textContent = `Selected: step ${step}`;
+          inspectorStep.textContent = `Step ${step}`;
+          inspectorFile.textContent = row.dataset.checkpointFile;
+          inspectorState.textContent = row.dataset.checkpointState;
+        });
+      });
+
+      const scrubber = document.getElementById("step-scrubber");
+      const scrubberLabel = document.getElementById("step-scrubber-label");
+      const sampleGroups = Array.from(document.querySelectorAll("[data-sample-step]"));
+      scrubber?.addEventListener("input", () => {
+        const value = scrubber.value;
+        scrubberLabel.textContent = value;
+        sampleGroups.forEach((group) => {
+          group.style.outline = group.dataset.sampleStep === value ? "2px solid var(--ink)" : "0";
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

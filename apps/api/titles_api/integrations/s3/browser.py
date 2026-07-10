@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import timezone
+from typing import Any, BinaryIO
+
+from ..config import S3Settings
+from .models import BrowsePage, Inventory, ObjectInfo
+
+
+class PrefixAccessError(ValueError):
+    pass
+
+
+def normalize_prefix(prefix: str) -> str:
+    parts = []
+    for part in prefix.strip().lstrip("/").split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            raise PrefixAccessError("parent traversal is not allowed")
+        parts.append(part)
+    return "/".join(parts) + ("/" if prefix.endswith("/") and parts else "")
+
+
+class S3Browser:
+    """A read-only, prefix-constrained S3 browser.
+
+    The injected client only needs boto3's list/get/head methods, which keeps this
+    module straightforward to test with botocore Stubber or a small fake.
+    """
+
+    def __init__(self, client: Any, settings: S3Settings):
+        self.client = client
+        self.settings = settings
+
+    @classmethod
+    def from_settings(cls, settings: S3Settings) -> "S3Browser":
+        import boto3
+        from botocore.config import Config
+
+        kwargs: dict[str, Any] = {
+            "service_name": "s3",
+            "config": Config(s3={"addressing_style": settings.addressing_style}),
+        }
+        if settings.endpoint_url:
+            kwargs["endpoint_url"] = settings.endpoint_url
+        if settings.region:
+            kwargs["region_name"] = settings.region
+        if settings.access_key_id:
+            kwargs["aws_access_key_id"] = settings.access_key_id
+        if settings.secret_access_key:
+            kwargs["aws_secret_access_key"] = settings.secret_access_key
+        if settings.session_token:
+            kwargs["aws_session_token"] = settings.session_token
+        return cls(boto3.client(**kwargs), settings)
+
+    def require_allowed(self, prefix: str) -> str:
+        normalized = normalize_prefix(prefix)
+        roots = tuple(normalize_prefix(root) for root in self.settings.allowed_prefixes)
+        if not any(
+            normalized.rstrip("/") == root.rstrip("/")
+            or normalized.startswith(root.rstrip("/") + "/")
+            for root in roots
+        ):
+            raise PrefixAccessError(f"prefix is outside configured roots: {normalized}")
+        return normalized
+
+    def browse(self, prefix: str, *, cursor: str | None = None, page_size: int = 200) -> BrowsePage:
+        safe = self.require_allowed(prefix)
+        params: dict[str, Any] = {
+            "Bucket": self.settings.bucket,
+            "Prefix": safe,
+            "Delimiter": "/",
+            "MaxKeys": min(max(page_size, 1), 1000),
+        }
+        if cursor:
+            params["ContinuationToken"] = cursor
+        response = self.client.list_objects_v2(**params)
+        prefixes = tuple(item["Prefix"] for item in response.get("CommonPrefixes", ()))
+        objects = tuple(self._object(item) for item in response.get("Contents", ()) if item["Key"] != safe)
+        return BrowsePage(
+            prefix=safe,
+            prefixes=prefixes,
+            objects=objects,
+            next_cursor=response.get("NextContinuationToken"),
+            is_truncated=bool(response.get("IsTruncated")),
+        )
+
+    def walk(self, prefix: str, *, include_history: bool = False) -> Iterator[ObjectInfo]:
+        safe = self.require_allowed(prefix)
+        cursor: str | None = None
+        history = safe.rstrip("/") + "/_history/"
+        while True:
+            params: dict[str, Any] = {"Bucket": self.settings.bucket, "Prefix": safe, "MaxKeys": 1000}
+            if cursor:
+                params["ContinuationToken"] = cursor
+            response = self.client.list_objects_v2(**params)
+            for raw in response.get("Contents", ()):
+                item = self._object(raw)
+                if include_history or not item.key.startswith(history):
+                    yield item
+            cursor = response.get("NextContinuationToken")
+            if not cursor:
+                break
+
+    def inventory(self, prefix: str) -> Inventory:
+        safe = self.require_allowed(prefix)
+        inventory = Inventory(prefix=safe)
+        history = safe.rstrip("/") + "/_history/"
+        for obj in self.walk(safe, include_history=True):
+            inventory.objects.append(obj)
+            if obj.key.startswith(history):
+                inventory.history_count += 1
+        return inventory
+
+    def read_small(self, key: str, *, max_bytes: int = 2 * 1024 * 1024) -> bytes:
+        safe = self.require_allowed(key)
+        head = self.client.head_object(Bucket=self.settings.bucket, Key=safe)
+        size = int(head.get("ContentLength", 0))
+        if size > max_bytes:
+            raise ValueError(f"object is too large for metadata read ({size} bytes)")
+        response = self.client.get_object(Bucket=self.settings.bucket, Key=safe)
+        data = response["Body"].read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ValueError("object exceeded metadata read limit")
+        return data
+
+    def download(self, key: str, target: BinaryIO, *, etag: str | None = None) -> int:
+        """Stream an allowed object into a caller-owned binary target."""
+        safe = self.require_allowed(key)
+        request: dict[str, Any] = {"Bucket": self.settings.bucket, "Key": safe}
+        if etag:
+            request["IfMatch"] = etag
+        response = self.client.get_object(**request)
+        body = response["Body"]
+        written = 0
+        try:
+            while chunk := body.read(1024 * 1024):
+                target.write(chunk)
+                written += len(chunk)
+        finally:
+            close = getattr(body, "close", None)
+            if close:
+                close()
+        return written
+
+    @staticmethod
+    def _object(raw: dict[str, Any]) -> ObjectInfo:
+        modified = raw.get("LastModified")
+        if modified and modified.tzinfo is None:
+            modified = modified.replace(tzinfo=timezone.utc)
+        return ObjectInfo(
+            key=raw["Key"],
+            size=int(raw.get("Size", 0)),
+            etag=str(raw.get("ETag", "")).strip('"'),
+            modified_at=modified,
+            storage_class=raw.get("StorageClass"),
+        )

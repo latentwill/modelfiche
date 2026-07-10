@@ -1,0 +1,1018 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Image Lightbox</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --radius: 10px;
+      --topbar: 56px;
+      --inspector: 340px;
+      --inspector-collapsed: 44px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .object-title,
+    .button-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lightbox {
+      position: relative;
+      max-width: 1440px;
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .source-group,
+    .toolbar,
+    .stage-actions,
+    .thumb-strip,
+    .meta-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .source-pill {
+      width: 190px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--block);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .icon-block,
+    .activity-dot {
+      display: inline-block;
+      flex-shrink: 0;
+      border: 1px solid var(--line);
+      background: var(--block-2);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .breadcrumb {
+      min-width: 0;
+    }
+
+    .toolbar {
+      justify-content: center;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      padding: 0 10px;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .btn,
+    .icon-btn {
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      color: var(--ink);
+    }
+
+    .btn.primary,
+    .icon-btn.primary {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .icon-btn {
+      width: 32px;
+      padding: 0;
+      font-family: var(--mono);
+      font-size: 16px;
+    }
+
+    .fit-icon,
+    .fill-icon {
+      width: 16px;
+      height: 16px;
+      display: block;
+      position: relative;
+    }
+
+    .fit-icon {
+      border: 2px solid var(--ink);
+      border-radius: 2px;
+    }
+
+    .fit-icon::after {
+      content: "";
+      position: absolute;
+      inset: 3px;
+      background: var(--surface);
+    }
+
+    .fill-icon {
+      border: 2px solid var(--ink);
+      border-radius: 2px;
+      background: var(--ink);
+      box-shadow: inset 0 0 0 3px var(--surface);
+    }
+
+    .shell {
+      min-height: calc(100vh - 40px - var(--topbar));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--inspector);
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .stage {
+      min-width: 0;
+      padding: 22px;
+      background: var(--surface);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 16px;
+    }
+
+    .stage-header,
+    .viewport,
+    .filmstrip,
+    .inspector-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+      overflow: hidden;
+    }
+
+    .stage-header {
+      min-height: 72px;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .stage-title {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .stage-actions {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .viewport {
+      min-height: 520px;
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr) 54px;
+      align-items: stretch;
+      background: #efeff2;
+    }
+
+    .nav-zone {
+      border: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      font: 700 22px/1 var(--mono);
+      color: var(--ink);
+    }
+
+    .nav-zone.next {
+      border-right: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .image-stage {
+      min-width: 0;
+      padding: 22px;
+      display: grid;
+      gap: 10px;
+      place-items: center;
+    }
+
+    .image-placeholder {
+      width: min(100%, 760px);
+      aspect-ratio: 4 / 5;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .filmstrip {
+      padding: 12px;
+    }
+
+    .thumb-strip {
+      overflow: hidden;
+    }
+
+    .thumb {
+      width: 78px;
+      height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .thumb.active {
+      border-color: var(--ink);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        #f0f0f2;
+    }
+
+    .inspector {
+      position: relative;
+      border-left: 1px solid var(--ink);
+      background: #f4f4f6;
+      padding: 18px 14px;
+      min-width: 0;
+      transition: padding 180ms ease;
+    }
+
+    .inspector-collapse-toggle {
+      position: absolute;
+      top: 12px;
+      left: -13px;
+      z-index: 8;
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    body.inspector-collapsed .shell {
+      grid-template-columns: minmax(0, 1fr) var(--inspector-collapsed);
+    }
+
+    body.inspector-collapsed .inspector {
+      padding: 0;
+      overflow: hidden;
+      display: grid;
+      align-items: stretch;
+    }
+
+    body.inspector-collapsed .inspector > :not(.inspector-collapse-toggle) {
+      display: none;
+    }
+
+    body.inspector-collapsed .inspector::after {
+      content: "METADATA";
+      width: var(--inspector-collapsed);
+      min-height: 100%;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.14em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    body.inspector-collapsed .inspector-collapse-toggle {
+      left: 9px;
+      top: 12px;
+      background: var(--active);
+      border-color: var(--active);
+      color: var(--surface);
+    }
+
+    .inspector-card {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .meta-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .meta-row {
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 7px;
+    }
+
+    .exif-field {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .exif-field summary {
+      min-height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .exif-field summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .exif-field summary::after {
+      content: "+";
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .exif-field[open] summary::after {
+      content: "-";
+    }
+
+    .exif-list {
+      display: grid;
+      gap: 0;
+      padding: 0 10px 8px;
+    }
+
+    .exif-list .meta-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .caption-field {
+      width: 100%;
+      min-height: 150px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--page);
+      padding: 10px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .image-caption-field {
+      width: min(100%, 760px);
+      min-height: 72px;
+      font-style: italic;
+      text-align: center;
+      background: var(--surface);
+    }
+
+    .comment-field {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--page);
+      padding: 9px;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .rating-row,
+    .comment-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .image-rating-panel {
+      width: min(100%, 760px);
+      display: grid;
+      justify-items: center;
+      gap: 5px;
+    }
+
+    .image-rating-panel .rating-row {
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .image-rating-panel .star-button {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .star-button {
+      width: 34px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--muted);
+      font: 700 16px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .star-button.active {
+      background: var(--active);
+      border-color: var(--active);
+      color: var(--surface);
+    }
+
+    .comment-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .comment-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      padding: 9px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .comment-body {
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .comment-field::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    .activity-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .activity-item {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 9px;
+      padding: 9px;
+      align-items: center;
+    }
+
+    .activity-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 5px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--surface);
+    }
+
+    .activity-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .activity-bar {
+      height: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--block-2);
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .redline-stage {
+      top: 112px;
+      left: 320px;
+    }
+
+    .redline-inspector {
+      top: 120px;
+      right: 206px;
+    }
+
+    @media (max-width: 1100px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .inspector {
+        border-left: 0;
+        border-top: 1px solid var(--ink);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .inspector-collapse-toggle {
+        left: auto;
+        right: 12px;
+        top: -13px;
+      }
+
+      body.inspector-collapsed .shell {
+        grid-template-columns: 1fr;
+      }
+
+      body.inspector-collapsed .inspector {
+        min-height: var(--inspector-collapsed);
+      }
+
+      body.inspector-collapsed .inspector::after {
+        width: 100%;
+        min-height: var(--inspector-collapsed);
+        writing-mode: horizontal-tb;
+        transform: none;
+      }
+
+      body.inspector-collapsed .inspector-collapse-toggle {
+        right: 9px;
+        left: auto;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        padding: 0;
+      }
+
+      .lightbox {
+        min-height: 100vh;
+        border: 0;
+      }
+
+      .topbar,
+      .stage-header {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+
+      .viewport {
+        min-height: 420px;
+        grid-template-columns: 42px minmax(0, 1fr) 42px;
+      }
+
+      .inspector {
+        grid-template-columns: 1fr;
+      }
+
+      .redline {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .shell,
+      .inspector {
+        transition: none;
+      }
+    }
+
+    .collapsible-box {
+      position: relative;
+    }
+
+    .collapse-toggle {
+      position: absolute;
+      top: -13px;
+      right: 10px;
+      z-index: 6;
+      height: 22px;
+      min-width: 66px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      cursor: pointer;
+    }
+
+    .collapse-line {
+      display: none;
+    }
+
+    .collapsible-box.is-collapsed {
+      min-height: 42px !important;
+      max-height: 42px !important;
+      overflow: hidden !important;
+      padding: 10px 88px 10px 12px !important;
+      display: block !important;
+    }
+
+    .collapsible-box.is-collapsed > :not(.collapse-toggle):not(.collapse-line) {
+      display: none !important;
+    }
+
+    .collapsible-box.is-collapsed .collapse-line {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="lightbox" data-od-id="image-lightbox-screen">
+    <div class="redline redline-stage">01 - full image review</div>
+    <div class="redline redline-inspector">02 - image metadata</div>
+
+    <header class="topbar" data-od-id="lightbox-topbar">
+      <div class="source-group" data-od-id="lightbox-source-context">
+        <div class="source-pill">
+          <span class="logo-block"></span>
+          <span class="object-note">Image review</span>
+        </div>
+        <div class="breadcrumb">
+          <span class="object-note">Dataset / Gallery / IMG_1042</span>
+        </div>
+      </div>
+      <div class="toolbar" data-od-id="lightbox-toolbar">
+        <span class="object-note">Image review · inspect metadata</span>
+      </div>
+      <div class="actions" data-od-id="lightbox-topbar-actions">
+        <a class="btn" data-od-id="button-back-to-dataset" href="dataset.html">Dataset</a>
+        <a class="btn primary" data-od-id="button-close-lightbox" href="dataset.html">Close</a>
+      </div>
+    </header>
+
+    <div class="shell">
+      <main class="stage" data-od-id="lightbox-main-stage">
+        <section class="stage-header" data-od-id="lightbox-image-header">
+          <div class="stage-title">
+            <div class="object-title" style="font-size: 18px;">IMG_1042</div>
+            <div class="object-note">Source image · Dataset v6 · also available from Gallery</div>
+          </div>
+          <div class="stage-actions" data-od-id="lightbox-stage-actions">
+            <button class="icon-btn" data-od-id="button-fit-image" aria-label="Fit image"><span class="fit-icon" aria-hidden="true"></span></button>
+            <button class="icon-btn" data-od-id="button-fill-image" aria-label="Fill image"><span class="fill-icon" aria-hidden="true"></span></button>
+          </div>
+        </section>
+
+        <section class="viewport" data-od-id="lightbox-image-viewport">
+          <button class="nav-zone previous" data-od-id="button-previous-image" aria-label="Previous image">‹</button>
+          <div class="image-stage" data-od-id="lightbox-image-stage">
+            <div class="image-placeholder" data-od-id="lightbox-primary-image"></div>
+            <textarea class="caption-field image-caption-field" data-od-id="lightbox-caption-field" aria-label="Image caption">kzapata portrait in studio light, neutral background, forward gaze, dark jacket, sharp facial detail, medium crop, clean production lighting, dataset v6 inclusion approved.</textarea>
+            <div class="image-rating-panel" data-od-id="lightbox-image-rating-panel">
+              <div class="rating-row" data-od-id="lightbox-star-rating" aria-label="5 star rating">
+                <button class="star-button active" data-rating-value="1" data-od-id="button-rating-star-1" aria-label="Rate 1 star">★</button>
+                <button class="star-button active" data-rating-value="2" data-od-id="button-rating-star-2" aria-label="Rate 2 stars">★</button>
+                <button class="star-button active" data-rating-value="3" data-od-id="button-rating-star-3" aria-label="Rate 3 stars">★</button>
+                <button class="star-button active" data-rating-value="4" data-od-id="button-rating-star-4" aria-label="Rate 4 stars">★</button>
+                <button class="star-button" data-rating-value="5" data-od-id="button-rating-star-5" aria-label="Rate 5 stars">★</button>
+              </div>
+              <div class="object-note" id="rating-status">4 of 5 stars</div>
+            </div>
+          </div>
+          <button class="nav-zone next" data-od-id="button-next-image" aria-label="Next image">›</button>
+        </section>
+
+        <section class="filmstrip" data-od-id="lightbox-filmstrip">
+          <div class="thumb-strip">
+            <button class="thumb active" data-od-id="lightbox-thumb-1042" aria-label="IMG_1042"></button>
+            <button class="thumb" data-od-id="lightbox-thumb-1048" aria-label="IMG_1048"></button>
+            <button class="thumb" data-od-id="lightbox-thumb-1055" aria-label="IMG_1055"></button>
+            <button class="thumb" data-od-id="lightbox-thumb-1061" aria-label="IMG_1061"></button>
+            <button class="thumb" data-od-id="lightbox-thumb-1070" aria-label="IMG_1070"></button>
+            <button class="thumb" data-od-id="lightbox-thumb-1077" aria-label="IMG_1077"></button>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="lightbox-right-inspector">
+        <button class="inspector-collapse-toggle" id="right-inspector-toggle" data-od-id="button-collapse-lightbox-sidebar" type="button" aria-label="Collapse metadata sidebar" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="lightbox-image-metadata-card">
+          <div>
+            <div class="object-title">Image metadata</div>
+          </div>
+          <div class="meta-list">
+            <div class="meta-row"><span class="object-note">Project</span><span class="object-title">Zapata Portrait Set</span></div>
+            <div class="meta-row"><span class="object-note">Dataset</span><span class="object-title">v6</span></div>
+            <div class="meta-row"><span class="object-note">Filename</span><span class="object-title">IMG_1042</span></div>
+            <div class="meta-row" data-od-id="metadata-resolution"><span class="object-note">Resolution</span><span class="object-title">3024 x 4032</span></div>
+            <div class="meta-row" data-od-id="metadata-file-size"><span class="object-note">Size</span><span class="object-title">4.8 MB</span></div>
+            <div class="meta-row" data-od-id="metadata-file-type"><span class="object-note">Type</span><span class="object-title">JPEG</span></div>
+            <div class="meta-row" data-od-id="metadata-color-profile"><span class="object-note">Color</span><span class="object-title">sRGB</span></div>
+            <div class="meta-row" data-od-id="metadata-orientation"><span class="object-note">Orientation</span><span class="object-title">Portrait</span></div>
+            <div class="meta-row" data-od-id="metadata-captured"><span class="object-note">Captured</span><span class="object-title">Jul 3, 2026</span></div>
+            <div class="meta-row"><span class="object-note">Trigger words</span><span class="object-title">kzapata</span></div>
+            <div class="meta-row"><span class="object-note">Origin</span><span class="object-title">Dataset / Gallery</span></div>
+            <details class="exif-field" data-od-id="metadata-exif-details">
+              <summary><span class="object-title">EXIF</span><span class="object-note">Expandable field</span></summary>
+              <div class="exif-list" data-od-id="metadata-exif-list">
+                <div class="meta-row" data-od-id="metadata-exif-camera"><span class="object-note">Camera</span><span class="object-title">Canon R5</span></div>
+                <div class="meta-row" data-od-id="metadata-exif-lens"><span class="object-note">Lens</span><span class="object-title">85mm f/1.8</span></div>
+                <div class="meta-row" data-od-id="metadata-exif-focal"><span class="object-note">Focal length</span><span class="object-title">85mm</span></div>
+                <div class="meta-row" data-od-id="metadata-exif-aperture"><span class="object-note">Aperture</span><span class="object-title">f/2.8</span></div>
+                <div class="meta-row" data-od-id="metadata-exif-shutter"><span class="object-note">Shutter</span><span class="object-title">1/160</span></div>
+                <div class="meta-row" data-od-id="metadata-exif-iso"><span class="object-note">ISO</span><span class="object-title">400</span></div>
+                <div class="meta-row" data-od-id="metadata-exif-white-balance"><span class="object-note">White balance</span><span class="object-title">5600K</span></div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="lightbox-comments-card">
+          <div>
+            <div class="object-title">Image comments</div>
+          </div>
+          <div class="comment-list" id="comment-list" data-od-id="lightbox-comment-thread">
+            <div class="comment-item" data-od-id="lightbox-comment-identity">
+              <div class="object-title">M. Chen · reviewer</div>
+              <div class="comment-body">Keep. Strong identity match and clean lighting for the main caption set.</div>
+            </div>
+            <div class="comment-item" data-od-id="lightbox-comment-caption">
+              <div class="object-title">Dataset pass v3</div>
+              <div class="comment-body">Caption needs one wardrobe term before export.</div>
+            </div>
+          </div>
+          <textarea class="comment-field" id="comment-input" data-od-id="lightbox-comment-input" aria-label="Add image comment" placeholder="Add note about pose, lighting, caption accuracy, or dataset inclusion."></textarea>
+          <div class="comment-actions">
+            <button class="btn primary" id="add-comment-button" data-od-id="button-add-image-comment">Add comment</button>
+            <span class="object-note" id="comment-status">2 comments</span>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="lightbox-image-activity-feed">
+          <div>
+            <div class="object-title">Image activity feed</div>
+          </div>
+          <div class="activity-list">
+            <div class="activity-item" data-od-id="lightbox-activity-caption-edited">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Caption edited</span><span class="object-note">Dataset v6 caption pass</span><span class="activity-bar" style="width: 76%;"></span></span>
+            </div>
+            <div class="activity-item" data-od-id="lightbox-activity-added-to-gallery">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Added to Gallery</span><span class="object-note">Available in all-images surface</span><span class="activity-bar" style="width: 68%;"></span></span>
+            </div>
+            <div class="activity-item" data-od-id="lightbox-activity-reviewed">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Reviewed</span><span class="object-note">Image review check</span><span class="activity-bar" style="width: 84%;"></span></span>
+            </div>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("source") !== "gallery") return;
+
+      const back = document.querySelector("[data-od-id='button-back-to-dataset']");
+      const close = document.querySelector("[data-od-id='button-close-lightbox']");
+      const breadcrumb = document.querySelector("[data-od-id='lightbox-source-context'] .breadcrumb .object-note");
+      if (back) {
+        back.textContent = "Gallery";
+        back.href = "gallery.html";
+      }
+      if (close) close.href = "gallery.html";
+      if (breadcrumb) breadcrumb.textContent = "Gallery / Image review";
+    })();
+  </script>
+  <script>
+    (() => {
+      const toggle = document.getElementById("right-inspector-toggle");
+      if (!toggle) return;
+
+      function syncInspectorState() {
+        const collapsed = document.body.classList.contains("inspector-collapsed");
+        toggle.textContent = collapsed ? "<" : ">";
+        toggle.setAttribute("aria-pressed", String(collapsed));
+        toggle.setAttribute("aria-label", collapsed ? "Expand metadata sidebar" : "Collapse metadata sidebar");
+      }
+
+      toggle.addEventListener("click", () => {
+        document.body.classList.toggle("inspector-collapsed");
+        syncInspectorState();
+      });
+
+      syncInspectorState();
+    })();
+  </script>
+  <script>
+    (() => {
+      const stars = Array.from(document.querySelectorAll("[data-rating-value]"));
+      const ratingStatus = document.getElementById("rating-status");
+      const commentInput = document.getElementById("comment-input");
+      const commentList = document.getElementById("comment-list");
+      const commentStatus = document.getElementById("comment-status");
+      const addCommentButton = document.getElementById("add-comment-button");
+      let commentCount = commentList.querySelectorAll(".comment-item").length;
+
+      function setRating(value) {
+        stars.forEach((star) => {
+          const active = Number(star.dataset.ratingValue) <= value;
+          star.classList.toggle("active", active);
+          star.setAttribute("aria-pressed", String(active));
+        });
+        ratingStatus.textContent = `${value} of 5 stars`;
+      }
+
+      stars.forEach((star) => {
+        star.setAttribute("aria-pressed", star.classList.contains("active") ? "true" : "false");
+        star.addEventListener("click", () => {
+          setRating(Number(star.dataset.ratingValue));
+        });
+      });
+
+      addCommentButton.addEventListener("click", () => {
+        const text = commentInput.value.trim();
+        if (!text) {
+          commentStatus.textContent = "Write a comment before adding.";
+          return;
+        }
+
+        commentCount += 1;
+        const item = document.createElement("div");
+        item.className = "comment-item";
+        item.setAttribute("data-od-id", `lightbox-comment-added-${commentCount}`);
+        item.innerHTML = `<div class="object-title">Current reviewer</div><div class="comment-body"></div>`;
+        item.querySelector(".comment-body").textContent = text;
+        commentList.prepend(item);
+        commentInput.value = "";
+        commentStatus.textContent = `${commentCount} comments`;
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      const boxSelector = [
+        ".stage-header",
+        ".viewport",
+        ".filmstrip",
+        ".inspector-card"
+      ].join(",");
+
+      document.querySelectorAll(boxSelector).forEach((box, index) => {
+        if (box.dataset.collapseReady === "true" || box.matches("a")) return;
+        const title = box.querySelector(".object-title")?.textContent?.trim();
+        const fallback = box.getAttribute("data-od-id") || `Box ${index + 1}`;
+        const labelText = title || fallback.replace(/-/g, " ");
+
+        const line = document.createElement("div");
+        line.className = "collapse-line object-title";
+        line.textContent = labelText;
+
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "collapse-toggle";
+        toggle.textContent = "Collapse";
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const collapsed = box.classList.toggle("is-collapsed");
+          toggle.textContent = collapsed ? "Expand" : "Collapse";
+          toggle.setAttribute("aria-expanded", String(!collapsed));
+        });
+
+        box.classList.add("collapsible-box");
+        box.prepend(line);
+        box.append(toggle);
+        box.dataset.collapseReady = "true";
+      });
+    })();
+  </script>
+</body>
+</html>

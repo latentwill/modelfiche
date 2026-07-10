@@ -1,0 +1,1423 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Grid Generator</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 320px;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --radius-xs: 7px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: clamp(220px, 22vw, var(--inspector));
+    }
+
+    body.sidebar-left-collapsed { --left-sidebar-width: 52px; }
+    body.sidebar-right-collapsed { --right-inspector-width: 52px; }
+
+    a { color: inherit; text-decoration: none; }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    select {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      width: min(100%, 1560px);
+      max-width: 1560px;
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .meta-row,
+    .panel-head,
+    .status-line,
+    .form-row,
+    .queue-row,
+    .chip-row {
+      display: flex;
+      align-items: center;
+    }
+
+    .workspace-group,
+    .actions,
+    .chip-row {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar,
+    .control,
+    .select,
+    .textarea {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .status-dot,
+    .image-placeholder {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: var(--radius-xs);
+    }
+
+    .crumbs {
+      min-width: 0;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      min-width: 0;
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: var(--radius-xs);
+      flex-shrink: 0;
+    }
+
+    .actions { justify-content: flex-end; }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .btn { padding: 0 12px; }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .icon-btn,
+    .avatar {
+      width: 32px;
+      padding: 0;
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open { display: grid; }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      background: transparent;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      border-color: var(--line);
+      background: var(--block);
+      outline: none;
+    }
+
+    .layout {
+      min-height: calc(100vh - 40px - var(--topbar));
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .inspector {
+      position: relative;
+      background: #f4f4f6;
+      min-width: 0;
+      transition: padding 180ms ease;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--ink);
+      padding: 18px 14px;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--ink);
+      padding: 18px 14px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      grid-auto-rows: max-content;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      display: flex;
+      margin-left: auto;
+      margin-bottom: 12px;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+      justify-self: start;
+      grid-column: 1 / -1;
+      margin-left: -29px;
+      box-shadow: 0 0 0 2px var(--surface);
+    }
+
+    body.sidebar-right-collapsed .inspector > .side-collapse-toggle {
+      justify-self: center;
+      margin-left: 0;
+      box-shadow: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      content: "";
+      position: absolute;
+      inset: 52px 0 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.14em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    body.sidebar-left-collapsed .sidebar::after { content: "NAVIGATION"; }
+    body.sidebar-right-collapsed .inspector::after { content: "METADATA"; }
+
+    .nav-section + .nav-section {
+      margin-top: 22px;
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 8px 8px;
+    }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px;
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+    }
+
+    .nav-item.active {
+      color: var(--ink);
+      background: var(--block);
+      border: 1px solid var(--line);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    .badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+    }
+
+    .nav-branch {
+      margin-left: 15px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-group-label {
+      margin: 7px 0 3px;
+      color: var(--muted);
+      font: 700 10px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .nav-child {
+      min-height: 28px;
+      font-size: 10px;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .storage {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 16px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 18px;
+      background: var(--surface);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .page-head,
+    .panel,
+    .inspector-card,
+    .eval-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+    }
+
+    .page-head {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .title-stack,
+    .panel,
+    .inspector-card,
+    .eval-card,
+    .control-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .page-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .panel,
+    .inspector-card,
+    .eval-card {
+      padding: 14px;
+    }
+
+    .panel-head {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .status-line,
+    .meta-row,
+    .queue-row,
+    .form-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .status-line,
+    .meta-row,
+    .queue-row,
+    .grid-row,
+    .prompt-file {
+      min-height: 34px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--block-2);
+    }
+
+    .status-dot.ready,
+    .status-dot.active {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .control-stack {
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .control,
+    .select {
+      width: 100%;
+      min-height: 34px;
+      padding: 0 9px;
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 10px;
+      resize: vertical;
+      color: var(--ink);
+      background: var(--surface);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .endpoint-fields[hidden] {
+      display: none;
+    }
+
+    .prompt-file {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .grid-maker {
+      display: grid;
+      gap: 8px;
+    }
+
+    .grid-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      align-items: center;
+    }
+
+    .grid-row.header {
+      background: var(--block);
+    }
+
+    .queue-list,
+    .eval-list,
+    .activity-list,
+    .meta-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .grid-preview-panel {
+      --grid-cell: 44px;
+    }
+
+    body.grid-expanded .grid-preview-panel {
+      grid-column: 1 / -1;
+    }
+
+    .grid-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .zoom-range {
+      width: 132px;
+      accent-color: var(--active);
+    }
+
+    .grid-scan-shell {
+      min-height: 260px;
+      max-height: 420px;
+      display: grid;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 10px;
+    }
+
+    body.grid-expanded .grid-scan-shell {
+      min-height: 520px;
+      max-height: 680px;
+    }
+
+    .grid-viewport {
+      min-width: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: #f1f1f3;
+      padding: 10px;
+    }
+
+    .scan-grid {
+      width: 100%;
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+
+    .axis-matrix {
+      grid-template-columns: 24px 42px repeat(8, minmax(0, 1fr));
+    }
+
+    .axis-corner,
+    .axis-label,
+    .column-label,
+    .row-label {
+      min-width: 0;
+      min-height: 22px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      background: var(--surface);
+      color: var(--muted);
+      font: 700 8px/1.1 var(--mono);
+      letter-spacing: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .axis-label {
+      color: var(--ink);
+      background: var(--block);
+    }
+
+    .axis-label.x {
+      grid-column: 3 / -1;
+    }
+
+    .axis-label.y {
+      grid-row: span 6;
+      padding: 6px 0;
+      text-align: center;
+      transform: rotate(180deg);
+      white-space: normal;
+      writing-mode: vertical-rl;
+    }
+
+    .column-label,
+    .row-label {
+      background: #eeeeef;
+    }
+
+    .scan-cell {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+      display: grid;
+      place-items: end start;
+      padding: 4px;
+      color: var(--muted);
+      font: 700 8px/1 var(--mono);
+    }
+
+    .scan-cell.active {
+      outline: 2px solid var(--ink);
+      outline-offset: 1px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        #eeeeef;
+    }
+
+    .image-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .image-placeholder {
+      min-height: 72px;
+      border-radius: var(--radius-sm);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .eval-card {
+      background: var(--surface);
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .redline-one {
+      top: 112px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    .redline-two {
+      top: 438px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .layout,
+      .sidebar,
+      .inspector {
+        transition: none;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) minmax(52px, var(--right-inspector-width));
+      }
+
+      .page-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body { padding: 0; }
+      .wireframe { min-height: 100vh; border-radius: 0; border: 0; }
+      .topbar,
+      .page-head {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar,
+      .inspector { display: none; }
+      .status-grid,
+      .field-grid,
+      .grid-row {
+        grid-template-columns: 1fr;
+      }
+      .grid-scan-shell {
+        grid-template-columns: 1fr;
+        max-height: none;
+      }
+      .redline { display: none; }
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="grid-generator-screen">
+    <div class="redline redline-one">01 - endpoint axes</div>
+    <div class="redline redline-two">02 - large grid scan</div>
+
+    <header class="topbar" data-od-id="grid-generator-topbar">
+      <div class="workspace-group" data-od-id="topbar-workspace-group">
+        <a class="workspace-switcher" href="index.html" data-od-id="workspace-switcher">
+          <span class="logo-block"></span>
+          <span class="object-title">Titles XYZ</span>
+        </a>
+        <div class="crumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set / Evals / Grid generator</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search grid presets, eval grids, model metadata</span>
+        <span class="keycap object-note">CMD K</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-project" href="project.html"><span class="object-title">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-dataset" href="dataset.html"><span class="object-title">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-model" href="models.html"><span class="object-title">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-eval" href="eval-generator.html"><span class="object-title">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-grid" href="grid-generator.html"><span class="object-title">+ GRID</span></a>
+          </div>
+        </div>
+        <span class="avatar" data-od-id="user-avatar"></span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span>v</span></a>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="grid-generator-main">
+        <section class="page-head" data-od-id="grid-generator-header">
+          <div class="title-stack">
+            <div class="object-title" style="font-size: 18px;">Grid generation</div>
+            <div class="object-note">Two-axis FAL grids, endpoint-derived settings, app-composed image cells</div>
+          </div>
+          <div class="actions">
+            <a class="btn" data-od-id="button-open-eval-generator" href="eval-generator.html">Eval generator</a>
+            <a class="btn" data-od-id="button-open-eval-viewer" href="eval-viewer.html">Eval viewer</a>
+            <button class="btn primary" id="generate-selected" data-od-id="button-generate-selected" type="button">Generate grid</button>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="fal-model-readiness-panel" style="margin-top: 14px;">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Model upload / status</div>
+              <div class="object-note">Automatic status from model metadata and stored FAL URL</div>
+            </div>
+          </div>
+          <div class="status-grid" data-od-id="fal-model-status-grid">
+            <label class="control-stack" data-od-id="field-selected-model">
+              <span class="object-title">Model</span>
+              <select class="select" id="model-select" aria-label="Select compatible model or training run">
+                <option value="zapata-ideogram-v4" data-compatible-endpoint="ideogram">zapata-v6 · Ideogram 4 checkpoints</option>
+                <option value="zapata-krea2-v2" data-compatible-endpoint="krea">zapata-krea2-v2 · Krea 2 checkpoints</option>
+                <option value="zapata-krea2-draft" data-compatible-endpoint="krea">zapata-krea2-draft · Krea 2 checkpoints</option>
+              </select>
+            </label>
+            <div class="status-line" data-od-id="fal-upload-status">
+              <span><span class="status-dot ready" id="fal-status-dot"></span> <span class="object-title">FAL status</span></span>
+              <span class="object-note" id="fal-status-label">Uploaded</span>
+            </div>
+            <div class="status-line" data-od-id="fal-model-handle">
+              <span class="object-title">LoRA path</span>
+              <span class="object-note" id="fal-handle">https://fal.media/loras/zapata-v6.safetensors</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="page-grid">
+          <section class="panel" data-od-id="endpoint-schema-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Endpoint</div>
+                <div class="object-note" id="endpoint-summary">Text-to-image with Ideogram V4.0q and checkpoint-specific LoRA paths</div>
+              </div>
+            </div>
+            <label class="control-stack" data-od-id="field-fal-endpoint">
+              <span class="object-title">FAL endpoint</span>
+              <select class="select" id="endpoint-select" aria-label="Select FAL endpoint">
+                <option value="ideogram">Ideogram 4 LoRA</option>
+                <option value="krea">Krea 2 Turbo LoRA</option>
+              </select>
+            </label>
+
+            <div class="endpoint-fields" data-endpoint-fields="ideogram" data-od-id="endpoint-fields-ideogram">
+              <div class="field-grid">
+                <label class="control-stack"><span class="object-title">Prompt expansion</span><select class="select" data-fal-field="expansion_model"><option>None</option><option selected>Medium</option><option>Large</option></select></label>
+                <label class="control-stack"><span class="object-title">Image size</span><select class="select" data-fal-field="image_size" data-image-size-select><option selected>square_hd</option><option>square</option><option>portrait_4_3</option><option>portrait_16_9</option><option>landscape_4_3</option><option>landscape_16_9</option><option value="custom">custom width / height</option></select></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom width</span><input class="control" data-fal-field="image_size.width" type="number" min="512" max="3840" step="16" value="1024" aria-label="Ideogram custom width"></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom height</span><input class="control" data-fal-field="image_size.height" type="number" min="512" max="3840" step="16" value="1024" aria-label="Ideogram custom height"></label>
+                <label class="control-stack"><span class="object-title">Rendering speed</span><select class="select" data-fal-field="rendering_speed"><option>TURBO</option><option selected>BALANCED</option><option>QUALITY</option></select></label>
+                <label class="control-stack"><span class="object-title">Acceleration</span><select class="select" data-fal-field="acceleration"><option selected>none</option><option>low</option><option>regular</option><option>high</option></select></label>
+                <label class="control-stack"><span class="object-title">Base LoRA scale</span><input class="control" data-fal-field="loras.0.scale" type="number" min="0" max="4" step="0.05" value="1" aria-label="Ideogram base LoRA scale"></label>
+                <label class="control-stack"><span class="object-title">Base seed</span><input class="control" data-fal-field="seed" type="number" placeholder="random" aria-label="Ideogram base seed"></label>
+                <label class="control-stack"><span class="object-title">Safety checker</span><select class="select" data-fal-field="enable_safety_checker"><option value="true" selected>enabled</option><option value="false">disabled</option></select></label>
+                <label class="control-stack"><span class="object-title">Output format</span><select class="select" data-fal-field="output_format"><option value="jpeg" selected>JPEG</option><option value="png">PNG</option></select></label>
+              </div>
+            </div>
+
+            <div class="endpoint-fields" data-endpoint-fields="krea" data-od-id="endpoint-fields-krea" hidden>
+              <div class="field-grid">
+                <label class="control-stack"><span class="object-title">Image size</span><select class="select" data-fal-field="image_size" data-image-size-select><option selected>square_hd</option><option>square</option><option>portrait_4_3</option><option>portrait_16_9</option><option>landscape_4_3</option><option>landscape_16_9</option><option value="custom">custom width / height</option></select></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom width</span><input class="control" data-fal-field="image_size.width" type="number" min="1" max="14142" value="1024" aria-label="Krea custom width"></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom height</span><input class="control" data-fal-field="image_size.height" type="number" min="1" max="14142" value="1024" aria-label="Krea custom height"></label>
+                <label class="control-stack"><span class="object-title">Acceleration</span><select class="select" data-fal-field="acceleration"><option selected>none</option><option>regular</option></select></label>
+                <label class="control-stack"><span class="object-title">Prompt expansion</span><select class="select" data-fal-field="enable_prompt_expansion"><option value="false" selected>disabled</option><option value="true">enabled</option></select></label>
+                <label class="control-stack"><span class="object-title">Base LoRA scale</span><input class="control" data-fal-field="loras.0.scale" type="number" min="0" max="4" step="0.05" value="1" aria-label="Krea base LoRA scale"></label>
+                <label class="control-stack"><span class="object-title">Base seed</span><input class="control" data-fal-field="seed" type="number" placeholder="random" aria-label="Krea base seed"></label>
+                <label class="control-stack"><span class="object-title">Safety checker</span><select class="select" data-fal-field="enable_safety_checker"><option value="true" selected>enabled</option><option value="false">disabled</option></select></label>
+                <label class="control-stack"><span class="object-title">Output format</span><select class="select" data-fal-field="output_format"><option value="png" selected>PNG</option><option value="jpeg">JPEG</option></select></label>
+              </div>
+            </div>
+
+            <div class="meta-list" data-od-id="endpoint-metadata-list">
+              <div class="meta-row"><span class="object-note">Endpoint ID</span><span class="object-title" id="endpoint-schema-id">ideogram/v4/lora</span></div>
+              <div class="meta-row"><span class="object-note">Prompt</span><span class="object-title">from selected prompt row</span></div>
+              <div class="meta-row"><span class="object-note">LoRA path</span><span class="object-title">from checkpoint selected per cell</span></div>
+              <div class="meta-row"><span class="object-note">Images per cell</span><span class="object-title">1</span></div>
+              <div class="meta-row"><span class="object-note">Sync mode</span><span class="object-title">false · preserve request history</span></div>
+            </div>
+          </section>
+
+          <section class="panel" data-od-id="grid-axis-builder-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Grid axes</div>
+                <div class="object-note">Two-axis matrix; available settings come from the selected FAL endpoint</div>
+              </div>
+            </div>
+            <div class="field-grid">
+              <label class="control-stack" data-od-id="field-grid-preset">
+                <span class="object-title">Grid preset</span>
+                <select class="select" id="grid-preset" aria-label="Grid preset">
+                  <option value="prompt_checkpoint">Prompt x Checkpoint step</option>
+                  <option value="checkpoint_lora_scale">Checkpoint step x LoRA scale</option>
+                  <option value="checkpoint_seed">Checkpoint step x Seed</option>
+                  <option value="prompt_model">Prompt x Model</option>
+                </select>
+              </label>
+              <label class="control-stack" data-od-id="field-grid-x-axis">
+                <span class="object-title">X axis</span>
+                <select class="select" id="grid-axis-x" aria-label="Grid x axis"></select>
+              </label>
+              <label class="control-stack" data-od-id="field-grid-y-axis">
+                <span class="object-title">Y axis</span>
+                <select class="select" id="grid-axis-y" aria-label="Grid y axis"></select>
+              </label>
+              <label class="control-stack" data-od-id="field-grid-prompt-source">
+                <span class="object-title">Prompt source</span>
+                <select class="select" aria-label="Prompt source"><option>identity-proof-v3.json</option><option>wardrobe-holdout.json</option></select>
+              </label>
+            </div>
+            <div class="meta-list" data-od-id="grid-axis-derived-settings">
+              <div class="meta-row"><span class="object-note">X values</span><span class="object-title" id="grid-x-values">front, three-quarter, profile</span></div>
+              <div class="meta-row"><span class="object-note">Y values</span><span class="object-title" id="grid-y-values">1000, 1500, 2000, 2500 checkpoints</span></div>
+            </div>
+          </section>
+
+          <section class="panel grid-preview-panel" data-od-id="eval-grid-preview-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Large grid scan</div>
+                <div class="object-note">Composed in app from small images; zoom and scan without generating one giant grid image</div>
+              </div>
+              <div class="grid-toolbar" data-od-id="eval-grid-toolbar">
+                <div class="zoom-controls" data-od-id="eval-grid-zoom-controls">
+                  <button class="icon-btn" id="grid-zoom-out" data-od-id="button-grid-zoom-out" type="button" aria-label="Zoom grid out">-</button>
+                  <input class="zoom-range" id="grid-zoom-range" data-od-id="input-grid-zoom" type="range" min="32" max="84" value="44" aria-label="Grid zoom">
+                  <button class="icon-btn" id="grid-zoom-in" data-od-id="button-grid-zoom-in" type="button" aria-label="Zoom grid in">+</button>
+                  <span class="object-note" id="grid-zoom-label">44px cells</span>
+                </div>
+                <button class="btn" id="expand-grid" data-od-id="button-expand-eval-grid" type="button" aria-pressed="false">Expand grid</button>
+                <a class="btn primary" data-od-id="button-open-grid-lightbox" href="grid-lightbox.html">Open lightbox</a>
+              </div>
+            </div>
+            <div class="grid-scan-shell" data-od-id="eval-grid-scan-shell">
+              <div class="grid-viewport" data-od-id="eval-grid-viewport" tabindex="0" aria-label="Scrollable eval grid preview">
+                <div class="scan-grid axis-matrix" data-od-id="eval-grid-composed-cells">
+                  <span class="axis-corner" aria-hidden="true"></span><span class="axis-corner" aria-hidden="true"></span><span class="axis-label x" id="grid-x-axis-label" data-od-id="grid-x-axis-label">X axis - Prompt</span>
+                  <span class="axis-corner" aria-hidden="true"></span><span class="axis-corner" aria-hidden="true"></span><span class="column-label" data-grid-column-label>front</span><span class="column-label" data-grid-column-label>three-quarter</span><span class="column-label" data-grid-column-label>profile</span><span class="column-label" data-grid-column-label>front</span><span class="column-label" data-grid-column-label>three-quarter</span><span class="column-label" data-grid-column-label>profile</span><span class="column-label" data-grid-column-label>front</span><span class="column-label" data-grid-column-label>three-quarter</span>
+                  <span class="axis-label y" id="grid-y-axis-label" data-od-id="grid-y-axis-label">Y axis - Steps</span><span class="row-label" data-grid-row-label>18</span>
+                  <span class="scan-cell active">A1</span><span class="scan-cell">A2</span><span class="scan-cell">A3</span><span class="scan-cell">A4</span><span class="scan-cell">A5</span><span class="scan-cell">A6</span><span class="scan-cell">A7</span><span class="scan-cell">A8</span>
+                  <span class="row-label" data-grid-row-label>24</span>
+                  <span class="scan-cell">B1</span><span class="scan-cell">B2</span><span class="scan-cell">B3</span><span class="scan-cell">B4</span><span class="scan-cell">B5</span><span class="scan-cell">B6</span><span class="scan-cell">B7</span><span class="scan-cell">B8</span>
+                  <span class="row-label" data-grid-row-label>32</span>
+                  <span class="scan-cell">C1</span><span class="scan-cell">C2</span><span class="scan-cell">C3</span><span class="scan-cell">C4</span><span class="scan-cell">C5</span><span class="scan-cell">C6</span><span class="scan-cell">C7</span><span class="scan-cell">C8</span>
+                  <span class="row-label" data-grid-row-label>40</span>
+                  <span class="scan-cell">D1</span><span class="scan-cell">D2</span><span class="scan-cell">D3</span><span class="scan-cell">D4</span><span class="scan-cell">D5</span><span class="scan-cell">D6</span><span class="scan-cell">D7</span><span class="scan-cell">D8</span>
+                  <span class="row-label" data-grid-row-label>18</span>
+                  <span class="scan-cell">E1</span><span class="scan-cell">E2</span><span class="scan-cell">E3</span><span class="scan-cell">E4</span><span class="scan-cell">E5</span><span class="scan-cell">E6</span><span class="scan-cell">E7</span><span class="scan-cell">E8</span>
+                  <span class="row-label" data-grid-row-label>24</span>
+                  <span class="scan-cell">F1</span><span class="scan-cell">F2</span><span class="scan-cell">F3</span><span class="scan-cell">F4</span><span class="scan-cell">F5</span><span class="scan-cell">F6</span><span class="scan-cell">F7</span><span class="scan-cell">F8</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" data-od-id="eval-output-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Saved grids</div>
+                <div class="object-note">Saved grid definitions sit under project Evals</div>
+              </div>
+              <a class="btn" data-od-id="button-open-eval-results" href="eval-viewer.html">Open results</a>
+            </div>
+            <div class="eval-list" data-od-id="saved-eval-list">
+              <article class="eval-card" data-od-id="saved-eval-grid-v1">
+                <div class="panel-head">
+                  <div>
+                    <div class="object-title">Grid - endpoint sweep v1</div>
+                    <div class="object-note">48 separate images · expandable</div>
+                  </div>
+                  <a class="btn" data-od-id="button-open-saved-grid-lightbox" href="grid-lightbox.html">Open grid</a>
+                </div>
+                <div class="image-strip"><span class="image-placeholder"></span><span class="image-placeholder"></span><span class="image-placeholder"></span><span class="image-placeholder"></span></div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <aside class="inspector" data-od-id="right-inspector">
+        <button class="side-collapse-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="eval-context-metadata">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Grid metadata</div>
+              <div class="object-note">Context changes with selected model, endpoint, or axis pair</div>
+            </div>
+          </div>
+          <div class="meta-list">
+            <div class="meta-row"><span class="object-note">Project</span><span class="object-title">Zapata Portrait Set</span></div>
+            <div class="meta-row"><span class="object-note">Model</span><span class="object-title" id="inspector-model">zapata-v6</span></div>
+            <div class="meta-row"><span class="object-note">FAL uploaded</span><span class="object-title" id="inspector-fal">yes</span></div>
+            <div class="meta-row"><span class="object-note">Endpoint</span><span class="object-title" id="inspector-endpoint">Ideogram 4</span></div>
+            <div class="meta-row"><span class="object-note">Grid type</span><span class="object-title" id="inspector-eval-type">Prompt x Checkpoint step</span></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="grid-generation-queue">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Generation queue</div>
+              <div class="object-note">Grid draft</div>
+            </div>
+            <a class="btn" data-od-id="button-open-grid-lightbox-inspector" href="grid-lightbox.html">Lightbox</a>
+          </div>
+          <div class="queue-list">
+            <div class="queue-row" data-od-id="queue-grid-object"><span class="object-note">Grid object</span><span class="object-title">endpoint sweep v1</span></div>
+            <div class="queue-row" data-od-id="queue-grid-axis"><span class="object-note">Axis preset</span><span class="object-title" id="queue-grid-axis-label">Prompt x Checkpoint step</span></div>
+            <div class="queue-row" data-od-id="queue-grid-estimate"><span class="object-note">Estimate</span><span class="object-title">48 images</span></div>
+            <div class="queue-row" data-od-id="queue-grid-state"><span class="object-note">Status</span><span class="object-title">ready</span></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="eval-activity-feed">
+          <div>
+            <div class="object-title">Activity feed</div>
+            <div class="object-note">Scoped to the selected grid draft</div>
+          </div>
+          <div class="activity-list" id="activity-list">
+            <div class="queue-row" data-od-id="activity-model-url"><span class="object-note">Model URL</span><span class="object-title">loaded</span></div>
+            <div class="queue-row" data-od-id="activity-grid-axis"><span class="object-note">Axis preset</span><span class="object-title">Prompt x Checkpoint step</span></div>
+            <div class="queue-row" data-od-id="activity-grid-saved"><span class="object-note">Grid draft</span><span class="object-title">2 rows</span></div>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const endpoints = {
+        ideogram: {
+          label: "Ideogram 4 LoRA",
+          id: "ideogram/v4/lora",
+          summary: "Text-to-image with Ideogram V4.0q and checkpoint-specific LoRA paths",
+          axes: ["Prompt", "Checkpoint step", "LoRA scale", "Seed", "Model", "Expansion model", "Image size", "Rendering speed", "Acceleration"]
+        },
+        krea: {
+          label: "Krea 2 Turbo LoRA",
+          id: "fal-ai/krea-2/turbo/lora",
+          summary: "Text-to-image with the distilled Krea 2 Turbo checkpoint and checkpoint-specific LoRA paths",
+          axes: ["Prompt", "Checkpoint step", "LoRA scale", "Seed", "Model", "Image size", "Acceleration", "Prompt expansion"]
+        }
+      };
+
+      const modelMeta = {
+        "zapata-ideogram-v4": { label: "zapata-v6", uploaded: true, handle: "https://fal.media/loras/zapata-v6.safetensors" },
+        "zapata-krea2-v2": { label: "zapata-krea2-v2", uploaded: true, handle: "https://fal.media/loras/zapata-krea2-v2.safetensors" },
+        "zapata-krea2-draft": { label: "zapata-krea2-draft", uploaded: false, handle: "not uploaded" }
+      };
+
+      const endpointSelect = document.getElementById("endpoint-select");
+      const endpointSummary = document.getElementById("endpoint-summary");
+      const endpointSchemaId = document.getElementById("endpoint-schema-id");
+      const inspectorEndpoint = document.getElementById("inspector-endpoint");
+      const modelSelect = document.getElementById("model-select");
+      const statusDot = document.getElementById("fal-status-dot");
+      const statusLabel = document.getElementById("fal-status-label");
+      const falHandle = document.getElementById("fal-handle");
+      const inspectorModel = document.getElementById("inspector-model");
+      const inspectorFal = document.getElementById("inspector-fal");
+      const activityList = document.getElementById("activity-list");
+      const gridPreset = document.getElementById("grid-preset");
+      const gridAxisX = document.getElementById("grid-axis-x");
+      const gridAxisY = document.getElementById("grid-axis-y");
+      const gridXValues = document.getElementById("grid-x-values");
+      const gridYValues = document.getElementById("grid-y-values");
+      const inspectorEvalType = document.getElementById("inspector-eval-type");
+      const queueGridAxisLabel = document.getElementById("queue-grid-axis-label");
+      const gridXAxisLabel = document.getElementById("grid-x-axis-label");
+      const gridYAxisLabel = document.getElementById("grid-y-axis-label");
+      const gridColumnLabels = Array.from(document.querySelectorAll("[data-grid-column-label]"));
+      const gridRowLabels = Array.from(document.querySelectorAll("[data-grid-row-label]"));
+      const gridPreview = document.querySelector("[data-od-id='eval-grid-preview-panel']");
+      const gridZoomRange = document.getElementById("grid-zoom-range");
+      const gridZoomLabel = document.getElementById("grid-zoom-label");
+      const selectedGridCell = document.getElementById("selected-grid-cell");
+      const expandGridButton = document.getElementById("expand-grid");
+
+      function addActivity(label, value) {
+        const row = document.createElement("div");
+        row.className = "queue-row";
+        row.innerHTML = `<span class="object-note"></span><span class="object-title"></span>`;
+        row.querySelector(".object-note").textContent = label;
+        row.querySelector(".object-title").textContent = value;
+        activityList.prepend(row);
+      }
+
+      function syncEndpoint() {
+        const data = endpoints[endpointSelect.value];
+        document.querySelectorAll("[data-endpoint-fields]").forEach((fields) => {
+          fields.hidden = fields.dataset.endpointFields !== endpointSelect.value;
+        });
+        endpointSummary.textContent = data.summary;
+        endpointSchemaId.textContent = data.id;
+        inspectorEndpoint.textContent = data.label;
+        Array.from(modelSelect.options).forEach((option) => {
+          const compatible = option.dataset.compatibleEndpoint === endpointSelect.value;
+          option.hidden = !compatible;
+          option.disabled = !compatible;
+        });
+        if (modelSelect.selectedOptions[0]?.disabled) {
+          const compatible = Array.from(modelSelect.options).find((option) => !option.disabled);
+          if (compatible) modelSelect.value = compatible.value;
+        }
+        syncModel();
+        syncAxisControls();
+      }
+
+      function syncModel() {
+        const data = modelMeta[modelSelect.value];
+        statusDot.classList.toggle("ready", data.uploaded);
+        statusLabel.textContent = data.uploaded ? "Uploaded" : "Needs upload";
+        falHandle.textContent = data.handle;
+        inspectorModel.textContent = data.label;
+        inspectorFal.textContent = data.uploaded ? "yes" : "no";
+      }
+
+      endpointSelect.addEventListener("change", () => {
+        syncEndpoint();
+        addActivity("Endpoint", endpoints[endpointSelect.value].label);
+      });
+
+      modelSelect.addEventListener("change", () => {
+        syncModel();
+        addActivity("Model selected", modelMeta[modelSelect.value].label);
+      });
+
+      document.querySelectorAll("[data-image-size-select]").forEach((select) => {
+        const syncCustomSize = () => {
+          select.closest("[data-endpoint-fields]").querySelectorAll("[data-custom-size-field]").forEach((field) => {
+            field.hidden = select.value !== "custom";
+          });
+        };
+        select.addEventListener("change", syncCustomSize);
+        syncCustomSize();
+      });
+
+      const commonPresets = {
+        prompt_checkpoint: { x: "Prompt", y: "Checkpoint step", xv: "front, three-quarter, profile", yv: "1000, 1500, 2000, 2500", label: "Prompt x Checkpoint step" },
+        checkpoint_lora_scale: { x: "Checkpoint step", y: "LoRA scale", xv: "1000, 1500, 2000, 2500", yv: "0.65, 0.80, 1.00, 1.20", label: "Checkpoint step x LoRA scale" },
+        checkpoint_seed: { x: "Checkpoint step", y: "Seed", xv: "1000, 1500, 2000, 2500", yv: "117, 2201, 4044, 9008", label: "Checkpoint step x Seed" },
+        prompt_model: { x: "Prompt", y: "Model", xv: "front, holdout, profile", yv: "candidate v6, approved v5, draft", label: "Prompt x Model" }
+      };
+
+      const endpointPresets = {
+        ideogram: {
+          expansion_rendering: { x: "Expansion model", y: "Rendering speed", xv: "None, Medium, Large", yv: "TURBO, BALANCED, QUALITY", label: "Expansion model x Rendering speed" },
+          image_lora_scale: { x: "Image size", y: "LoRA scale", xv: "square_hd, portrait_4_3, landscape_4_3", yv: "0.65, 0.80, 1.00, 1.20", label: "Image size x LoRA scale" }
+        },
+        krea: {
+          image_lora_scale: { x: "Image size", y: "LoRA scale", xv: "square_hd, portrait_4_3, landscape_4_3", yv: "0.65, 0.80, 1.00, 1.20", label: "Image size x LoRA scale" },
+          acceleration_expansion: { x: "Acceleration", y: "Prompt expansion", xv: "none, regular", yv: "disabled, enabled", label: "Acceleration x Prompt expansion" }
+        }
+      };
+
+      function availablePresets() {
+        return { ...commonPresets, ...endpointPresets[endpointSelect.value] };
+      }
+
+      function syncAxisControls() {
+        const previousPreset = gridPreset.value;
+        const presets = availablePresets();
+        gridPreset.replaceChildren(...Object.entries(presets).map(([value, preset]) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = preset.label;
+          return option;
+        }));
+        gridPreset.value = presets[previousPreset] ? previousPreset : "prompt_checkpoint";
+        [gridAxisX, gridAxisY].forEach((select) => {
+          select.replaceChildren(...endpoints[endpointSelect.value].axes.map((axis) => {
+            const option = document.createElement("option");
+            option.value = axis;
+            option.textContent = axis;
+            return option;
+          }));
+        });
+        syncAxisPreset();
+      }
+
+      function syncAxisPreset() {
+        const presets = availablePresets();
+        const data = presets[gridPreset.value];
+        gridAxisX.value = data.x;
+        gridAxisY.value = data.y;
+        gridXValues.textContent = data.xv;
+        gridYValues.textContent = data.yv;
+        inspectorEvalType.textContent = data.label;
+        if (queueGridAxisLabel) queueGridAxisLabel.textContent = data.label;
+        if (gridXAxisLabel) gridXAxisLabel.textContent = `X axis - ${data.x}`;
+        if (gridYAxisLabel) gridYAxisLabel.textContent = `Y axis - ${data.y}`;
+        fillAxisLabels(gridColumnLabels, data.xv);
+        fillAxisLabels(gridRowLabels, data.yv);
+      }
+
+      function fillAxisLabels(nodes, values) {
+        const labels = values.split(",").map((value) => value.trim()).filter(Boolean);
+        nodes.forEach((node, index) => {
+          node.textContent = labels[index % labels.length] || "-";
+        });
+      }
+
+      gridPreset.addEventListener("change", () => {
+        syncAxisPreset();
+        addActivity("Axis preset", inspectorEvalType.textContent);
+      });
+
+      function syncGridZoom() {
+        if (!gridPreview || !gridZoomRange || !gridZoomLabel) return;
+        const size = Number(gridZoomRange.value);
+        gridPreview.style.setProperty("--grid-cell", `${size}px`);
+        gridZoomLabel.textContent = `${size}px cells`;
+      }
+
+      document.getElementById("grid-zoom-out").addEventListener("click", () => {
+        gridZoomRange.value = Math.max(Number(gridZoomRange.min), Number(gridZoomRange.value) - 8);
+        syncGridZoom();
+        addActivity("Grid zoom", gridZoomLabel.textContent);
+      });
+
+      document.getElementById("grid-zoom-in").addEventListener("click", () => {
+        gridZoomRange.value = Math.min(Number(gridZoomRange.max), Number(gridZoomRange.value) + 8);
+        syncGridZoom();
+        addActivity("Grid zoom", gridZoomLabel.textContent);
+      });
+
+      gridZoomRange.addEventListener("input", syncGridZoom);
+
+      expandGridButton.addEventListener("click", () => {
+        const expanded = document.body.classList.toggle("grid-expanded");
+        expandGridButton.textContent = expanded ? "Collapse grid" : "Expand grid";
+        expandGridButton.setAttribute("aria-pressed", String(expanded));
+        addActivity("Grid canvas", expanded ? "expanded" : "collapsed");
+      });
+
+      document.querySelectorAll(".scan-cell").forEach((cell) => {
+        cell.addEventListener("click", () => {
+          document.querySelectorAll(".scan-cell").forEach((item) => {
+            item.classList.toggle("active", item === cell);
+          });
+          if (selectedGridCell) selectedGridCell.textContent = cell.textContent.trim();
+          addActivity("Grid cell", cell.textContent.trim());
+        });
+      });
+
+      document.getElementById("generate-selected").addEventListener("click", () => {
+        const canGenerate = modelMeta[modelSelect.value].uploaded;
+        addActivity("Generation", canGenerate ? "queued" : "blocked");
+        statusLabel.textContent = canGenerate ? statusLabel.textContent : "Upload required";
+      });
+
+      function bindSidebarToggle(id, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        const sync = () => {
+          const collapsed = document.body.classList.contains(className);
+          toggle.textContent = collapsed ? expandText : collapseText;
+          toggle.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+          toggle.setAttribute("aria-pressed", String(collapsed));
+        };
+        toggle.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      const closeAll = () => {
+        menus.forEach((wrap) => {
+          wrap.querySelector("[data-create-panel]").classList.remove("open");
+          wrap.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+        });
+      };
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = panel.classList.toggle("open");
+          trigger.setAttribute("aria-expanded", String(open));
+          menus.filter((item) => item !== wrap).forEach((item) => {
+            item.querySelector("[data-create-panel]").classList.remove("open");
+            item.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+          });
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      const requestedEndpoint = new URLSearchParams(window.location.search).get("endpoint");
+      if (requestedEndpoint && endpoints[requestedEndpoint]) endpointSelect.value = requestedEndpoint;
+      syncEndpoint();
+      syncModel();
+      syncAxisPreset();
+      syncGridZoom();
+    })();
+  </script>
+</body>
+</html>

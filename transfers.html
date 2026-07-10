@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Import / Export History</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 300px;
+      --radius: 12px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: var(--inspector);
+    }
+
+    body.sidebar-left-collapsed { --left-sidebar-width: 52px; }
+    body.sidebar-right-collapsed { --right-inspector-width: 52px; }
+
+    a { color: inherit; text-decoration: none; }
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+
+    .object-title,
+    .nav-text,
+    .table-label,
+    .field-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      width: min(100%, 1560px);
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .panel-head,
+    .meta-row,
+    .history-row,
+    .step-line,
+    .modal-actions {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .workspace-group,
+    .actions {
+      gap: 10px;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar,
+    .select,
+    .control {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .status-dot {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: 5px;
+    }
+
+    .crumbs {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: 5px;
+      flex-shrink: 0;
+    }
+
+    .actions {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--ink);
+    }
+
+    .btn { padding: 0 12px; }
+    .icon-btn, .avatar { width: 32px; padding: 0; }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open { display: grid; }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+      text-align: left;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      outline: none;
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .avatar {
+      border-radius: 50%;
+      background: var(--block);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      min-height: calc(100vh - 40px - var(--topbar));
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .main,
+    .inspector {
+      min-width: 0;
+    }
+
+    .sidebar {
+      position: relative;
+      border-right: 1px solid var(--ink);
+      background: #f2f2f4;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      transition: padding 180ms ease;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      align-self: flex-end;
+      margin-bottom: 12px;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      overflow: hidden;
+      padding: 12px 9px;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      position: absolute;
+      top: 112px;
+      left: 50%;
+      transform: translateX(-50%) rotate(-90deg);
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after { content: "NAVIGATION"; }
+    body.sidebar-right-collapsed .inspector::after { content: "METADATA"; }
+
+    .nav-section + .nav-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 12px 4px;
+      color: var(--muted);
+    }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) minmax(0, 26px);
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      margin-bottom: 6px;
+    }
+
+    .nav-item.active {
+      background: var(--active);
+      color: var(--surface);
+      border-color: var(--ink);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--surface);
+      border-color: var(--surface);
+    }
+
+    .project-tree { display: grid; gap: 4px; margin-bottom: 8px; }
+    .project-root { grid-template-columns: 18px minmax(0, 1fr) 18px; margin-bottom: 2px; }
+    .tree-caret { font: 700 11px/1 var(--mono); color: var(--muted); text-align: center; }
+    .nav-branch { display: grid; gap: 4px; margin: 0 0 8px 26px; padding-left: 10px; border-left: 1px solid var(--line); }
+    .nav-group-label { min-height: 18px; display: flex; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .nav-child { min-height: 28px; grid-template-columns: 14px minmax(0, 1fr) minmax(0, 24px); gap: 8px; margin-bottom: 0; }
+    .square { width: 14px; height: 14px; border-radius: 5px; }
+    .nav-child .square { width: 10px; height: 10px; }
+    .badge { width: 20px; height: 10px; border-radius: 999px; }
+    .nav-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+    .storage {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .meter {
+      height: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .meter span {
+      display: block;
+      width: 43%;
+      height: 100%;
+      background: var(--ink);
+    }
+
+    .main {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      background: var(--surface);
+      align-content: start;
+      grid-auto-rows: max-content;
+    }
+
+    .page-header,
+    .panel,
+    .inspector-card {
+      border: 1px solid var(--line);
+      background: #fbfbfc;
+      border-radius: var(--radius);
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    .page-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+    }
+
+    .page-title {
+      font: 700 18px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .panel-head {
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .history-table,
+    .status-list,
+    .modal-section {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tabs {
+      display: inline-flex;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .tab {
+      min-height: 24px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      padding: 0 8px;
+      font: 700 10px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .tab.active {
+      background: var(--active);
+      border-color: var(--ink);
+      color: var(--surface);
+    }
+
+    .history-table {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+      gap: 0;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: minmax(150px, 1.1fr) minmax(82px, 0.45fr) minmax(120px, 0.7fr) minmax(150px, 0.9fr) minmax(104px, 0.55fr) minmax(82px, 0.4fr);
+      gap: 10px;
+      min-height: 32px;
+      padding: 6px 9px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .history-row:last-child { border-bottom: 0; }
+    .history-row.header { background: var(--block); }
+
+    .meta-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 34px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .inspector {
+      position: relative;
+      border-left: 1px solid var(--ink);
+      background: #f4f4f6;
+      padding: 18px 14px;
+      display: grid;
+      grid-auto-rows: max-content;
+      align-content: start;
+      gap: 14px;
+      transition: padding 180ms ease;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      justify-self: end;
+      grid-column: 1 / -1;
+    }
+
+    dialog {
+      width: min(92vw, 560px);
+      max-height: 88vh;
+      padding: 0;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--ink);
+    }
+
+    dialog::backdrop {
+      background: rgba(28, 27, 26, 0.28);
+    }
+
+    .modal-shell {
+      display: grid;
+      gap: 0;
+    }
+
+    .modal-head,
+    .modal-section,
+    .modal-actions {
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-head {
+      display: grid;
+      gap: 5px;
+    }
+
+    .modal-section {
+      background: #fbfbfc;
+    }
+
+    .option-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .option-line {
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .drop-zone {
+      min-height: 120px;
+      display: grid;
+      place-items: center;
+      gap: 8px;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      background: var(--page);
+      text-align: center;
+    }
+
+    .progress {
+      height: 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .progress span {
+      display: block;
+      width: 74%;
+      height: 100%;
+      background: var(--ink);
+    }
+
+    .step-line {
+      justify-content: space-between;
+      min-height: 26px;
+      padding: 0 2px;
+    }
+
+    .modal-actions {
+      justify-content: flex-end;
+      gap: 8px;
+      border-bottom: 0;
+      background: var(--surface);
+    }
+
+    .hidden { display: none !important; }
+
+    .redline {
+      position: absolute;
+      z-index: 2;
+      color: var(--accent);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .redline.one { top: 78px; left: calc(var(--left-sidebar-width) + 46px); }
+    .redline.two { bottom: 20px; right: calc(var(--right-inspector-width) + 42px); }
+
+    @media (max-width: 1180px) {
+      body { --right-inspector-width: 280px; }
+      .history-row {
+        grid-template-columns: minmax(140px, 1fr) minmax(70px, 0.4fr) minmax(130px, 0.75fr) minmax(92px, 0.5fr);
+      }
+      .history-row > :nth-child(3),
+      .history-row > :nth-child(6) { display: none; }
+    }
+
+    @media (max-width: 900px) {
+      body { padding: 12px; }
+      .topbar, .shell { grid-template-columns: 1fr; }
+      .topbar { height: auto; min-height: var(--topbar); padding: 12px; }
+      .sidebar, .inspector { border: 0; border-bottom: 1px solid var(--ink); }
+      .main { padding: 14px; }
+      .page-header { grid-template-columns: 1fr; }
+      .redline { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="transfers-wireframe">
+    <div class="redline one">01 / transfers audit trail</div>
+    <div class="redline two">safe merge default</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="workspace-group" data-od-id="workspace-switcher-zone">
+        <div class="workspace-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Operations / Transfers</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search packages, logs, feedback...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></a>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+            </div>
+          </div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item active" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span class="badge"></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+          <div class="object-title">Storage</div>
+          <div class="meter"><span></span></div>
+          <div class="object-note">42.8 GB / 100 GB</div>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="transfers-main-content">
+        <section class="page-header" data-od-id="transfers-header">
+          <div>
+            <div class="page-title">Import / Export History</div>
+            <div class="object-note">Transfer packages between workspaces, teams, clients, and returned feedback without overwriting existing work.</div>
+          </div>
+          <div class="actions" data-od-id="transfers-header-actions">
+            <button class="btn" type="button" data-open-modal="import" data-od-id="button-header-import">Import</button>
+            <button class="btn primary" type="button" data-open-modal="export" data-od-id="button-header-export">Export</button>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="transfer-history-panel">
+          <div class="panel-head">
+            <div class="tabs" role="tablist" aria-label="Transfer activity filters">
+              <button class="tab active" type="button" data-transfer-filter="all" data-od-id="filter-all-transfers">All</button>
+              <button class="tab" type="button" data-transfer-filter="export" data-od-id="filter-export-transfers">Exports</button>
+              <button class="tab" type="button" data-transfer-filter="import" data-od-id="filter-import-transfers">Imports</button>
+            </div>
+            <span class="object-note">Activity feed for packages created, shared, and imported.</span>
+          </div>
+          <div class="history-table" data-od-id="transfer-activity-table">
+            <div class="history-row header">
+              <span class="table-label">Name</span>
+              <span class="table-label">Type</span>
+              <span class="table-label">Project</span>
+              <span class="table-label">Model</span>
+              <span class="table-label">Date</span>
+              <span class="table-label">Size</span>
+            </div>
+            <div class="history-row" data-transfer-kind="export" data-od-id="activity-export-pixel-v3">
+              <span class="object-title">Pixel v3 Team</span>
+              <span class="object-note">Export</span>
+              <span class="object-note">Titles XYZ</span>
+              <span class="object-title">zapata-v6.safetensors</span>
+              <span class="object-note">Jul 9, 2026</span>
+              <span class="object-title">220 MB</span>
+            </div>
+            <div class="history-row" data-transfer-kind="import" data-od-id="activity-import-maya-feedback">
+              <span class="object-title">Maya Feedback</span>
+              <span class="object-note">DAM package</span>
+              <span class="object-note">Titles XYZ</span>
+              <span class="object-title">zapata-v6.safetensors</span>
+              <span class="object-note">Jul 9, 2026</span>
+              <span class="object-title">1.2 MB</span>
+            </div>
+            <div class="history-row" data-transfer-kind="export" data-od-id="activity-export-client-review">
+              <span class="object-title">Client Review</span>
+              <span class="object-note">Export</span>
+              <span class="object-note">Titles XYZ</span>
+              <span class="object-title">zapata-v6.safetensors</span>
+              <span class="object-note">Jul 8, 2026</span>
+              <span class="object-title">180 MB</span>
+            </div>
+            <div class="history-row" data-transfer-kind="import" data-od-id="activity-import-ai-toolkit-run">
+              <span class="object-title">AI Toolkit run_019</span>
+              <span class="object-note">Run import</span>
+              <span class="object-note">Zapata Portrait Set</span>
+              <span class="object-title">zapata-v6.safetensors</span>
+              <span class="object-note">Jul 8, 2026</span>
+              <span class="object-title">2.8 GB</span>
+            </div>
+            <div class="history-row" data-transfer-kind="export" data-od-id="activity-export-run019">
+              <span class="object-title">Run 019 Review</span>
+              <span class="object-note">Export</span>
+              <span class="object-note">Zapata Portrait Set</span>
+              <span class="object-title">zapata-v6.safetensors</span>
+              <span class="object-note">Jul 7, 2026</span>
+              <span class="object-title">1.4 GB</span>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="right-context-panel">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+      </aside>
+    </div>
+  </div>
+
+  <dialog id="export-dialog" data-od-id="export-dialog">
+    <form method="dialog" class="modal-shell">
+      <div class="modal-head">
+        <div class="page-title">Export</div>
+        <div class="object-note">Package selected work for sharing or review.</div>
+      </div>
+      <div class="modal-section" data-export-state="form">
+        <div class="object-title">1. Export from</div>
+        <div class="option-list">
+          <label class="option-line"><input type="radio" name="export-source" checked> Current page</label>
+          <label class="option-line"><input type="radio" name="export-source"> Selected objects</label>
+          <label class="option-line"><input type="radio" name="export-source"> Training run</label>
+          <label class="option-line"><input type="radio" name="export-source"> Eval gallery</label>
+          <label class="option-line"><input type="radio" name="export-source"> Feedback only</label>
+          <select class="select" aria-label="Choose object"><option>Run 019 / Zapata v6</option><option>Identity proof v2</option><option>Dataset v6</option></select>
+        </div>
+      </div>
+      <div class="modal-section" data-export-state="form">
+        <div class="object-title">2. Include</div>
+        <div class="option-list">
+          <label class="option-line"><input type="checkbox" checked> Eval images / sample images</label>
+          <label class="option-line"><input type="checkbox" checked> Comments</label>
+          <label class="option-line"><input type="checkbox" checked> Ratings</label>
+          <label class="option-line"><input type="checkbox" checked> User-added metadata</label>
+          <label class="option-line"><input type="checkbox"> Dataset</label>
+          <label class="option-line"><input type="checkbox"> Captions</label>
+          <label class="option-line"><input type="checkbox"> Model file</label>
+          <label class="option-line"><input type="checkbox"> Training logs/config</label>
+          <label class="option-line"><input type="checkbox"> Internal notes</label>
+        </div>
+      </div>
+      <div class="modal-section" data-export-state="form">
+        <div class="object-title">3. File size mode</div>
+        <label class="option-line"><input type="radio" name="size-mode"> Metadata only</label>
+        <label class="option-line"><input type="radio" name="size-mode" checked> Review images + metadata</label>
+        <label class="option-line"><input type="radio" name="size-mode"> Full files + metadata</label>
+      </div>
+      <div class="modal-section" data-export-state="form">
+        <div class="object-title">4. Recipient mode</div>
+        <label class="option-line"><input type="radio" name="recipient"> Internal teammate</label>
+        <label class="option-line"><input type="radio" name="recipient" checked> Client/reviewer</label>
+        <label class="option-line"><input type="radio" name="recipient"> Archive/backup</label>
+      </div>
+      <div class="modal-section" data-export-state="form">
+        <div class="object-title">Summary</div>
+        <div class="meta-row"><span class="object-note">Objects</span><span class="object-title">1 training run / 1 eval / 48 images</span></div>
+        <div class="meta-row"><span class="object-note">Review data</span><span class="object-title">23 comments / 40 ratings</span></div>
+        <div class="meta-row"><span class="object-note">Estimated size</span><span class="object-title">220 MB</span></div>
+      </div>
+      <div class="modal-section hidden" data-export-state="progress">
+        <div class="object-title">Creating export...</div>
+        <div class="progress"><span></span></div>
+        <div class="step-line"><span class="object-note">Collecting objects</span><span class="object-title">Done</span></div>
+        <div class="step-line"><span class="object-note">Packaging metadata</span><span class="object-title">Done</span></div>
+        <div class="step-line"><span class="object-note">Adding images</span><span class="object-title">Running</span></div>
+        <div class="step-line"><span class="object-note">Writing manifest</span><span class="object-title">Queued</span></div>
+      </div>
+      <div class="modal-section hidden" data-export-state="success">
+        <div class="object-title">Export ready.</div>
+        <div class="meta-row"><span class="object-note">Package</span><span class="object-title">Pixel v3 Team.transfer</span></div>
+        <div class="modal-actions"><button class="btn">Download File</button><button class="btn">Copy Link</button><button class="btn primary">Open History</button></div>
+      </div>
+      <div class="modal-actions" data-export-state="form">
+        <button class="btn" type="button" data-close-modal>Cancel</button>
+        <button class="btn" type="button">Save Draft</button>
+        <button class="btn primary" type="button" data-create-export>Create Export</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="import-dialog" data-od-id="import-dialog">
+    <form method="dialog" class="modal-shell">
+      <div class="modal-head">
+        <div class="page-title">Import</div>
+        <div class="object-note">Import an AI Toolkit run folder or a Titles DAM package.</div>
+      </div>
+      <div class="modal-section" data-import-state="form">
+        <div class="drop-zone" data-od-id="import-drop-zone">
+          <span class="object-title">Drop file or folder here</span>
+          <button class="btn" type="button">Choose File</button>
+        </div>
+      </div>
+      <div class="modal-section" data-import-state="form">
+        <div class="object-title">Import type</div>
+        <label class="option-line"><input type="radio" name="import-type"> AI Toolkit run import</label>
+        <label class="option-line"><input type="radio" name="import-type" checked> Titles DAM package import</label>
+        <div class="meta-row"><span class="object-note">Preview</span><span class="object-title">Maya Feedback / 1.2 MB</span></div>
+        <div class="meta-row"><span class="object-note">Contains</span><span class="object-title">18 comments / 42 ratings / 12 approvals</span></div>
+      </div>
+      <div class="modal-section" data-import-state="form">
+        <div class="object-title">Import into</div>
+        <label class="option-line"><input type="radio" name="import-target" checked> Current project</label>
+        <label class="option-line"><input type="radio" name="import-target"> New project</label>
+        <label class="option-line"><input type="radio" name="import-target"> Feedback only</label>
+      </div>
+      <div class="modal-section" data-import-state="form">
+        <div class="object-title">Conflict handling</div>
+        <label class="option-line"><input type="radio" name="conflicts" checked> Safe import - never overwrite</label>
+        <label class="option-line"><input type="radio" name="conflicts"> Ask me about conflicts</label>
+        <label class="option-line"><input type="radio" name="conflicts"> Replace existing data, requires confirm</label>
+      </div>
+      <div class="modal-section" data-import-state="form">
+        <div class="object-title">Planned changes</div>
+        <div class="meta-row"><span class="object-note">Add</span><span class="object-title">18 new comments</span></div>
+        <div class="meta-row"><span class="object-note">Add</span><span class="object-title">42 new ratings</span></div>
+        <div class="meta-row"><span class="object-note">Add</span><span class="object-title">12 approval updates</span></div>
+        <div class="meta-row"><span class="object-note">Overwrites</span><span class="object-title">0</span></div>
+      </div>
+      <div class="modal-section hidden" data-import-state="success">
+        <div class="object-title">Import complete.</div>
+        <div class="meta-row"><span class="object-note">Added</span><span class="object-title">18 comments</span></div>
+        <div class="meta-row"><span class="object-note">Added</span><span class="object-title">42 ratings</span></div>
+        <div class="meta-row"><span class="object-note">Added</span><span class="object-title">12 approval updates</span></div>
+        <div class="modal-actions"><button class="btn">Open Feedback Inbox</button><button class="btn">Open Eval Gallery</button><button class="btn primary">View Import Log</button></div>
+      </div>
+      <div class="modal-actions" data-import-state="form">
+        <button class="btn" type="button" data-close-modal>Cancel</button>
+        <button class="btn primary" type="button" data-run-import>Import</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    (() => {
+      function bindSidebarToggle(id, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        const sync = () => {
+          const collapsed = document.body.classList.contains(className);
+          toggle.textContent = collapsed ? expandText : collapseText;
+          toggle.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+          toggle.setAttribute("aria-pressed", String(collapsed));
+        };
+        toggle.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      const closeAll = () => {
+        menus.forEach((wrap) => {
+          wrap.querySelector("[data-create-panel]")?.classList.remove("open");
+          wrap.querySelector("[data-create-trigger]")?.setAttribute("aria-expanded", "false");
+        });
+      };
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        trigger?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = !panel.classList.contains("open");
+          closeAll();
+          panel.classList.toggle("open", open);
+          trigger.setAttribute("aria-expanded", String(open));
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      document.querySelectorAll("[data-transfer-filter]").forEach((filterButton) => {
+        filterButton.addEventListener("click", () => {
+          const filter = filterButton.dataset.transferFilter;
+          document.querySelectorAll("[data-transfer-filter]").forEach((item) => item.classList.toggle("active", item === filterButton));
+          document.querySelectorAll("[data-transfer-kind]").forEach((row) => {
+            row.classList.toggle("hidden", filter !== "all" && row.dataset.transferKind !== filter);
+          });
+        });
+      });
+
+      const dialogs = {
+        import: document.getElementById("import-dialog"),
+        export: document.getElementById("export-dialog")
+      };
+
+      function resetModal(name) {
+        if (name === "export") {
+          document.querySelectorAll("[data-export-state='form']").forEach((item) => item.classList.remove("hidden"));
+          document.querySelectorAll("[data-export-state='progress'], [data-export-state='success']").forEach((item) => item.classList.add("hidden"));
+        }
+
+        if (name === "import") {
+          document.querySelectorAll("[data-import-state='form']").forEach((item) => item.classList.remove("hidden"));
+          document.querySelectorAll("[data-import-state='success']").forEach((item) => item.classList.add("hidden"));
+        }
+      }
+
+      document.querySelectorAll("[data-open-modal]").forEach((button) => {
+        button.addEventListener("click", () => {
+          resetModal(button.dataset.openModal);
+          dialogs[button.dataset.openModal]?.showModal();
+        });
+      });
+
+      document.querySelectorAll("[data-close-modal]").forEach((button) => {
+        button.addEventListener("click", () => {
+          button.closest("dialog")?.close();
+        });
+      });
+
+      document.querySelector("[data-create-export]")?.addEventListener("click", () => {
+        document.querySelectorAll("[data-export-state='form']").forEach((item) => item.classList.add("hidden"));
+        document.querySelectorAll("[data-export-state='progress']").forEach((item) => item.classList.remove("hidden"));
+        window.setTimeout(() => {
+          document.querySelectorAll("[data-export-state='progress']").forEach((item) => item.classList.add("hidden"));
+          document.querySelectorAll("[data-export-state='success']").forEach((item) => item.classList.remove("hidden"));
+        }, 700);
+      });
+
+      document.querySelector("[data-run-import]")?.addEventListener("click", () => {
+        document.querySelectorAll("[data-import-state='form']").forEach((item) => item.classList.add("hidden"));
+        document.querySelectorAll("[data-import-state='success']").forEach((item) => item.classList.remove("hidden"));
+      });
+    })();
+  </script>
+</body>
+</html>

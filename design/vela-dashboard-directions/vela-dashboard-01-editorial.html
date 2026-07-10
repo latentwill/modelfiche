@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Vela · Workspace Dashboard</title>
+  <style>
+    @font-face {
+      font-family: "Vela Display";
+      src: local("HelveticaNeue-CondensedBold"), local("Helvetica Neue Condensed Bold");
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+    }
+    :root {
+      --bg: oklch(98.8% 0.003 255);
+      --surface: oklch(100% 0 0);
+      --surface-soft: oklch(97.2% 0.008 255);
+      --fg: oklch(18% 0.025 255);
+      --muted: oklch(50% 0.025 255);
+      --border: oklch(91% 0.012 255);
+      --accent: oklch(52% 0.245 260);
+      --accent-soft: oklch(95% 0.035 265);
+      --font-display: "Vela Display", "Helvetica Neue", "Arial Narrow", sans-serif;
+      --font-body: "Avenir Next", "Helvetica Neue", Helvetica, sans-serif;
+      --font-serif: "Iowan Old Style", Charter, Georgia, serif;
+      --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { overflow-x: hidden; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font-body); -webkit-font-smoothing: antialiased; }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; text-decoration: none; }
+    h1, h2, h3, p { margin: 0; }
+    h1, h2, h3 { text-wrap: balance; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 252px minmax(0,1fr) 316px; transition: grid-template-columns .2s cubic-bezier(.16,1,.3,1); }
+    .shell.nav-off { grid-template-columns: 44px minmax(0,1fr) 316px; }
+    .shell.inspect-off { grid-template-columns: 252px minmax(0,1fr) 44px; }
+    .shell.nav-off.inspect-off { grid-template-columns: 44px minmax(0,1fr) 44px; }
+    .sidebar, .inspector { position: sticky; top: 0; height: 100vh; background: var(--surface); overflow: auto; }
+    .sidebar { border-right: 1px solid var(--border); padding: 20px 14px 16px; display: flex; flex-direction: column; }
+    .inspector { border-left: 1px solid var(--border); padding: 16px; }
+    .brand { display: flex; justify-content: space-between; align-items: center; min-height: 42px; padding: 0 8px 16px; }
+    .wordmark { font: 24px/1 var(--font-serif); letter-spacing: .08em; }
+    .wordmark small { font: 10px var(--font-mono); letter-spacing: 0; margin-left: 2px; }
+    .icon-btn { width: 32px; height: 32px; border: 1px solid transparent; border-radius: 50%; background: transparent; display: grid; place-items: center; }
+    .icon-btn:hover { background: var(--surface-soft); border-color: var(--border); }
+    nav { display: grid; gap: 4px; }
+    .nav-group { margin: 20px 9px 6px; font: 700 11px var(--font-display); letter-spacing: .01em; text-transform: uppercase; }
+    .nav-item { min-height: 40px; padding: 10px 11px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 600; }
+    .nav-item:hover { background: var(--surface-soft); }
+    .nav-item.active { color: var(--surface); background: var(--accent); }
+    .nav-icon { width: 18px; text-align: center; opacity: .8; font-family: var(--font-mono); font-size: 11px; }
+    .nav-text { flex: 1; }
+    .project-tree { margin: 4px 0 0 12px; padding-left: 14px; border-left: 1px solid var(--border); }
+    .project-tree .nav-item { font-size: 12px; font-weight: 500; }
+    .sidebar-bottom { margin-top: auto; }
+    .storage { margin-top: 12px; padding: 13px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+    .storage-bar { height: 5px; border-radius: 99px; background: var(--border); overflow: hidden; margin: 10px 0 7px; }
+    .storage-bar i { display: block; width: 42%; height: 100%; background: var(--accent); }
+    .meta { color: var(--muted); font: 11px/1.4 var(--font-mono); }
+    .vertical-label { display: none; width: 100%; min-height: 160px; writing-mode: vertical-rl; margin: 6px auto; padding: 12px; border: 0; background: transparent; color: var(--muted); font: 600 10px/1 var(--font-body); letter-spacing: .12em; }
+    .vertical-label:hover { color: var(--fg); }
+    .nav-off .sidebar { padding: 20px 0 16px; }
+    .inspect-off .inspector { padding: 16px 0; }
+    .nav-off .sidebar > :not(.vertical-label) { display: none; }
+    .nav-off .sidebar .vertical-label, .inspect-off .inspector .vertical-label { display: block; }
+    .inspect-off .inspector > :not(.vertical-label) { display: none; }
+    .workspace { min-width: 0; }
+    .topbar { height: 72px; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 14px; padding: 0 22px; border-bottom: 1px solid var(--border); background: color-mix(in oklch,var(--bg) 94%,transparent); backdrop-filter: blur(12px); }
+    .crumbs { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .crumbs strong { color: var(--fg); }
+    .search { margin-left: auto; width: min(390px,34vw); min-height: 42px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 13px; }
+    .create { min-height: 42px; padding: 10px 16px; border-radius: 8px; font-weight: 700; }
+    .create { min-width: 42px; border: 0; border-radius: 50%; padding: 0; background: var(--accent); color: var(--surface); font-size: 22px; }
+    .create-wrap { position: relative; }
+    .menu { position: absolute; right: 0; top: 49px; width: 170px; padding: 6px; display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 8px color-mix(in oklch,var(--fg) 11%,transparent); z-index: 30; }
+    .menu.open { display: grid; }
+    .menu button { border: 0; border-radius: 7px; background: transparent; padding: 9px; text-align: left; font: 700 11px var(--font-display); letter-spacing: .04em; }
+    .menu button:hover { background: var(--surface-soft); }
+    main { padding: 24px; }
+    .hero { min-height: 126px; display: grid; grid-template-columns: 1fr 160px; align-items: center; gap: 24px; padding: 24px 28px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+    .hero h1 { font: 700 28px/1.05 var(--font-display); letter-spacing: -.012em; text-transform: uppercase; }
+    .hero p { margin-top: 12px; color: var(--muted); }
+    .hero-art { height: 82px; position: relative; align-self: end; }
+    .hero-art i { position: absolute; right: 0; bottom: -24px; width: 150px; height: 86px; border-radius: 70% 8px 0 0; background: var(--accent-soft); transform: skewX(-18deg); }
+    .hero-art i:after { content: ""; position: absolute; right: 24px; top: -18px; width: 54px; height: 74px; background: color-mix(in oklch,var(--accent) 40%,var(--surface)); border-radius: 32px 8px 0 0; }
+    .section { margin-top: 20px; }
+    .panel { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 16px; }
+    .section-head { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+    .section-head h2 { font: 700 15px/1.05 var(--font-display); letter-spacing: 0; text-transform: uppercase; }
+    .link { border: 0; background: transparent; color: var(--accent); font-weight: 700; font-size: 12px; }
+    .project-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+    .project-card { position: relative; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; text-align: left; padding: 0; transition: transform .18s cubic-bezier(.16,1,.3,1), border-color .18s; }
+    .project-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+    .project-card.selected { border-color: var(--accent); }
+    .project-card.selected::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; border: 2px solid var(--accent); border-radius: inherit; }
+    .project-art { aspect-ratio: 16/10; position: relative; overflow: hidden; background: var(--surface-soft); }
+    .project-art:before, .project-art:after { content: ""; position: absolute; }
+    .art-portrait { background: color-mix(in oklch,var(--accent-soft) 76%,var(--surface-soft)); }
+    .art-portrait:before { width: 42%; height: 68%; left: 28%; top: 22%; border-radius: 50% 50% 32% 32%; background: color-mix(in oklch,var(--accent) 34%,var(--surface)); transform: rotate(-8deg); }
+    .art-portrait:after { width: 72%; height: 48%; left: -8%; top: 4%; background: color-mix(in oklch,var(--accent) 18%,var(--surface)); transform: rotate(-19deg); }
+    .art-arch { background: color-mix(in oklch,var(--accent) 30%,var(--surface)); }
+    .art-arch:before { width: 40%; height: 72%; left: 18%; top: 26%; border-radius: 90px 90px 0 0; background: var(--surface-soft); }
+    .art-arch:after { width: 54%; height: 12%; right: -4%; bottom: 14%; background: var(--accent); box-shadow: 0 -22px 0 color-mix(in oklch,var(--accent) 55%,var(--surface)); }
+    .art-product { background: color-mix(in oklch,var(--accent) 8%,var(--surface)); }
+    .art-product:before { width: 70px; height: 70px; left: calc(50% - 35px); top: calc(50% - 35px); border-radius: 50%; background: color-mix(in oklch,var(--accent) 72%,var(--fg)); box-shadow: 0 56px 0 -19px color-mix(in oklch,var(--accent) 38%,var(--surface)); }
+    .art-product:after { width: 64%; height: 8px; left: 18%; bottom: 20%; border-radius: 99px; background: color-mix(in oklch,var(--accent) 40%,var(--surface)); }
+    .card-body { padding: 13px; }
+    .card-body h3 { font: 700 14px var(--font-display); text-transform: uppercase; }
+    .card-summary { margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .card-data { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+    .data-cell { min-height: 38px; padding: 8px; border-radius: 6px; background: var(--surface-soft); display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+    .data-cell strong { color: var(--accent); }
+    .dashboard-grid { display: grid; grid-template-columns: minmax(260px,.9fr) minmax(360px,1.1fr); gap: 14px; }
+    .run-list { display: grid; gap: 8px; }
+    .run-row { min-height: 66px; display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+    .run-row:hover { border-color: var(--accent); }
+    .run-mark { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); position: relative; }
+    .run-mark:before { content: ""; position: absolute; inset: 7px; border: 2px dotted var(--accent); border-radius: 50%; }
+    .run-row h3 { font: 700 13px var(--font-display); }
+    .run-row p { color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .run-tag { display: inline-block; margin-left: 7px; padding: 3px 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font: 10px var(--font-mono); }
+    .run-time { text-align: right; color: var(--muted); font-size: 10px; }
+    .chart { min-height: 230px; display: flex; flex-direction: column; }
+    .chart-tabs { display: flex; justify-content: flex-end; gap: 6px; }
+    .chart-tabs button { border: 0; border-radius: 5px; background: transparent; padding: 5px 10px; color: var(--muted); font: 10px var(--font-mono); }
+    .chart-tabs button.active { color: var(--accent); background: var(--accent-soft); }
+    .chart svg { width: 100%; flex: 1; margin-top: 8px; overflow: visible; }
+    .chart-labels { display: flex; justify-content: space-between; padding-left: 18px; color: var(--muted); font: 9px var(--font-mono); }
+    .inspector-head { height: 48px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+    .inspector-head h2 { font: 700 14px var(--font-display); text-transform: uppercase; }
+    .context-card { margin-top: 14px; padding: 15px; border: 1px solid var(--border); border-radius: 10px; }
+    .context-title { display: flex; justify-content: space-between; gap: 12px; }
+    .context-title h3 { font: 700 14px var(--font-display); text-transform: uppercase; }
+    .context-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+    .stat { padding: 11px; border-radius: 7px; background: var(--surface-soft); display: flex; justify-content: space-between; }
+    .stat strong { color: var(--accent); }
+    .feed { margin-top: 12px; display: grid; gap: 8px; }
+    .feed-item { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+    .feed-thumb { aspect-ratio: 1; border-radius: 6px; background: var(--accent-soft); position: relative; overflow: hidden; }
+    .feed-thumb:after { content: ""; position: absolute; inset: 15%; border-radius: 50%; background: color-mix(in oklch,var(--accent) 42%,var(--surface)); }
+    .feed-item h3 { font: 700 11px var(--font-display); text-transform: uppercase; }
+    .feed-item p { margin-top: 5px; color: var(--muted); font-size: 10px; }
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 222px minmax(0,1fr); }
+      .inspector { display: none; }
+    }
+    @media (max-width: 860px) {
+      .project-grid { grid-template-columns: repeat(2,1fr); }
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .shell, .shell.nav-off { display: block; }
+      .sidebar, .nav-off .sidebar { position: static; height: auto; padding: 20px 14px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+      .nav-off .sidebar .brand { display: flex; }
+      .nav-off .sidebar .vertical-label { display: none; }
+      .sidebar nav, .sidebar-bottom { display: none; }
+      .brand { padding-bottom: 0; }
+      .topbar { height: 62px; padding: 0 12px; }
+      .crumbs, .search { display: none; }
+      .create-wrap { margin-left: auto; }
+      main { padding: 14px; }
+      .hero { grid-template-columns: 1fr; padding: 22px; }
+      .hero-art { display: none; }
+      .project-grid { grid-template-columns: 1fr; }
+      .section-head { align-items: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="shell" id="shell" data-od-id="vela-dashboard-shell">
+    <aside class="sidebar" id="dashboard-navigation" data-od-id="dashboard-navigation">
+      <div class="brand"><a class="wordmark" href="#">VELA</a><button type="button" class="icon-btn" data-toggle="nav" aria-label="Collapse navigation" aria-controls="dashboard-navigation" aria-expanded="true">←</button></div>
+      <nav aria-label="Primary navigation">
+        <a class="nav-item active" href="#"><span class="nav-icon">▦</span><span class="nav-text">Dashboard</span></a>
+        <a class="nav-item" href="#"><span class="nav-icon">▧</span><span class="nav-text">Gallery</span></a>
+        <div class="nav-group">Projects</div>
+        <a class="nav-item project-root" href="#"><span class="nav-icon">□</span><span class="nav-text">Zapata Portrait Set</span><span>⌄</span></a>
+        <div class="project-tree">
+          <div class="nav-group">Models</div><a class="nav-item" href="#">Zapata V6.safetensors</a><a class="nav-item" href="#">Zapata V5.safetensors</a>
+          <div class="nav-group">Datasets</div><a class="nav-item" href="#">Dataset V6</a><a class="nav-item" href="#">Dataset V5</a>
+          <div class="nav-group">Evals</div><a class="nav-item" href="#">Identity Proof</a><a class="nav-item" href="#">Wardrobe Holdout</a>
+        </div>
+        <a class="nav-item" href="#"><span class="nav-icon">□</span><span class="nav-text">Vcribb Editorial</span></a>
+        <a class="nav-item" href="#"><span class="nav-icon">□</span><span class="nav-text">Product Pack Concept</span></a>
+        <div class="nav-group">Operations</div><a class="nav-item" href="#"><span class="nav-icon">□</span><span class="nav-text">Transfers</span></a>
+      </nav>
+      <div class="sidebar-bottom"><a class="nav-item" href="#"><span class="nav-icon">⚙</span><span class="nav-text">Settings</span></a><div class="storage"><strong>Storage</strong><div class="storage-bar"><i></i></div><span class="meta">42.8 GB / 100 GB</span></div></div>
+      <button type="button" class="vertical-label" data-toggle="nav" aria-label="Expand navigation" aria-controls="dashboard-navigation" aria-expanded="false">NAVIGATION</button>
+    </aside>
+    <div class="workspace">
+      <header class="topbar" data-od-id="dashboard-topbar">
+        <div class="crumbs">Workspaces &nbsp;/&nbsp; <strong>Titles XYZ</strong> &nbsp;/&nbsp; Dashboard</div>
+        <input class="search" aria-label="Search projects, runs, and model files" placeholder="Search projects, runs, model files…">
+        <div class="create-wrap"><button class="create" id="createBtn" aria-label="Create new">+</button><div class="menu" id="createMenu"><button>+ PROJECT</button><button>+ DATASET</button><button>+ MODEL</button><button>+ EVAL</button><button>+ GRID</button><button>+ IMPORT</button></div></div>
+      </header>
+      <main data-od-id="dashboard-main">
+        <section class="hero" data-od-id="dashboard-overview"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and eval activity.</p></div><div class="hero-art"><i></i></div></section>
+        <section class="section panel" data-od-id="available-projects"><div class="section-head"><h2>Available projects</h2><button class="link">View all</button></div><div class="project-grid">
+          <button class="project-card selected" data-name="Zapata Portrait Set" data-status="Run 019 ready" data-models="12" data-datasets="6" data-evals="14" data-outputs="2.1k"><div class="project-art art-portrait"></div><div class="card-body"><h3>Zapata Portrait Set</h3><p class="card-summary">12 models · 38 runs · 4 evals</p><div class="card-data"><span class="data-cell">Latest run <strong>019</strong></span><span class="data-cell">Evals <strong>14</strong></span><span class="data-cell">Datasets <strong>6</strong></span><span class="data-cell">Outputs <strong>2.1k</strong></span></div></div></button>
+          <button class="project-card" data-name="Vcribb Editorial" data-status="Run 011 ready" data-models="7" data-datasets="4" data-evals="9" data-outputs="1.2k"><div class="project-art art-arch"></div><div class="card-body"><h3>Vcribb Editorial</h3><p class="card-summary">7 models · 21 runs · 2 evals</p><div class="card-data"><span class="data-cell">Latest run <strong>011</strong></span><span class="data-cell">Evals <strong>9</strong></span><span class="data-cell">Datasets <strong>4</strong></span><span class="data-cell">Outputs <strong>1.2k</strong></span></div></div></button>
+          <button class="project-card" data-name="Product Pack Concept" data-status="Run 008 ready" data-models="5" data-datasets="3" data-evals="6" data-outputs="890"><div class="project-art art-product"></div><div class="card-body"><h3>Product Pack Concept</h3><p class="card-summary">5 models · 16 runs · 3 evals</p><div class="card-data"><span class="data-cell">Latest run <strong>008</strong></span><span class="data-cell">Evals <strong>6</strong></span><span class="data-cell">Datasets <strong>3</strong></span><span class="data-cell">Outputs <strong>890</strong></span></div></div></button>
+        </div></section>
+        <section class="section dashboard-grid" data-od-id="workspace-operations"><div class="panel"><div class="section-head"><h2>Recent runs</h2><button class="link">View all</button></div><div class="run-list"><article class="run-row"><div class="run-mark"></div><div><h3>Run 019 <span class="run-tag">Model file</span></h3><p>Zapata Portrait Set</p></div><div class="run-time">May 20<br>2:41 PM</div></article><article class="run-row"><div class="run-mark"></div><div><h3>Run 011 <span class="run-tag">Eval batch</span></h3><p>Vcribb Editorial</p></div><div class="run-time">May 20<br>11:08 AM</div></article><article class="run-row"><div class="run-mark"></div><div><h3>Run 008 <span class="run-tag">Outputs</span></h3><p>Product Pack Concept</p></div><div class="run-time">May 19<br>6:32 PM</div></article></div></div>
+          <div class="panel chart"><div class="section-head"><h2>Workspace run volume</h2><div class="chart-tabs"><button class="active">7D</button><button>30D</button><button>90D</button></div></div><svg viewBox="0 0 560 190" role="img" aria-label="Workspace run volume over seven days"><g stroke="var(--border)" stroke-width="1"><line x1="36" y1="35" x2="548" y2="35"/><line x1="36" y1="80" x2="548" y2="80"/><line x1="36" y1="125" x2="548" y2="125"/><line x1="36" y1="170" x2="548" y2="170"/></g><g fill="var(--surface-soft)"><rect x="52" y="130" width="38" height="40"/><rect x="125" y="100" width="38" height="70"/><rect x="198" y="106" width="38" height="64"/><rect x="271" y="58" width="38" height="112"/><rect x="344" y="84" width="38" height="86"/><rect x="417" y="30" width="38" height="140"/><rect x="490" y="58" width="38" height="112"/></g><path d="M71 130 L144 100 L217 106 L290 58 L363 84 L436 30 L509 58" fill="none" stroke="var(--accent)" stroke-width="3"/><g fill="var(--accent)" stroke="var(--surface)" stroke-width="3"><circle cx="71" cy="130" r="5"/><circle cx="144" cy="100" r="5"/><circle cx="217" cy="106" r="5"/><circle cx="290" cy="58" r="5"/><circle cx="363" cy="84" r="5"/><circle cx="436" cy="30" r="5"/><circle cx="509" cy="58" r="5"/></g></svg><div class="chart-labels"><span>May 14</span><span>May 15</span><span>May 16</span><span>May 17</span><span>May 18</span><span>May 19</span><span>May 20</span></div></div></section>
+      </main>
+    </div>
+    <aside class="inspector" id="context-inspector" data-od-id="context-inspector"><div class="inspector-head"><h2>Metadata</h2><button type="button" class="icon-btn" data-toggle="inspect" aria-label="Collapse metadata" aria-controls="context-inspector" aria-expanded="true">→</button></div><div class="context-card"><div class="context-title"><div><h3 id="inspectName">Zapata Portrait Set</h3><p class="meta" id="inspectStatus">Run 019 ready</p></div><button class="link">Open</button></div><div class="context-stats"><span class="stat">Models <strong id="inspectModels">12</strong></span><span class="stat">Datasets <strong id="inspectDatasets">6</strong></span><span class="stat">Evals <strong id="inspectEvals">14</strong></span><span class="stat">Outputs <strong id="inspectOutputs">2.1k</strong></span></div></div><div class="context-card"><div class="section-head"><h2>Project activity</h2><button class="link">View all</button></div><div class="feed"><article class="feed-item"><div class="feed-thumb"></div><div><h3>Model file registered</h3><p>Zapata Portrait Set · Run 019<br>2:41 PM</p></div></article><article class="feed-item"><div class="feed-thumb"></div><div><h3>Eval batch completed</h3><p>Zapata Portrait Set · FAL output<br>11:08 AM</p></div></article><article class="feed-item"><div class="feed-thumb"></div><div><h3>Dataset version exported</h3><p>Zapata Portrait Set · AI Toolkit<br>Yesterday</p></div></article><article class="feed-item"><div class="feed-thumb"></div><div><h3>Sample set reviewed</h3><p>Zapata Portrait Set · Output 008<br>May 19</p></div></article></div></div><button type="button" class="vertical-label" data-toggle="inspect" aria-label="Expand metadata" aria-controls="context-inspector" aria-expanded="false">METADATA</button></aside>
+  </div>
+  <script>
+    const shell=document.querySelector('#shell');
+    document.querySelectorAll('[data-toggle]').forEach(button=>button.addEventListener('click',()=>{
+      const group=button.dataset.toggle;
+      const offClass=group==='nav'?'nav-off':'inspect-off';
+      shell.classList.toggle(offClass);
+      const expanded=!shell.classList.contains(offClass);
+      document.querySelectorAll(`[data-toggle="${group}"]`).forEach(control=>control.setAttribute('aria-expanded',String(expanded)));
+    }));
+    const createBtn=document.querySelector('#createBtn');
+    const createMenu=document.querySelector('#createMenu');
+    createBtn.addEventListener('click',()=>createMenu.classList.toggle('open'));
+    document.addEventListener('click',event=>{if(!event.target.closest('.create-wrap'))createMenu.classList.remove('open')});
+    document.querySelectorAll('.project-card').forEach(card=>card.addEventListener('click',()=>{
+      document.querySelectorAll('.project-card').forEach(item=>item.classList.remove('selected'));
+      card.classList.add('selected');
+      document.querySelector('#inspectName').textContent=card.dataset.name;
+      document.querySelector('#inspectStatus').textContent=card.dataset.status;
+      document.querySelector('#inspectModels').textContent=card.dataset.models;
+      document.querySelector('#inspectDatasets').textContent=card.dataset.datasets;
+      document.querySelector('#inspectEvals').textContent=card.dataset.evals;
+      document.querySelector('#inspectOutputs').textContent=card.dataset.outputs;
+    }));
+    document.querySelectorAll('.chart-tabs button').forEach(button=>button.addEventListener('click',()=>{
+      document.querySelectorAll('.chart-tabs button').forEach(item=>item.classList.remove('active'));
+      button.classList.add('active');
+    }));
+  </script>
+</body>
+</html>

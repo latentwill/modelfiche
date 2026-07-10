@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Eval Prompt Set Viewer</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --radius: 10px;
+      --topbar: 56px;
+      --timeline: 116px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .object-title,
+    .button-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .viewer {
+      position: relative;
+      height: calc(100vh - 40px);
+      max-width: 1640px;
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+      display: grid;
+      grid-template-rows: var(--topbar) var(--timeline) minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+      min-width: 0;
+    }
+
+    .source-group,
+    .toolbar,
+    .actions,
+    .chip-row,
+    .column-meta,
+    .comment-row,
+    .rating-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .source-pill {
+      width: 218px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--block);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .seed-box {
+      display: inline-block;
+      flex-shrink: 0;
+      border: 1px solid var(--line);
+      background: var(--block-2);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .breadcrumb {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      justify-content: center;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--block);
+      padding: 0 10px;
+    }
+
+
+    .btn,
+    .icon-btn {
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      color: var(--ink);
+    }
+
+    .icon-btn {
+      width: 32px;
+      padding: 0;
+      font-family: var(--mono);
+      font-size: 14px;
+    }
+
+    .timeline {
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+      padding: 12px 18px;
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .timeline-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .timeline-track {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+      gap: 10px;
+      overflow-x: hidden;
+      padding-bottom: 4px;
+      scrollbar-width: thin;
+    }
+
+    .chiplet {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--block);
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr) 22px;
+      align-items: center;
+      gap: 8px;
+      padding: 9px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .chiplet[aria-pressed="true"] {
+      border-color: var(--active);
+      background: var(--surface);
+      box-shadow: inset 0 0 0 2px var(--active);
+    }
+
+    .chiplet .square {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .chiplet[aria-pressed="false"] .square {
+      background: var(--block-2);
+      border-color: var(--line);
+    }
+
+    .chip-copy {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .chip-copy .object-title,
+    .chip-copy .object-note {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chip-remove {
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      display: grid;
+      place-items: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .workspace {
+      min-height: 0;
+      overflow: hidden;
+      padding: 16px 18px 18px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .selection-summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .summary-panel {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--block);
+      padding: 9px 10px;
+    }
+
+    .comparison-scroll {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding-bottom: 2px;
+    }
+
+    .comparison-grid {
+      --visible-columns: 4;
+      min-height: 100%;
+      display: grid;
+      grid-template-columns: repeat(var(--visible-columns), minmax(240px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .comparison-column {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .comparison-column.is-hidden {
+      display: none;
+    }
+
+    .column-head {
+      border-bottom: 1px solid var(--line);
+      background: var(--block);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .column-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .column-title .object-title {
+      white-space: normal;
+    }
+
+    .source-badge {
+      height: 22px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      padding: 4px 8px;
+      flex-shrink: 0;
+    }
+
+    .prompt-box {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 9px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .prompt-text {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .group-comment {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      display: grid;
+      gap: 7px;
+      background: #fafafa;
+    }
+
+    .comment-count {
+      margin-left: auto;
+    }
+
+    .image-list {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+      align-content: start;
+    }
+
+    .image-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+      display: grid;
+      gap: 0;
+    }
+
+    .image-frame {
+      aspect-ratio: 4 / 5;
+      min-height: 180px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) calc(50% - 1px), var(--line) calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) calc(50% - 1px), var(--line) calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--block);
+      position: relative;
+    }
+
+    .image-frame::after {
+      content: attr(data-frame-label);
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      height: 22px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      padding: 4px 8px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .image-open-link {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      min-height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .image-body {
+      display: grid;
+      gap: 8px;
+      padding: 9px;
+    }
+
+    .rating-row {
+      justify-content: space-between;
+    }
+
+    .star-group {
+      display: inline-flex;
+      gap: 2px;
+    }
+
+    .star-button {
+      width: 20px;
+      height: 20px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      padding: 0;
+    }
+
+    .star-button.active {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .redline.timeline-note {
+      top: 70px;
+      left: 22px;
+    }
+
+    .redline.grid-note {
+      right: 22px;
+      bottom: 18px;
+    }
+
+    @media (max-width: 1120px) {
+      body {
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+
+      .viewer {
+        height: auto;
+        min-height: calc(100vh - 40px);
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+        height: auto;
+        padding: 12px;
+      }
+
+      .comparison-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 10px;
+      }
+
+      .viewer {
+        height: auto;
+      }
+
+      .timeline-track {
+        grid-auto-columns: minmax(210px, 1fr);
+      }
+
+      .selection-summary {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .comparison-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="viewer" data-od-id="eval-viewer">
+    <div class="redline timeline-note">01 - prompt-set timeline</div>
+    <div class="redline grid-note">02 - up to 6 comparison columns</div>
+
+    <header class="topbar" data-od-id="viewer-topbar">
+      <div class="source-group" data-od-id="viewer-source-zone">
+        <a class="source-pill" href="models.html" data-od-id="viewer-back-to-models">
+          <span class="logo-block"></span>
+          <span class="object-title">Models</span>
+        </a>
+        <div class="breadcrumb object-note" data-od-id="viewer-breadcrumb">Zapata Portrait Set / zapata-v6.safetensors / Eval prompt sets</div>
+      </div>
+      <div class="toolbar" data-od-id="viewer-source-type" aria-label="Viewer source type">
+        <span class="object-title">Eval viewer</span>
+        <span class="object-note" data-od-id="viewer-source-note">Prompt sets only.</span>
+      </div>
+      <div class="actions" data-od-id="viewer-actions">
+        <a class="btn" href="models.html#model-eval-runs" data-od-id="button-return-to-models">Back to models</a>
+        <a class="btn" href="transfers.html" data-od-id="button-export-eval-viewer">Export</a>
+        <button class="icon-btn" type="button" data-od-id="button-close-viewer" aria-label="Close viewer">x</button>
+      </div>
+    </header>
+
+    <section class="timeline" data-od-id="viewer-timeline">
+      <div class="timeline-head" data-od-id="viewer-timeline-head">
+        <div>
+          <div class="object-title">Select prompt sets</div>
+          <div class="object-note">Deselect a prompt-set chiplet to remove its comparison column. Maximum 6 columns.</div>
+        </div>
+        <div class="chip-row" data-od-id="viewer-selection-counter">
+          <span class="object-note">Selected</span>
+          <span class="object-title" data-selected-count>3 / 6</span>
+        </div>
+      </div>
+      <div class="timeline-track" data-od-id="viewer-chiplet-track" role="list" aria-label="Viewer selector">
+        <button class="chiplet" type="button" aria-pressed="true" data-set-id="identity-proof-a" data-od-id="chiplet-identity-proof-a">
+                  <span class="square"></span>
+                  <span class="chip-copy"><span class="object-title">Prompt A</span><span class="object-note">Identity proof v2 - 3 seeds</span></span>
+                  <span class="chip-remove">x</span>
+                </button>
+        <button class="chiplet" type="button" aria-pressed="true" data-set-id="identity-proof-b" data-od-id="chiplet-identity-proof-b">
+                  <span class="square"></span>
+                  <span class="chip-copy"><span class="object-title">Prompt B</span><span class="object-note">Identity proof v2 - 2 seeds</span></span>
+                  <span class="chip-remove">x</span>
+                </button>
+        <button class="chiplet" type="button" aria-pressed="true" data-set-id="wardrobe-holdout" data-od-id="chiplet-wardrobe-holdout">
+                  <span class="square"></span>
+                  <span class="chip-copy"><span class="object-title">Prompt C</span><span class="object-note">Wardrobe holdout - 3 seeds</span></span>
+                  <span class="chip-remove">x</span>
+                </button>
+      </div>
+    </section>
+
+    <main class="workspace" data-od-id="viewer-comparison-workspace">
+      <div class="selection-summary" data-od-id="viewer-selection-summary">
+        <div class="summary-panel" data-od-id="viewer-summary-selection">
+          <span class="object-title">Active context</span>
+          <span class="object-note" data-active-context>Selected eval prompt sets</span>
+        </div>
+      </div>
+
+      <div class="comparison-scroll" data-od-id="viewer-comparison-scroll">
+        <section class="comparison-grid" data-od-id="viewer-comparison-grid">
+          <article class="comparison-column" data-column-id="identity-proof-a" data-od-id="column-identity-proof-a">
+                      <div class="column-head">
+                        <div class="column-title">
+                          <div>
+                            <div class="object-title">Prompt A - Identity proof v2</div>
+                            <div class="object-note">Eval 2026-07-09 A - zapata-v6.safetensors</div>
+                          </div>
+                          <span class="source-badge object-note">Eval</span>
+                        </div>
+                        <div class="prompt-box" data-od-id="prompt-identity-proof-a">
+                          <span class="object-note">Prompt</span>
+                          <span class="prompt-text">Portrait of kzapata in natural window light, neutral background, direct eye contact, editorial crop.</span>
+                        </div>
+                      </div>
+                      <div class="group-comment" data-od-id="group-comment-identity-proof-a">
+                        <div class="comment-row"><span class="object-title">Prompt-set comment</span><span class="object-note comment-count">2 comments</span></div>
+                        <div class="object-note">Face lock is strongest here; seed 2201 still drifts on jawline.</div>
+                      </div>
+                      <div class="image-list" data-od-id="image-list-identity-proof-a">
+                        <article class="image-card" data-od-id="image-identity-proof-a-seed-117">
+                          <div class="image-frame" data-frame-label="Seed 117"><a class="image-open-link" data-od-id="button-open-identity-proof-a-seed-117" href="image-lightbox.html?source=eval&image=identity-proof-a-seed-117" aria-label="Open Seed 117 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="4"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                        <article class="image-card" data-od-id="image-identity-proof-a-seed-2201">
+                          <div class="image-frame" data-frame-label="Seed 2201"><a class="image-open-link" data-od-id="button-open-identity-proof-a-seed-2201" href="image-lightbox.html?source=eval&image=identity-proof-a-seed-2201" aria-label="Open Seed 2201 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="3"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                        <article class="image-card" data-od-id="image-identity-proof-a-seed-4044">
+                          <div class="image-frame" data-frame-label="Seed 4044"><a class="image-open-link" data-od-id="button-open-identity-proof-a-seed-4044" href="image-lightbox.html?source=eval&image=identity-proof-a-seed-4044" aria-label="Open Seed 4044 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="4"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                      </div>
+                    </article>
+          <article class="comparison-column" data-column-id="identity-proof-b" data-od-id="column-identity-proof-b">
+                      <div class="column-head">
+                        <div class="column-title">
+                          <div>
+                            <div class="object-title">Prompt B - Identity proof v2</div>
+                            <div class="object-note">Eval 2026-07-09 A - zapata-v6.safetensors</div>
+                          </div>
+                          <span class="source-badge object-note">Eval</span>
+                        </div>
+                        <div class="prompt-box" data-od-id="prompt-identity-proof-b">
+                          <span class="object-note">Prompt</span>
+                          <span class="prompt-text">Kzapata three-quarter portrait, black crewneck, soft studio key light, plain grey sweep.</span>
+                        </div>
+                      </div>
+                      <div class="group-comment" data-od-id="group-comment-identity-proof-b">
+                        <div class="comment-row"><span class="object-title">Prompt-set comment</span><span class="object-note comment-count">1 comment</span></div>
+                        <div class="object-note">Stronger wardrobe consistency, weaker expression range.</div>
+                      </div>
+                      <div class="image-list" data-od-id="image-list-identity-proof-b">
+                        <article class="image-card" data-od-id="image-identity-proof-b-seed-300">
+                          <div class="image-frame" data-frame-label="Seed 300"><a class="image-open-link" data-od-id="button-open-identity-proof-b-seed-300" href="image-lightbox.html?source=eval&image=identity-proof-b-seed-300" aria-label="Open Seed 300 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="4"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                        <article class="image-card" data-od-id="image-identity-proof-b-seed-821">
+                          <div class="image-frame" data-frame-label="Seed 821"><a class="image-open-link" data-od-id="button-open-identity-proof-b-seed-821" href="image-lightbox.html?source=eval&image=identity-proof-b-seed-821" aria-label="Open Seed 821 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="3"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                      </div>
+                    </article>
+          <article class="comparison-column" data-column-id="wardrobe-holdout" data-od-id="column-wardrobe-holdout">
+                      <div class="column-head">
+                        <div class="column-title">
+                          <div>
+                            <div class="object-title">Prompt C - Wardrobe holdout</div>
+                            <div class="object-note">Eval 2026-07-08 B - holdout prompt set</div>
+                          </div>
+                          <span class="source-badge object-note">Eval</span>
+                        </div>
+                        <div class="prompt-box" data-od-id="prompt-wardrobe-holdout">
+                          <span class="object-note">Prompt</span>
+                          <span class="prompt-text">Kzapata in red jacket, outdoor sidewalk, overcast daylight, candid editorial frame.</span>
+                        </div>
+                      </div>
+                      <div class="group-comment" data-od-id="group-comment-wardrobe-holdout">
+                        <div class="comment-row"><span class="object-title">Prompt-set comment</span><span class="object-note comment-count">3 comments</span></div>
+                        <div class="object-note">Use this set to test wardrobe leakage and background robustness.</div>
+                      </div>
+                      <div class="image-list" data-od-id="image-list-wardrobe-holdout">
+                        <article class="image-card" data-od-id="image-wardrobe-holdout-seed-449">
+                          <div class="image-frame" data-frame-label="Seed 449"><a class="image-open-link" data-od-id="button-open-wardrobe-holdout-seed-449" href="image-lightbox.html?source=eval&image=wardrobe-holdout-seed-449" aria-label="Open Seed 449 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="3"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                        <article class="image-card" data-od-id="image-wardrobe-holdout-seed-552">
+                          <div class="image-frame" data-frame-label="Seed 552"><a class="image-open-link" data-od-id="button-open-wardrobe-holdout-seed-552" href="image-lightbox.html?source=eval&image=wardrobe-holdout-seed-552" aria-label="Open Seed 552 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="2"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button><button class="star-button" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                        <article class="image-card" data-od-id="image-wardrobe-holdout-seed-918">
+                          <div class="image-frame" data-frame-label="Seed 918"><a class="image-open-link" data-od-id="button-open-wardrobe-holdout-seed-918" href="image-lightbox.html?source=eval&image=wardrobe-holdout-seed-918" aria-label="Open Seed 918 full screen">Full screen</a></div>
+                          <div class="image-body">
+                            <div class="rating-row"><span class="object-title">Image rating</span><span class="star-group" data-rating="4"><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button active" type="button">*</button><button class="star-button" type="button">*</button></span></div>
+                          </div>
+                        </article>
+                      </div>
+                    </article>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const grid = document.querySelector("[data-od-id='viewer-comparison-grid']");
+      const selectedCount = document.querySelector("[data-selected-count]");
+      const activeContext = document.querySelector("[data-active-context]");
+      const chiplets = Array.from(document.querySelectorAll(".chiplet"));
+
+      function selectedChiplets() {
+        return chiplets.filter((chiplet) => chiplet.getAttribute("aria-pressed") === "true");
+      }
+
+      function syncColumns() {
+        const selected = selectedChiplets();
+        const ids = new Set(selected.map((chiplet) => chiplet.dataset.setId));
+        document.querySelectorAll("[data-column-id]").forEach((column) => {
+          column.classList.toggle("is-hidden", !ids.has(column.dataset.columnId));
+        });
+        grid.style.setProperty("--visible-columns", Math.min(4, Math.max(1, selected.length)));
+        selectedCount.textContent = `${selected.length} / 6`;
+        activeContext.textContent = selected.map((chiplet) => chiplet.querySelector(".object-title").textContent).join(" + ");
+        chiplets.forEach((chiplet) => {
+          const pressed = chiplet.getAttribute("aria-pressed") === "true";
+          chiplet.querySelector(".chip-remove").textContent = pressed ? "x" : "+";
+        });
+      }
+
+      chiplets.forEach((chiplet) => {
+        chiplet.addEventListener("click", () => {
+          const selected = selectedChiplets();
+          const pressed = chiplet.getAttribute("aria-pressed") === "true";
+          if (pressed && selected.length === 1) return;
+          if (!pressed && selected.length >= 6) return;
+          chiplet.setAttribute("aria-pressed", String(!pressed));
+          syncColumns();
+        });
+      });
+
+      document.querySelectorAll(".star-group").forEach((group) => {
+        const buttons = Array.from(group.querySelectorAll(".star-button"));
+        buttons.forEach((button, index) => {
+          button.addEventListener("click", () => {
+            buttons.forEach((item, itemIndex) => item.classList.toggle("active", itemIndex <= index));
+            group.dataset.rating = String(index + 1);
+          });
+        });
+      });
+
+      document.querySelector("[data-od-id='button-close-viewer']").addEventListener("click", () => {
+        window.location.href = 'models.html#model-eval-runs';
+      });
+
+      syncColumns();
+    })();
+  </script>
+</body>
+</html>

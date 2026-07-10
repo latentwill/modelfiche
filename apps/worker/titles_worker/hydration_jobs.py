@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from titles_api import models
+from titles_api.asset_cache import AssetCache
+from titles_api.integrations.config import S3Settings
+from titles_api.integrations.s3.browser import S3Browser
+
+from .runner import JobContext
+
+
+class CheckpointHydrationHandler:
+    def __init__(self, session_factory: sessionmaker[Session], cache: AssetCache):
+        self.session_factory = session_factory
+        self.cache = cache
+
+    def __call__(self, context: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
+        checkpoint_id = str(payload["checkpoint_id"])
+        with self.session_factory() as session:
+            checkpoint = session.get(models.Checkpoint, checkpoint_id)
+            if checkpoint is None:
+                raise LookupError("checkpoint not found")
+            asset = session.get(models.Asset, checkpoint.asset_id)
+            if asset is None:
+                raise LookupError("checkpoint asset not found")
+            existing = session.scalar(select(models.AssetLocation).where(
+                models.AssetLocation.asset_id == asset.id,
+                models.AssetLocation.provider == "local",
+                models.AssetLocation.hydration_state == "hydrated",
+            ))
+            if existing:
+                return {"checkpoint_id": checkpoint.id, "asset_id": asset.id, "path": existing.uri, "already_hydrated": True}
+            remote = session.scalar(select(models.AssetLocation).where(
+                models.AssetLocation.asset_id == asset.id,
+                models.AssetLocation.provider == "s3",
+                models.AssetLocation.hydration_state != "remote_missing",
+            ).order_by(models.AssetLocation.created_at.desc()))
+            if remote is None or not remote.bucket or not remote.object_key:
+                raise LookupError("checkpoint has no available S3 location")
+            source = next((item for item in session.scalars(select(models.ImportSource).where(
+                models.ImportSource.is_active.is_(True), models.ImportSource.bucket == remote.bucket
+            )) if any(remote.object_key.rstrip("/") == root.rstrip("/") or remote.object_key.startswith(root.rstrip("/") + "/") for root in item.allowed_prefixes)), None)
+            if source is None:
+                raise LookupError("no active import source permits the checkpoint object")
+            settings = S3Settings.for_source(
+                endpoint_url=source.endpoint_url,
+                bucket=source.bucket,
+                allowed_prefixes=tuple(source.allowed_prefixes),
+                region=source.region,
+                addressing_style=source.addressing_style,
+                credential_env_prefix=source.credential_env_prefix,
+            )
+            expected_size = remote.size
+            object_key = remote.object_key
+            expected_etag = remote.etag
+            expected_sha256 = asset.sha256
+        if context.cancellation_requested():
+            return {"checkpoint_id": checkpoint_id, "canceled": True}
+        browser = S3Browser.from_settings(settings)
+        browser.require_allowed(object_key)
+        if expected_size is None:
+            expected_size = int(browser.client.head_object(Bucket=settings.bucket, Key=object_key).get("ContentLength", 0))
+
+        def download(stream) -> None:
+            request = {"Bucket": settings.bucket, "Key": object_key}
+            if expected_etag:
+                request["IfMatch"] = expected_etag
+            response = browser.client.get_object(**request)
+            body = response["Body"]
+            while chunk := body.read(1024 * 1024):
+                if context.cancellation_requested():
+                    raise RuntimeError("checkpoint hydration canceled")
+                stream.write(chunk)
+
+        context.progress(0.1)
+        try:
+            entry = self.cache.hydrate(expected_size, download, expected_sha256=expected_sha256)
+        except RuntimeError:
+            if context.cancellation_requested():
+                return {"checkpoint_id": checkpoint_id, "canceled": True}
+            raise
+        context.progress(0.9)
+        with self.session_factory.begin() as session:
+            checkpoint = session.get(models.Checkpoint, checkpoint_id)
+            if checkpoint is None:
+                raise LookupError("checkpoint was removed during hydration")
+            asset = session.get(models.Asset, checkpoint.asset_id)
+            local = session.scalar(select(models.AssetLocation).where(
+                models.AssetLocation.asset_id == asset.id,
+                models.AssetLocation.provider == "local",
+                models.AssetLocation.uri == str(entry.path),
+            ))
+            if local is None:
+                session.add(models.AssetLocation(
+                    asset_id=asset.id, provider="local", uri=str(entry.path), size=entry.size,
+                    hydration_state="hydrated",
+                ))
+            else:
+                local.size = entry.size
+                local.hydration_state = "hydrated"
+            asset.sha256 = entry.sha256
+            checkpoint.state = "hydrated"
+        return {"checkpoint_id": checkpoint_id, "asset_id": asset.id, "path": str(entry.path), "size": entry.size, "sha256": entry.sha256}

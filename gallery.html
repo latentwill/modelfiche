@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Gallery</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 300px;
+      --radius: 10px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: clamp(220px, 20vw, var(--inspector));
+      --thumb-size: 126px;
+    }
+
+    body.sidebar-left-collapsed { --left-sidebar-width: 52px; }
+    body.sidebar-right-collapsed { --right-inspector-width: 52px; }
+
+    a { color: inherit; text-decoration: none; }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    select {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .field-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      width: min(100%, 1560px);
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .filter-bar,
+    .meta-row {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .workspace-group,
+    .actions {
+      gap: 10px;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar,
+    .control,
+    .select {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: 4px;
+    }
+
+    .crumbs {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .actions {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--ink);
+    }
+
+    .btn { padding: 0 12px; }
+    .icon-btn,
+    .avatar { width: 32px; padding: 0; }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open { display: grid; }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      border-color: var(--line);
+      background: var(--block);
+      outline: none;
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0.08em;
+    }
+
+    .layout {
+      min-height: calc(100vh - 40px - var(--topbar));
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .inspector {
+      position: relative;
+      min-width: 0;
+      background: #f4f4f6;
+      transition: padding 180ms ease;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--ink);
+      padding: 18px 14px;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--ink);
+      padding: 18px 14px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      grid-auto-rows: max-content;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      display: flex;
+      margin-left: auto;
+      margin-bottom: 12px;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+      justify-self: start;
+      grid-column: 1 / -1;
+      margin-left: 0;
+    }
+
+    body.sidebar-right-collapsed .inspector > .side-collapse-toggle {
+      justify-self: center;
+      margin-left: 0;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      content: "";
+      position: absolute;
+      inset: 52px 0 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.14em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    body.sidebar-left-collapsed .sidebar::after { content: "NAVIGATION"; }
+    body.sidebar-right-collapsed .inspector::after { content: "METADATA"; }
+
+    .nav-section + .nav-section { margin-top: 22px; }
+    .nav-section > .object-title { margin: 0 0 8px 8px; }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px;
+      border-radius: var(--radius);
+      color: var(--muted);
+    }
+
+    .nav-item.active {
+      color: var(--ink);
+      background: var(--block);
+      border: 1px solid var(--line);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    .badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+    }
+
+    .nav-branch {
+      margin-left: 15px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-group-label {
+      margin: 7px 0 3px;
+      color: var(--muted);
+      font: 700 10px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .nav-child {
+      min-height: 28px;
+      font-size: 10px;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .storage {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 16px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 18px;
+      background: var(--surface);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .page-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .title-stack {
+      display: grid;
+      gap: 5px;
+    }
+
+    .filter-bar {
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .size-control {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .size-control input {
+      width: 108px;
+      accent-color: var(--active);
+    }
+
+    .select,
+    .control {
+      min-height: 34px;
+      padding: 0 9px;
+      color: var(--ink);
+      background: var(--surface);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .gallery-search {
+      width: min(100%, 300px);
+    }
+
+    .thumb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size), 1fr));
+      gap: 8px;
+      align-items: start;
+    }
+
+    .thumb {
+      position: relative;
+      display: block;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), #b8b8bf 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), #b8b8bf 50%, transparent calc(50% + 1px)),
+        var(--block);
+      overflow: hidden;
+    }
+
+    .thumb::before {
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border: 1px solid rgba(28, 27, 26, 0.22);
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .thumb:hover,
+    .thumb:focus {
+      outline: 2px solid var(--ink);
+      outline-offset: 0;
+    }
+
+    .thumb[hidden] {
+      display: none;
+    }
+
+    .thumb[data-tone="dark"] { background-color: #c7c7cd; }
+    .thumb[data-tone="mid"] { background-color: #dedee2; }
+    .thumb[data-tone="light"] { background-color: #eeeeef; }
+
+    .inspector-card {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+    }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .meta-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 34px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .preview-thumb {
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), #b8b8bf 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), #b8b8bf 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .comment-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .comment-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      padding: 9px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .comment-body {
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .comment-field {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--page);
+      padding: 9px;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .comment-field::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    .comment-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .preview-thumb[data-tone="dark"] { background-color: #c7c7cd; }
+    .preview-thumb[data-tone="mid"] { background-color: #dedee2; }
+    .preview-thumb[data-tone="light"] { background-color: #eeeeef; }
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .redline-one {
+      top: 112px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .layout,
+      .sidebar {
+        transition: none;
+      }
+    }
+
+    @media (max-width: 960px) {
+      body { padding: 0; }
+      .wireframe { min-height: 100vh; border-radius: 0; border: 0; }
+      .topbar,
+      .page-head {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar,
+      .inspector {
+        display: none;
+      }
+      .filter-bar {
+        align-items: stretch;
+      }
+      .filter-bar > * {
+        flex: 1 1 150px;
+      }
+      .gallery-search {
+        width: 100%;
+      }
+      .redline { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="gallery-screen">
+    <div class="redline redline-one">01 - image-only gallery</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="workspace-group" data-od-id="workspace-switcher-zone">
+        <div class="workspace-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Gallery</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search assets, runs, model files...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item active" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span class="badge"></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></a>
+            <div class="nav-branch">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="gallery-main">
+        <section class="page-head" data-od-id="gallery-page-header">
+          <div class="title-stack">
+            <div class="object-title" style="font-size: 18px;">Gallery</div>
+            <div class="object-note">All workspace images across source assets, evals, grids, and training samples</div>
+          </div>
+        </section>
+
+        <section class="filter-bar" data-od-id="gallery-filter-bar" aria-label="Gallery filters">
+          <select class="select" id="filter-base" data-filter="base" data-od-id="filter-base-model" aria-label="Base model">
+            <option value="all">Base model: all</option>
+            <option value="sdxl">SDXL</option>
+            <option value="flux">Flux</option>
+            <option value="ideogram">Ideogram</option>
+          </select>
+          <select class="select" id="filter-project" data-filter="project" data-od-id="filter-project" aria-label="Project">
+            <option value="all">Project: all</option>
+            <option value="zapata">Zapata Portrait Set</option>
+            <option value="vcribb">vcribb editorial</option>
+            <option value="product-pack">Product pack concept</option>
+          </select>
+          <select class="select" id="filter-model" data-filter="model" data-od-id="filter-model" aria-label="Model">
+            <option value="all">Model: all</option>
+            <option value="zapata-v6">zapata-v6</option>
+            <option value="zapata-v5">zapata-v5</option>
+            <option value="none">No model</option>
+          </select>
+          <select class="select" id="filter-kind" data-filter="kind" data-od-id="filter-image-type" aria-label="Image type">
+            <option value="all">Type: all</option>
+            <option value="eval">Eval</option>
+            <option value="grid">Grid</option>
+            <option value="sample">Sample</option>
+            <option value="dataset">Dataset</option>
+          </select>
+          <input class="control gallery-search" id="gallery-search" data-od-id="gallery-search" type="search" placeholder="Search images..." aria-label="Search gallery images">
+          <label class="size-control" data-od-id="gallery-size-control">
+            <span class="object-title">Size</span>
+            <input id="thumb-size" type="range" min="92" max="220" step="8" value="126" aria-label="Gallery image size">
+            <span class="object-note" id="thumb-size-label">126px</span>
+          </label>
+        </section>
+
+        <section class="thumb-grid" id="thumb-grid" data-od-id="gallery-image-grid" aria-label="Gallery image grid">
+          <a class="thumb" data-od-id="gallery-image-dataset-1042" data-base="sdxl" data-project="zapata" data-model="none" data-kind="dataset" data-search="dataset zapata portrait img 1042 source" data-tone="light" href="image-lightbox.html?source=gallery&image=dataset-1042" aria-label="Open dataset image 1042"></a>
+          <a class="thumb" data-od-id="gallery-image-dataset-1048" data-base="sdxl" data-project="zapata" data-model="none" data-kind="dataset" data-search="dataset zapata portrait img 1048 source" data-tone="mid" href="image-lightbox.html?source=gallery&image=dataset-1048" aria-label="Open dataset image 1048"></a>
+          <a class="thumb" data-od-id="gallery-image-dataset-1055" data-base="sdxl" data-project="zapata" data-model="none" data-kind="dataset" data-search="dataset zapata portrait img 1055 source" data-tone="dark" href="image-lightbox.html?source=gallery&image=dataset-1055" aria-label="Open dataset image 1055"></a>
+          <a class="thumb" data-od-id="gallery-image-dataset-1061" data-base="sdxl" data-project="zapata" data-model="none" data-kind="dataset" data-search="dataset zapata portrait img 1061 source" data-tone="light" href="image-lightbox.html?source=gallery&image=dataset-1061" aria-label="Open dataset image 1061"></a>
+          <a class="thumb" data-od-id="gallery-image-dataset-1070" data-base="sdxl" data-project="zapata" data-model="none" data-kind="dataset" data-search="dataset zapata portrait img 1070 source" data-tone="mid" href="image-lightbox.html?source=gallery&image=dataset-1070" aria-label="Open dataset image 1070"></a>
+          <a class="thumb" data-od-id="gallery-image-dataset-1077" data-base="sdxl" data-project="zapata" data-model="none" data-kind="dataset" data-search="dataset zapata portrait img 1077 source" data-tone="dark" href="image-lightbox.html?source=gallery&image=dataset-1077" aria-label="Open dataset image 1077"></a>
+          <a class="thumb" data-od-id="gallery-image-eval-identity-117" data-base="ideogram" data-project="zapata" data-model="zapata-v6" data-kind="eval" data-search="eval identity proof seed 117 zapata v6" data-tone="mid" href="image-lightbox.html?source=gallery&image=identity-proof-a-seed-117" aria-label="Open eval image seed 117"></a>
+          <a class="thumb" data-od-id="gallery-image-eval-identity-2201" data-base="ideogram" data-project="zapata" data-model="zapata-v6" data-kind="eval" data-search="eval identity proof seed 2201 zapata v6" data-tone="light" href="image-lightbox.html?source=gallery&image=identity-proof-a-seed-2201" aria-label="Open eval image seed 2201"></a>
+          <a class="thumb" data-od-id="gallery-image-eval-identity-4044" data-base="ideogram" data-project="zapata" data-model="zapata-v6" data-kind="eval" data-search="eval identity proof seed 4044 zapata v6" data-tone="dark" href="image-lightbox.html?source=gallery&image=identity-proof-a-seed-4044" aria-label="Open eval image seed 4044"></a>
+          <a class="thumb" data-od-id="gallery-image-eval-wardrobe-449" data-base="ideogram" data-project="zapata" data-model="zapata-v6" data-kind="eval" data-search="eval wardrobe holdout seed 449 zapata v6" data-tone="light" href="image-lightbox.html?source=gallery&image=wardrobe-holdout-seed-449" aria-label="Open eval image seed 449"></a>
+          <a class="thumb" data-od-id="gallery-image-grid-cell-01" data-base="flux" data-project="zapata" data-model="zapata-v6" data-kind="grid" data-search="grid prompt steps cell 01 zapata v6" data-tone="dark" href="image-lightbox.html?source=gallery&image=grid-cell-01" aria-label="Open grid image cell 01"></a>
+          <a class="thumb" data-od-id="gallery-image-grid-cell-02" data-base="flux" data-project="zapata" data-model="zapata-v6" data-kind="grid" data-search="grid prompt steps cell 02 zapata v6" data-tone="mid" href="image-lightbox.html?source=gallery&image=grid-cell-02" aria-label="Open grid image cell 02"></a>
+          <a class="thumb" data-od-id="gallery-image-grid-cell-03" data-base="flux" data-project="zapata" data-model="zapata-v5" data-kind="grid" data-search="grid prompt model cell 03 zapata v5" data-tone="light" href="image-lightbox.html?source=gallery&image=grid-cell-03" aria-label="Open grid image cell 03"></a>
+          <a class="thumb" data-od-id="gallery-image-grid-cell-04" data-base="flux" data-project="product-pack" data-model="none" data-kind="grid" data-search="grid product pack concept cell 04" data-tone="mid" href="image-lightbox.html?source=gallery&image=grid-cell-04" aria-label="Open grid image cell 04"></a>
+          <a class="thumb" data-od-id="gallery-image-sample-800-a" data-base="flux" data-project="zapata" data-model="zapata-v6" data-kind="sample" data-search="sample run 019 step 800 a zapata v6" data-tone="dark" href="image-lightbox.html?source=gallery&image=run-019-step-800-a" aria-label="Open sample run 019 step 800 A"></a>
+          <a class="thumb" data-od-id="gallery-image-sample-800-b" data-base="flux" data-project="zapata" data-model="zapata-v6" data-kind="sample" data-search="sample run 019 step 800 b zapata v6" data-tone="mid" href="image-lightbox.html?source=gallery&image=run-019-step-800-b" aria-label="Open sample run 019 step 800 B"></a>
+          <a class="thumb" data-od-id="gallery-image-sample-1200-a" data-base="flux" data-project="zapata" data-model="zapata-v6" data-kind="sample" data-search="sample run 019 step 1200 a zapata v6" data-tone="light" href="image-lightbox.html?source=gallery&image=run-019-step-1200-a" aria-label="Open sample run 019 step 1200 A"></a>
+          <a class="thumb" data-od-id="gallery-image-sample-1200-b" data-base="flux" data-project="zapata" data-model="zapata-v6" data-kind="sample" data-search="sample run 019 step 1200 b zapata v6" data-tone="dark" href="image-lightbox.html?source=gallery&image=run-019-step-1200-b" aria-label="Open sample run 019 step 1200 B"></a>
+          <a class="thumb" data-od-id="gallery-image-vcribb-eval-01" data-base="ideogram" data-project="vcribb" data-model="none" data-kind="eval" data-search="vcribb editorial eval image 01" data-tone="mid" href="image-lightbox.html?source=gallery&image=vcribb-eval-01" aria-label="Open vcribb eval image 01"></a>
+          <a class="thumb" data-od-id="gallery-image-product-sample-01" data-base="sdxl" data-project="product-pack" data-model="none" data-kind="sample" data-search="product pack concept sample 01" data-tone="light" href="image-lightbox.html?source=gallery&image=product-pack-sample-01" aria-label="Open product pack sample 01"></a>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="right-inspector">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right metadata" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="gallery-image-metadata">
+          <div>
+            <div class="object-title">Image metadata</div>
+            <div class="object-note">Updates from focused or hovered image</div>
+          </div>
+          <div class="preview-thumb" id="metadata-preview" data-od-id="gallery-metadata-preview"></div>
+          <div class="status-list">
+            <div class="meta-row"><span class="object-note">Image</span><span class="object-title" id="meta-image">dataset-1042</span></div>
+            <div class="meta-row"><span class="object-note">Type</span><span class="object-title" id="meta-kind">Dataset</span></div>
+            <div class="meta-row"><span class="object-note">Project</span><span class="object-title" id="meta-project">Zapata Portrait Set</span></div>
+            <div class="meta-row"><span class="object-note">Base</span><span class="object-title" id="meta-base">SDXL</span></div>
+            <div class="meta-row"><span class="object-note">Model</span><span class="object-title" id="meta-model">No model</span></div>
+            <div class="meta-row"><span class="object-note">Open</span><a class="object-title" id="meta-open-link" href="image-lightbox.html?source=gallery&image=dataset-1042">Lightbox</a></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="gallery-image-comments">
+          <div>
+            <div class="object-title">Image comments</div>
+          </div>
+          <div class="comment-list" id="gallery-comment-list" data-od-id="gallery-comment-thread"></div>
+          <textarea class="comment-field" id="gallery-comment-input" data-od-id="gallery-comment-input" aria-label="Add gallery image comment" placeholder="Add note about pose, lighting, caption accuracy, or dataset inclusion."></textarea>
+          <div class="comment-actions">
+            <button class="btn primary" id="gallery-add-comment-button" data-od-id="button-add-gallery-comment" type="button">Add comment</button>
+            <span class="object-note" id="gallery-comment-status">2 comments</span>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const thumbs = Array.from(document.querySelectorAll(".thumb"));
+      const filters = Array.from(document.querySelectorAll("[data-filter]"));
+      const search = document.getElementById("gallery-search");
+      const sizeInput = document.getElementById("thumb-size");
+      const sizeLabel = document.getElementById("thumb-size-label");
+      const meta = {
+        image: document.getElementById("meta-image"),
+        kind: document.getElementById("meta-kind"),
+        project: document.getElementById("meta-project"),
+        base: document.getElementById("meta-base"),
+        model: document.getElementById("meta-model"),
+        open: document.getElementById("meta-open-link"),
+        preview: document.getElementById("metadata-preview")
+      };
+      const comments = {
+        list: document.getElementById("gallery-comment-list"),
+        input: document.getElementById("gallery-comment-input"),
+        status: document.getElementById("gallery-comment-status"),
+        addButton: document.getElementById("gallery-add-comment-button")
+      };
+
+      const labels = {
+        base: { sdxl: "SDXL", flux: "Flux", ideogram: "Ideogram" },
+        project: { zapata: "Zapata Portrait Set", vcribb: "vcribb editorial", "product-pack": "Product pack concept" },
+        model: { "zapata-v6": "zapata-v6", "zapata-v5": "zapata-v5", none: "No model" },
+        kind: { eval: "Eval", grid: "Grid", sample: "Sample", dataset: "Dataset" }
+      };
+      const commentSeed = {
+        dataset: [
+          { title: "Dataset pass v6", body: "Caption candidate is usable; keep in gallery until JSON caption review." },
+          { title: "M. Chen / reviewer", body: "Clean source image with stable lighting and no crop issue." }
+        ],
+        eval: [
+          { title: "Eval review", body: "Good comparison sample for prompt-set scoring." },
+          { title: "Dataset pass v3", body: "Check wardrobe term before export." }
+        ],
+        grid: [
+          { title: "Grid scan", body: "Useful cell for strength comparison; keep visible in the saved sweep." },
+          { title: "Model review", body: "Lighting drift is visible against adjacent cells." }
+        ],
+        sample: [
+          { title: "Training sample review", body: "Identity match is strong enough for step comparison." },
+          { title: "Run notes", body: "Include in sample viewer for side-by-side rating pass." }
+        ]
+      };
+      const commentStore = new Map();
+      let currentThumb = null;
+
+      function applyFilters() {
+        const query = search.value.trim().toLowerCase();
+        const active = Object.fromEntries(filters.map((filter) => [filter.dataset.filter, filter.value]));
+        thumbs.forEach((thumb) => {
+          const filterMatch = Object.entries(active).every(([key, value]) => value === "all" || thumb.dataset[key] === value);
+          const searchMatch = !query || thumb.dataset.search.includes(query);
+          thumb.hidden = !(filterMatch && searchMatch);
+        });
+      }
+
+      filters.forEach((filter) => filter.addEventListener("change", applyFilters));
+      search.addEventListener("input", applyFilters);
+      sizeInput.addEventListener("input", () => {
+        document.body.style.setProperty("--thumb-size", `${sizeInput.value}px`);
+        sizeLabel.textContent = `${sizeInput.value}px`;
+      });
+
+      function imageIdFromHref(href) {
+        const params = new URL(href, window.location.href).searchParams;
+        return params.get("image") || "image";
+      }
+
+      function odSafeId(value) {
+        return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "image";
+      }
+
+      function getComments(thumb) {
+        const imageId = imageIdFromHref(thumb.href);
+        if (commentStore.has(imageId)) return commentStore.get(imageId);
+        return commentSeed[thumb.dataset.kind] || commentSeed.dataset;
+      }
+
+      function renderComments(thumb) {
+        const imageId = imageIdFromHref(thumb.href);
+        const items = getComments(thumb);
+        comments.list.innerHTML = "";
+        items.forEach((comment, index) => {
+          const item = document.createElement("div");
+          item.className = "comment-item";
+          item.setAttribute("data-od-id", `gallery-comment-${odSafeId(imageId)}-${index + 1}`);
+          item.innerHTML = `<div class="object-title"></div><div class="comment-body"></div>`;
+          item.querySelector(".object-title").textContent = comment.title;
+          item.querySelector(".comment-body").textContent = comment.body;
+          comments.list.append(item);
+        });
+        comments.status.textContent = `${items.length} ${items.length === 1 ? "comment" : "comments"}`;
+      }
+
+      function updateMetadata(thumb) {
+        currentThumb = thumb;
+        meta.image.textContent = imageIdFromHref(thumb.href);
+        meta.kind.textContent = labels.kind[thumb.dataset.kind] || thumb.dataset.kind;
+        meta.project.textContent = labels.project[thumb.dataset.project] || thumb.dataset.project;
+        meta.base.textContent = labels.base[thumb.dataset.base] || thumb.dataset.base;
+        meta.model.textContent = labels.model[thumb.dataset.model] || thumb.dataset.model;
+        meta.open.href = thumb.href;
+        meta.preview.dataset.tone = thumb.dataset.tone;
+        meta.preview.style.backgroundColor = window.getComputedStyle(thumb).backgroundColor;
+        renderComments(thumb);
+      }
+
+      thumbs.forEach((thumb) => {
+        thumb.addEventListener("mouseenter", () => updateMetadata(thumb));
+        thumb.addEventListener("focus", () => updateMetadata(thumb));
+      });
+
+      updateMetadata(thumbs[0]);
+
+      comments.addButton.addEventListener("click", () => {
+        if (!currentThumb) return;
+        const body = comments.input.value.trim();
+        if (!body) {
+          comments.status.textContent = "Write a comment before adding.";
+          return;
+        }
+        const imageId = imageIdFromHref(currentThumb.href);
+        const nextComments = [
+          { title: "Current reviewer", body },
+          ...getComments(currentThumb)
+        ];
+        commentStore.set(imageId, nextComments);
+        comments.input.value = "";
+        renderComments(currentThumb);
+      });
+
+      function bindSidebarToggle(id, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        const sync = () => {
+          const collapsed = document.body.classList.contains(className);
+          toggle.textContent = collapsed ? expandText : collapseText;
+          toggle.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+          toggle.setAttribute("aria-pressed", String(collapsed));
+        };
+        toggle.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right metadata", "Expand right metadata");
+
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      const closeAll = () => {
+        menus.forEach((wrap) => {
+          wrap.querySelector("[data-create-panel]").classList.remove("open");
+          wrap.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+        });
+      };
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = panel.classList.toggle("open");
+          trigger.setAttribute("aria-expanded", String(open));
+          menus.filter((item) => item !== wrap).forEach((item) => {
+            item.querySelector("[data-create-panel]").classList.remove("open");
+            item.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+          });
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+    })();
+  </script>
+</body>
+</html>

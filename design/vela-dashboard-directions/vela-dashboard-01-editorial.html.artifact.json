@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "design/vela-dashboard-directions/vela-dashboard-01-editorial.html",
+  "entry": "design/vela-dashboard-directions/vela-dashboard-01-editorial.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-07-10T02:29:42.205Z",
+  "updatedAt": "2026-07-10T02:29:42.205Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

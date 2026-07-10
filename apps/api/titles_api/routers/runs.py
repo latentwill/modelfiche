@@ -1,0 +1,277 @@
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from .. import models, schemas
+from ..database import get_db
+from ..services import active_profile, get_or_404, record_activity
+
+router = APIRouter()
+DB = Annotated[Session, Depends(get_db)]
+
+
+def dump(row) -> dict[str, Any]:
+    return {column.name: getattr(row, column.key) for column in row.__table__.columns}
+
+
+@router.get("/runs")
+def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(None, alias="status")):
+    query = select(models.TrainingRun).order_by(models.TrainingRun.updated_at.desc())
+    if project_id:
+        query = query.where(models.TrainingRun.project_id == project_id)
+    if run_status:
+        query = query.where(models.TrainingRun.status == run_status)
+    rows = []
+    for row in db.scalars(query).all():
+        project = db.get(models.Project, row.project_id)
+        rows.append({
+            **dump(row),
+            "project_name": project.title if project else None,
+            "checkpoint_count": int(db.scalar(select(func.count()).select_from(models.Checkpoint).where(models.Checkpoint.run_id == row.id)) or 0),
+            "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == row.id)) or 0),
+        })
+    return rows
+
+
+@router.post("/runs", status_code=status.HTTP_201_CREATED)
+def create_run(body: schemas.RunCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    get_or_404(db, models.Project, body.project_id)
+    if body.dataset_version_id:
+        get_or_404(db, models.DatasetVersion, body.dataset_version_id)
+    run = models.TrainingRun(**body.model_dump())
+    db.add(run)
+    db.flush()
+    record_activity(db, action="run.created", subject_type="run", subject_id=run.id, profile_id=active_profile(db, x_profile_id).id, project_id=run.project_id)
+    db.commit()
+    return dump(run)
+
+
+@router.get("/runs/{run_id}")
+def run(run_id: str, db: DB):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    checkpoints = db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run.id).order_by(models.Checkpoint.step)).all()
+    dataset_version = db.get(models.DatasetVersion, run.dataset_version_id) if run.dataset_version_id else None
+    checkpoint_rows = []
+    for checkpoint in checkpoints:
+        asset = db.get(models.Asset, checkpoint.asset_id)
+        location = db.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == checkpoint.asset_id).order_by(models.AssetLocation.created_at.desc()))
+        version = db.scalar(select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id))
+        checkpoint_rows.append({
+            **dump(checkpoint),
+            "filename": asset.name if asset else None,
+            "size": location.size if location else None,
+            "hydration_state": location.hydration_state if location else None,
+            "model_version_name": version.name if version else None,
+        })
+    return {**dump(run), "dataset_version_name": dataset_version.name if dataset_version else None, "checkpoints": checkpoint_rows}
+
+
+@router.get("/runs/{run_id}/config")
+def run_config(run_id: str, db: DB, raw: bool = False):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    return {"run_id": run.id, "normalized": run.normalized_config, **({"manifest": run.raw_manifest, "state": run.raw_state} if raw else {})}
+
+
+@router.post("/runs/{run_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
+def refresh_run(run_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    if not run.source_prefix:
+        raise HTTPException(status_code=409, detail="run has no remote source prefix")
+    sources = db.scalars(select(models.ImportSource).where(models.ImportSource.is_active.is_(True))).all()
+    source = next((candidate for candidate in sources if any(run.source_prefix.rstrip("/") == root.rstrip("/") or run.source_prefix.startswith(root.rstrip("/") + "/") for root in candidate.allowed_prefixes)), None)
+    if source is None:
+        raise HTTPException(status_code=409, detail="no active import source allows this run prefix")
+    actor = active_profile(db, x_profile_id)
+    job = models.Job(workspace_id=get_or_404(db, models.Project, run.project_id).workspace_id, kind="s3.import", profile_id=actor.id, payload={"source_id": source.id, "project_id": run.project_id, "prefix": run.source_prefix, "profile_id": actor.id, "hydrate_dataset_images": False})
+    db.add(job)
+    db.flush()
+    import_job = models.ImportJob(source_id=source.id, project_id=run.project_id, job_id=job.id, prefix=run.source_prefix, detected_type="run", state="queued")
+    db.add(import_job)
+    record_activity(db, action="run.refresh_queued", subject_type="run", subject_id=run.id, profile_id=actor.id, project_id=run.project_id, details={"job_id": job.id, "import_job_id": import_job.id})
+    db.commit()
+    return {"run_id": run.id, "job_id": job.id, "import_job_id": import_job.id, "state": "queued"}
+
+
+@router.post("/runs/{run_id}/checkpoints", status_code=status.HTTP_201_CREATED)
+def create_checkpoint(run_id: str, body: schemas.CheckpointCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    asset = get_or_404(db, models.Asset, body.asset_id)
+    if asset.kind != models.AssetKind.model:
+        raise HTTPException(status_code=400, detail="checkpoint asset must have kind=model")
+    checkpoint = models.Checkpoint(run_id=run.id, **body.model_dump())
+    db.add(checkpoint)
+    db.flush()
+    record_activity(db, action="checkpoint.registered", subject_type="checkpoint", subject_id=checkpoint.id, profile_id=active_profile(db, x_profile_id).id, project_id=run.project_id, details={"step": checkpoint.step})
+    db.commit()
+    return dump(checkpoint)
+
+
+@router.get("/runs/{run_id}/checkpoints")
+def checkpoints(run_id: str, db: DB):
+    get_or_404(db, models.TrainingRun, run_id)
+    return [dump(c) for c in db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run_id).order_by(models.Checkpoint.step)).all()]
+
+
+@router.post("/runs/{run_id}/samples", status_code=status.HTTP_201_CREATED)
+def create_sample(run_id: str, body: schemas.SampleCreate, db: DB):
+    get_or_404(db, models.TrainingRun, run_id)
+    get_or_404(db, models.Asset, body.asset_id)
+    sample = models.Sample(run_id=run_id, **body.model_dump())
+    db.add(sample)
+    db.commit()
+    return dump(sample)
+
+
+@router.get("/runs/{run_id}/samples")
+def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200, le=1000), offset: int = 0):
+    get_or_404(db, models.TrainingRun, run_id)
+    query = select(models.Sample).where(models.Sample.run_id == run_id).order_by(models.Sample.step, models.Sample.created_at)
+    if step is not None:
+        query = query.where(models.Sample.step == step)
+    rows = []
+    for sample in db.scalars(query.offset(offset).limit(limit)).all():
+        asset = db.get(models.Asset, sample.asset_id)
+        review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == sample.asset_id).order_by(models.Review.created_at.desc()))
+        rows.append({**dump(sample), "filename": asset.name if asset else None, "name": asset.name if asset else None, "mime_type": asset.mime_type if asset else None, "rating": review.rating if review else None, "decision": review.decision if review else None})
+    return rows
+
+
+@router.get("/checkpoints/{checkpoint_id}")
+def checkpoint(checkpoint_id: str, db: DB):
+    checkpoint = get_or_404(db, models.Checkpoint, checkpoint_id)
+    asset = db.get(models.Asset, checkpoint.asset_id)
+    locations = db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == checkpoint.asset_id)).all()
+    run = db.get(models.TrainingRun, checkpoint.run_id)
+    asset_row = None if asset is None else {
+        "id": asset.id, "project_id": asset.project_id, "kind": asset.kind,
+        "name": asset.name, "mime_type": asset.mime_type, "sha256": asset.sha256,
+        "metadata": asset.metadata_, "created_at": asset.created_at, "updated_at": asset.updated_at,
+    }
+    return {**dump(checkpoint), "run_name": run.name if run else None, "asset": asset_row, "locations": [dump(location) for location in locations]}
+
+
+@router.post("/checkpoints/{checkpoint_id}/hydrate", status_code=status.HTTP_202_ACCEPTED)
+def hydrate_checkpoint(checkpoint_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    checkpoint = get_or_404(db, models.Checkpoint, checkpoint_id)
+    run = get_or_404(db, models.TrainingRun, checkpoint.run_id)
+    existing = db.scalar(select(models.Job).where(
+        models.Job.kind == "checkpoint.hydrate",
+        models.Job.payload["checkpoint_id"].as_string() == checkpoint.id,
+        models.Job.state.in_([models.JobState.queued, models.JobState.running]),
+    ).order_by(models.Job.created_at.desc()))
+    if existing:
+        return dump(existing)
+    job = models.Job(workspace_id=get_or_404(db, models.Project, run.project_id).workspace_id, kind="checkpoint.hydrate", profile_id=active_profile(db, x_profile_id).id, payload={"checkpoint_id": checkpoint.id})
+    db.add(job)
+    db.flush()
+    record_activity(db, action="checkpoint.hydration_queued", subject_type="checkpoint", subject_id=checkpoint.id, profile_id=job.profile_id, project_id=run.project_id, details={"job_id": job.id})
+    db.commit()
+    return dump(job)
+
+
+@router.get("/models")
+def models_list(db: DB, project_id: str | None = None):
+    query = select(models.Model).order_by(models.Model.updated_at.desc())
+    if project_id:
+        query = query.where(models.Model.project_id == project_id)
+    rows = []
+    for model in db.scalars(query).all():
+        project = db.get(models.Project, model.project_id)
+        latest = db.scalar(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id).order_by(models.ModelVersion.created_at.desc()))
+        rows.append({
+            **dump(model),
+            "project_name": project.title if project else None,
+            "latest_version": latest.name if latest else None,
+            "lifecycle_state": latest.lifecycle_state if latest else None,
+            "base_model": latest.base_model if latest else None,
+            "version_count": int(db.scalar(select(func.count()).select_from(models.ModelVersion).where(models.ModelVersion.model_id == model.id)) or 0),
+        })
+    return rows
+
+
+@router.get("/models/{model_id}")
+def model_detail(model_id: str, db: DB):
+    model = get_or_404(db, models.Model, model_id)
+    versions = db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id).order_by(models.ModelVersion.created_at.desc())).all()
+    version_rows = []
+    for version in versions:
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+        version_rows.append({**dump(version), "checkpoint_step": checkpoint.step if checkpoint else None, "fal_status": version.readiness.get("fal_status") if version.readiness else None})
+    return {**dump(model), "versions": version_rows}
+
+
+@router.post("/models", status_code=status.HTTP_201_CREATED)
+def create_model(body: schemas.ModelCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    get_or_404(db, models.Project, body.project_id)
+    model = models.Model(**body.model_dump())
+    db.add(model)
+    db.flush()
+    record_activity(db, action="model.created", subject_type="model", subject_id=model.id, profile_id=active_profile(db, x_profile_id).id, project_id=model.project_id)
+    db.commit()
+    return dump(model)
+
+
+@router.post("/model-versions", status_code=status.HTTP_201_CREATED)
+def create_model_version(body: schemas.ModelVersionCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    model = get_or_404(db, models.Model, body.model_id)
+    checkpoint = get_or_404(db, models.Checkpoint, body.checkpoint_id)
+    run = get_or_404(db, models.TrainingRun, checkpoint.run_id)
+    if run.project_id != model.project_id:
+        raise HTTPException(status_code=400, detail="checkpoint and model must belong to the same project")
+    version = models.ModelVersion(**body.model_dump())
+    db.add(version)
+    db.flush()
+    record_activity(db, action="model_version.registered", subject_type="model_version", subject_id=version.id, profile_id=active_profile(db, x_profile_id).id, project_id=model.project_id, details={"checkpoint_id": checkpoint.id, "step": checkpoint.step})
+    db.commit()
+    return dump(version)
+
+
+@router.get("/model-versions")
+def model_versions(db: DB, model_id: str | None = None, project_id: str | None = None, lifecycle_state: str | None = None):
+    query = select(models.ModelVersion).order_by(models.ModelVersion.created_at.desc())
+    if model_id:
+        query = query.where(models.ModelVersion.model_id == model_id)
+    if lifecycle_state:
+        query = query.where(models.ModelVersion.lifecycle_state == lifecycle_state)
+    if project_id:
+        query = query.join(models.Model, models.Model.id == models.ModelVersion.model_id).where(models.Model.project_id == project_id)
+    rows = []
+    for version in db.scalars(query).all():
+        model = db.get(models.Model, version.model_id)
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+        rows.append({
+            **dump(version),
+            "model_name": model.name if model else None,
+            "project_id": model.project_id if model else None,
+            "checkpoint_step": checkpoint.step if checkpoint else None,
+            "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
+            "fal_status": version.readiness.get("fal_status") if version.readiness else None,
+        })
+    return rows
+
+
+@router.get("/model-versions/{version_id}")
+def model_version(version_id: str, db: DB):
+    return dump(get_or_404(db, models.ModelVersion, version_id))
+
+
+@router.post("/model-versions/{version_id}/approve")
+def approve_model_version(version_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    return update_model_version_state(version_id, schemas.ModelVersionState(lifecycle_state="approved"), db, x_profile_id)
+
+
+@router.post("/model-versions/{version_id}/archive")
+def archive_model_version(version_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    return update_model_version_state(version_id, schemas.ModelVersionState(lifecycle_state="archived"), db, x_profile_id)
+
+
+@router.patch("/model-versions/{version_id}/state")
+def update_model_version_state(version_id: str, body: schemas.ModelVersionState, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    version = get_or_404(db, models.ModelVersion, version_id)
+    model = get_or_404(db, models.Model, version.model_id)
+    version.lifecycle_state = body.lifecycle_state
+    record_activity(db, action=f"model_version.{body.lifecycle_state}", subject_type="model_version", subject_id=version.id, profile_id=active_profile(db, x_profile_id).id, project_id=model.project_id)
+    db.commit()
+    return dump(version)

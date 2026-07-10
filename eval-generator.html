@@ -1,0 +1,1573 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Eval Generator</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 320px;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --radius-xs: 7px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: clamp(220px, 22vw, var(--inspector));
+    }
+
+    body.sidebar-left-collapsed { --left-sidebar-width: 52px; }
+    body.sidebar-right-collapsed { --right-inspector-width: 52px; }
+
+    a { color: inherit; text-decoration: none; }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button,
+    select {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      width: min(100%, 1560px);
+      max-width: 1560px;
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .meta-row,
+    .panel-head,
+    .status-line,
+    .form-row,
+    .queue-row,
+    .chip-row {
+      display: flex;
+      align-items: center;
+    }
+
+    .workspace-group,
+    .actions,
+    .chip-row {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar,
+    .control,
+    .select,
+    .textarea {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .status-dot,
+    .image-placeholder {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: var(--radius-xs);
+    }
+
+    .crumbs {
+      min-width: 0;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      min-width: 0;
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: var(--radius-xs);
+      flex-shrink: 0;
+    }
+
+    .actions { justify-content: flex-end; }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .btn { padding: 0 12px; }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .icon-btn,
+    .avatar {
+      width: 32px;
+      padding: 0;
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open { display: grid; }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      background: transparent;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      border-color: var(--line);
+      background: var(--block);
+      outline: none;
+    }
+
+    .layout {
+      min-height: calc(100vh - 40px - var(--topbar));
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .inspector {
+      position: relative;
+      background: #f4f4f6;
+      min-width: 0;
+      transition: padding 180ms ease;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--ink);
+      padding: 18px 14px;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--ink);
+      padding: 18px 14px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      grid-auto-rows: max-content;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      display: flex;
+      margin-left: auto;
+      margin-bottom: 12px;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+      justify-self: start;
+      grid-column: 1 / -1;
+      margin-left: -29px;
+      box-shadow: 0 0 0 2px var(--surface);
+    }
+
+    body.sidebar-right-collapsed .inspector > .side-collapse-toggle {
+      justify-self: center;
+      margin-left: 0;
+      box-shadow: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      content: "";
+      position: absolute;
+      inset: 52px 0 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.14em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    body.sidebar-left-collapsed .sidebar::after { content: "NAVIGATION"; }
+    body.sidebar-right-collapsed .inspector::after { content: "METADATA"; }
+
+    .nav-section + .nav-section {
+      margin-top: 22px;
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 8px 8px;
+    }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px;
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+    }
+
+    .nav-item.active {
+      color: var(--ink);
+      background: var(--block);
+      border: 1px solid var(--line);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    .badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+    }
+
+    .nav-branch {
+      margin-left: 15px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-group-label {
+      margin: 7px 0 3px;
+      color: var(--muted);
+      font: 700 10px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .nav-child {
+      min-height: 28px;
+      font-size: 10px;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .storage {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 16px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 18px;
+      background: var(--surface);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .page-head,
+    .panel,
+    .inspector-card,
+    .eval-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+    }
+
+    .page-head {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .title-stack,
+    .panel,
+    .inspector-card,
+    .eval-card,
+    .control-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .page-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .panel,
+    .inspector-card,
+    .eval-card {
+      padding: 14px;
+    }
+
+    .panel-head {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .status-line,
+    .meta-row,
+    .queue-row,
+    .form-row {
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .status-line,
+    .meta-row,
+    .queue-row,
+    .grid-row,
+    .prompt-file {
+      min-height: 34px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--block-2);
+    }
+
+    .status-dot.ready,
+    .status-dot.active {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .control-stack {
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .control,
+    .select {
+      width: 100%;
+      min-height: 34px;
+      padding: 0 9px;
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 10px;
+      resize: vertical;
+      color: var(--ink);
+      background: var(--surface);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .prompt-tools,
+    .prompt-object-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .prompt-generation-box {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .prompt-set-prompt-textarea {
+      min-height: 78px;
+      background: var(--page);
+    }
+
+    .prompt-generation-box .btn,
+    .load-prompt-action .btn {
+      min-height: 34px;
+      white-space: nowrap;
+    }
+
+    .load-prompt-action {
+      align-self: end;
+    }
+
+    .prompt-tools {
+      padding-top: 2px;
+    }
+
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 6px;
+      align-items: end;
+    }
+
+    .tool-field {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .field-label {
+      color: var(--accent);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .prompt-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 0.34fr) minmax(0, 1fr) minmax(0, 108px);
+      gap: 8px;
+      align-items: start;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .prompt-index {
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--block);
+      color: var(--ink);
+      font: 700 10px/1 var(--mono);
+    }
+
+    .prompt-textarea {
+      width: 100%;
+      min-height: 64px;
+      padding: 8px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--page);
+      color: var(--ink);
+      font: 11px/1.45 var(--mono);
+    }
+
+    .prompt-row-actions {
+      display: flex;
+      gap: 4px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .prompt-row-actions .btn {
+      min-width: 0;
+      flex: 1 1 48px;
+      padding-inline: 6px;
+    }
+
+    .prompt-status {
+      min-height: 18px;
+    }
+
+    .endpoint-fields[hidden] {
+      display: none;
+    }
+
+    .prompt-file {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .grid-maker {
+      display: grid;
+      gap: 8px;
+    }
+
+    .grid-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      align-items: center;
+    }
+
+    .grid-row.header {
+      background: var(--block);
+    }
+
+    .queue-list,
+    .eval-list,
+    .activity-list,
+    .meta-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .grid-preview-panel {
+      --grid-cell: 44px;
+    }
+
+    body.grid-expanded .grid-preview-panel {
+      grid-column: 1 / -1;
+    }
+
+    .grid-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .zoom-range {
+      width: 132px;
+      accent-color: var(--active);
+    }
+
+    .grid-scan-shell {
+      min-height: 260px;
+      max-height: 420px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(96px, 112px);
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 10px;
+    }
+
+    body.grid-expanded .grid-scan-shell {
+      min-height: 520px;
+      max-height: 680px;
+    }
+
+    .grid-viewport {
+      min-width: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: #f1f1f3;
+      padding: 10px;
+    }
+
+    .scan-grid {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--grid-cell)), 1fr));
+      gap: 6px;
+      align-content: start;
+    }
+
+    .scan-cell {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+      display: grid;
+      place-items: end start;
+      padding: 4px;
+      color: var(--muted);
+      font: 700 8px/1 var(--mono);
+    }
+
+    .scan-cell.active {
+      outline: 2px solid var(--ink);
+      outline-offset: 1px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        #eeeeef;
+    }
+
+    .scan-rail {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .mini-map {
+      min-height: 130px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--block);
+      padding: 6px;
+    }
+
+    .mini-map span {
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: var(--surface);
+    }
+
+    .mini-map span.active {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .image-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .image-placeholder {
+      min-height: 72px;
+      border-radius: var(--radius-sm);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .eval-card {
+      background: var(--surface);
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .redline-one {
+      top: 112px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    .redline-two {
+      top: 438px;
+      left: calc(var(--sidebar) + 62px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .layout,
+      .sidebar,
+      .inspector {
+        transition: none;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) minmax(52px, var(--right-inspector-width));
+      }
+
+      .page-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body { padding: 0; }
+      .wireframe { min-height: 100vh; border-radius: 0; border: 0; }
+      .topbar,
+      .page-head {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar,
+      .inspector { display: none; }
+      .status-grid,
+      .field-grid,
+      .grid-row,
+      .tool-grid,
+      .prompt-generation-box,
+      .prompt-row {
+        grid-template-columns: 1fr;
+      }
+      .grid-scan-shell {
+        grid-template-columns: 1fr;
+        max-height: none;
+      }
+      .scan-rail {
+        grid-template-rows: auto;
+      }
+      .redline { display: none; }
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="eval-generator-screen">
+    <div class="redline redline-one">01 - FAL model readiness</div>
+    <div class="redline redline-two">02 - prompt objects</div>
+
+    <header class="topbar" data-od-id="eval-generator-topbar">
+      <div class="workspace-group" data-od-id="topbar-workspace-group">
+        <a class="workspace-switcher" href="index.html" data-od-id="workspace-switcher">
+          <span class="logo-block"></span>
+          <span class="object-title">Titles XYZ</span>
+        </a>
+        <div class="crumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set / Evals / Generator</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search prompt sets, eval runs, model metadata</span>
+        <span class="keycap object-note">CMD K</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-project" href="project.html"><span class="object-title">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-dataset" href="dataset.html"><span class="object-title">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-model" href="models.html"><span class="object-title">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-eval" href="eval-generator.html"><span class="object-title">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-od-id="create-menu-grid" href="grid-generator.html"><span class="object-title">+ GRID</span></a>
+          </div>
+        </div>
+        <span class="avatar" data-od-id="user-avatar"></span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span>v</span></a>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="eval-viewer.html"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="eval-generator-main">
+        <section class="page-head" data-od-id="eval-generator-header">
+          <div class="title-stack">
+            <div class="object-title" style="font-size: 18px;">Eval generation</div>
+            <div class="object-note">FAL endpoint controls, automatic model status, ordered prompt objects, saved eval runs</div>
+          </div>
+          <div class="actions">
+            <a class="btn" data-od-id="button-open-grid-generator" href="grid-generator.html">Grid generator</a>
+            <a class="btn" data-od-id="button-open-eval-viewer" href="eval-viewer.html">Eval viewer</a>
+            <button class="btn primary" id="generate-selected" data-od-id="button-generate-selected" type="button">Generate selected</button>
+          </div>
+        </section>
+
+        <section class="panel" data-od-id="fal-model-readiness-panel" style="margin-top: 14px;">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Model upload / status</div>
+              <div class="object-note">Automatic status from model metadata and stored FAL URL</div>
+            </div>
+          </div>
+          <div class="status-grid" data-od-id="fal-model-status-grid">
+            <label class="control-stack" data-od-id="field-selected-model">
+              <span class="object-title">Model</span>
+              <select class="select" id="model-select" aria-label="Select compatible LoRA model">
+                <option value="zapata-ideogram-v4" data-compatible-endpoint="ideogram">zapata-v6 · Ideogram 4</option>
+                <option value="zapata-krea2-v2" data-compatible-endpoint="krea">zapata-krea2-v2 · Krea 2</option>
+                <option value="zapata-krea2-draft" data-compatible-endpoint="krea">zapata-krea2-draft · Krea 2</option>
+              </select>
+            </label>
+            <div class="status-line" data-od-id="fal-upload-status">
+              <span><span class="status-dot ready" id="fal-status-dot"></span> <span class="object-title">FAL status</span></span>
+              <span class="object-note" id="fal-status-label">Uploaded</span>
+            </div>
+            <div class="status-line" data-od-id="fal-model-handle">
+              <span class="object-title">LoRA path</span>
+              <span class="object-note" id="fal-handle">https://fal.media/loras/zapata-v6.safetensors</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="page-grid">
+          <section class="panel" data-od-id="endpoint-schema-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Endpoint</div>
+                <div class="object-note" id="endpoint-summary">Text-to-image with Ideogram V4.0q and up to three LoRA weights</div>
+              </div>
+            </div>
+            <label class="control-stack" data-od-id="field-fal-endpoint">
+              <span class="object-title">FAL endpoint</span>
+              <select class="select" id="endpoint-select" aria-label="Select FAL endpoint">
+                <option value="ideogram">Ideogram 4 LoRA</option>
+                <option value="krea">Krea 2 Turbo LoRA</option>
+              </select>
+            </label>
+
+            <div class="endpoint-fields" data-endpoint-fields="ideogram" data-od-id="endpoint-fields-ideogram">
+              <div class="field-grid">
+                <label class="control-stack"><span class="object-title">Prompt expansion</span><select class="select" data-fal-field="expansion_model"><option>None</option><option selected>Medium</option><option>Large</option></select></label>
+                <label class="control-stack"><span class="object-title">Image size</span><select class="select" data-fal-field="image_size" data-image-size-select><option selected>square_hd</option><option>square</option><option>portrait_4_3</option><option>portrait_16_9</option><option>landscape_4_3</option><option>landscape_16_9</option><option value="custom">custom width / height</option></select></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom width</span><input class="control" data-fal-field="image_size.width" type="number" min="512" max="3840" step="16" value="1024" aria-label="Ideogram custom width"></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom height</span><input class="control" data-fal-field="image_size.height" type="number" min="512" max="3840" step="16" value="1024" aria-label="Ideogram custom height"></label>
+                <label class="control-stack"><span class="object-title">Rendering speed</span><select class="select" data-fal-field="rendering_speed"><option>TURBO</option><option selected>BALANCED</option><option>QUALITY</option></select></label>
+                <label class="control-stack"><span class="object-title">Acceleration</span><select class="select" data-fal-field="acceleration"><option selected>none</option><option>low</option><option>regular</option><option>high</option></select></label>
+                <label class="control-stack"><span class="object-title">Images per prompt</span><input class="control" data-fal-field="num_images" data-image-count type="number" min="1" max="4" value="1" aria-label="Ideogram images per prompt"></label>
+                <label class="control-stack"><span class="object-title">Seed</span><input class="control" data-fal-field="seed" type="number" placeholder="random" aria-label="Ideogram seed"></label>
+                <label class="control-stack"><span class="object-title">LoRA scale</span><input class="control" data-fal-field="loras.0.scale" type="number" min="0" max="4" step="0.05" value="1" aria-label="Ideogram LoRA scale"></label>
+                <label class="control-stack"><span class="object-title">Safety checker</span><select class="select" data-fal-field="enable_safety_checker"><option value="true" selected>enabled</option><option value="false">disabled</option></select></label>
+                <label class="control-stack"><span class="object-title">Output format</span><select class="select" data-fal-field="output_format"><option value="jpeg" selected>JPEG</option><option value="png">PNG</option></select></label>
+              </div>
+            </div>
+
+            <div class="endpoint-fields" data-endpoint-fields="krea" data-od-id="endpoint-fields-krea" hidden>
+              <div class="field-grid">
+                <label class="control-stack"><span class="object-title">Image size</span><select class="select" data-fal-field="image_size" data-image-size-select><option selected>square_hd</option><option>square</option><option>portrait_4_3</option><option>portrait_16_9</option><option>landscape_4_3</option><option>landscape_16_9</option><option value="custom">custom width / height</option></select></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom width</span><input class="control" data-fal-field="image_size.width" type="number" min="1" max="14142" value="1024" aria-label="Krea custom width"></label>
+                <label class="control-stack" data-custom-size-field hidden><span class="object-title">Custom height</span><input class="control" data-fal-field="image_size.height" type="number" min="1" max="14142" value="1024" aria-label="Krea custom height"></label>
+                <label class="control-stack"><span class="object-title">Images per prompt</span><input class="control" data-fal-field="num_images" data-image-count type="number" min="1" max="4" value="1" aria-label="Krea images per prompt"></label>
+                <label class="control-stack"><span class="object-title">Seed</span><input class="control" data-fal-field="seed" type="number" placeholder="random" aria-label="Krea seed"></label>
+                <label class="control-stack"><span class="object-title">LoRA scale</span><input class="control" data-fal-field="loras.0.scale" type="number" min="0" max="4" step="0.05" value="1" aria-label="Krea LoRA scale"></label>
+                <label class="control-stack"><span class="object-title">Acceleration</span><select class="select" data-fal-field="acceleration"><option selected>none</option><option>regular</option></select></label>
+                <label class="control-stack"><span class="object-title">Prompt expansion</span><select class="select" data-fal-field="enable_prompt_expansion"><option value="false" selected>disabled</option><option value="true">enabled</option></select></label>
+                <label class="control-stack"><span class="object-title">Safety checker</span><select class="select" data-fal-field="enable_safety_checker"><option value="true" selected>enabled</option><option value="false">disabled</option></select></label>
+                <label class="control-stack"><span class="object-title">Output format</span><select class="select" data-fal-field="output_format"><option value="png" selected>PNG</option><option value="jpeg">JPEG</option></select></label>
+              </div>
+            </div>
+
+            <div class="meta-list" data-od-id="endpoint-metadata-list">
+              <div class="meta-row"><span class="object-note">Endpoint ID</span><span class="object-title" id="endpoint-schema-id">ideogram/v4/lora</span></div>
+              <div class="meta-row"><span class="object-note">Prompt</span><span class="object-title">from each prompt-set row</span></div>
+              <div class="meta-row"><span class="object-note">LoRA path</span><span class="object-title">from selected model</span></div>
+              <div class="meta-row"><span class="object-note">Sync mode</span><span class="object-title">false · preserve request history</span></div>
+              <div class="meta-row"><span class="object-note">Images per prompt</span><span class="object-title" id="endpoint-image-count">1</span></div>
+            </div>
+          </section>
+
+          <section class="panel" data-od-id="prompt-set-builder-panel">
+            <div class="panel-head">
+              <div>
+                <div class="object-title">Prompt sets</div>
+                <div class="object-note">Editable ordered prompt objects generated through the connected LLM or maintained manually</div>
+              </div>
+            </div>
+            <div class="field-grid">
+              <label class="control-stack" data-od-id="field-prompt-set-name">
+                <span class="object-title">Prompt set name</span>
+                <input class="control" id="prompt-set-name" value="identity-proof-v3" aria-label="Prompt set name">
+              </label>
+              <label class="control-stack" data-od-id="field-llm-provider">
+                <span class="object-title">LLM provider</span>
+                <select class="select" id="llm-provider" aria-label="LLM provider"><option>Gemini caption LLM</option><option>OpenAI eval writer</option></select>
+              </label>
+              <label class="control-stack" data-od-id="field-load-prompt-set">
+                <span class="object-title">Load prompt set</span>
+                <select class="select" id="load-prompt-set" aria-label="Load prompt set">
+                  <option value="identity-proof-v3">identity-proof-v3.json</option>
+                  <option value="wardrobe-holdout">wardrobe-holdout.json</option>
+                  <option value="lighting-coverage">lighting-coverage.json</option>
+                </select>
+              </label>
+              <div class="control-stack load-prompt-action" data-od-id="load-prompt-set-action">
+                <span class="object-title">Action</span>
+                <button class="btn" id="load-prompt-set-button" data-od-id="button-load-prompt-set" type="button">Load prompt set</button>
+              </div>
+            </div>
+            <div class="prompt-generation-box" data-od-id="prompt-set-prompt-box">
+              <label class="control-stack" data-od-id="field-prompt-set-prompt">
+                <span class="object-title">Prompt set prompt</span>
+                <textarea class="prompt-textarea prompt-set-prompt-textarea" id="prompt-set-prompt" aria-label="Prompt set generation prompt">Generate identity-consistency prompts for Zapata Portrait Set. Vary pose, crop, lighting, and wardrobe while keeping the trigger word kzapata present.</textarea>
+              </label>
+              <button class="btn primary" id="llm-prompt-button" data-od-id="button-generate-prompt-set" type="button">Generate prompt set</button>
+            </div>
+            <div class="prompt-tools" data-od-id="prompt-tools-panel">
+              <div class="tool-grid">
+                <label class="tool-field" data-od-id="prompt-find-field">
+                  <span class="field-label">Find</span>
+                  <input class="control" id="prompt-find-input" value="studio" aria-label="Find prompt text">
+                </label>
+                <label class="tool-field" data-od-id="prompt-replace-field">
+                  <span class="field-label">Replace with</span>
+                  <input class="control" id="prompt-replace-input" value="controlled studio" aria-label="Replace prompt text">
+                </label>
+                <button class="btn primary" id="prompt-replace-button" data-od-id="button-replace-prompt-text" type="button">Replace</button>
+                <label class="tool-field" data-od-id="prompt-add-field">
+                  <span class="field-label">Add to prompt</span>
+                  <input class="control" id="prompt-add-input" value="identity lock" aria-label="Add to prompt">
+                </label>
+                <button class="btn primary" id="prompt-add-button" data-od-id="button-add-to-prompt" type="button">Add</button>
+              </div>
+              <div class="object-note prompt-status" id="prompt-status" data-od-id="prompt-operation-status">Ready. Prompt operations apply to the ordered rows below.</div>
+            </div>
+            <div class="prompt-file" data-od-id="prompt-set-file-row">
+              <span><span class="object-title">Prompt set file</span> <span class="object-note" id="prompt-file-path">evals/prompt-sets/identity-proof-v3</span></span>
+              <button class="btn" id="save-prompt-set" data-od-id="button-save-prompt-set" type="button">Save prompt set</button>
+            </div>
+          </section>
+
+          <section class="prompt-object-list" data-od-id="prompt-object-list" aria-label="Ordered prompt objects">
+            <article class="prompt-row" data-prompt-row data-od-id="prompt-row-front">
+              <span class="prompt-index">01</span>
+              <label class="control-stack"><span class="object-title">Prompt id</span><input class="control" data-prompt-id value="front" aria-label="Prompt id front"></label>
+              <label class="control-stack"><span class="object-title">Prompt text</span><textarea class="prompt-textarea" data-prompt-field aria-label="Prompt text front">kzapata portrait, direct gaze, neutral studio sweep</textarea></label>
+              <div class="prompt-row-actions">
+                <button class="btn" data-move-prompt="up" type="button" aria-label="Move prompt up">Up</button>
+                <button class="btn" data-move-prompt="down" type="button" aria-label="Move prompt down">Down</button>
+              </div>
+            </article>
+            <article class="prompt-row" data-prompt-row data-od-id="prompt-row-three-quarter">
+              <span class="prompt-index">02</span>
+              <label class="control-stack"><span class="object-title">Prompt id</span><input class="control" data-prompt-id value="three-quarter" aria-label="Prompt id three-quarter"></label>
+              <label class="control-stack"><span class="object-title">Prompt text</span><textarea class="prompt-textarea" data-prompt-field aria-label="Prompt text three-quarter">kzapata three-quarter portrait, soft key light, dark jacket</textarea></label>
+              <div class="prompt-row-actions">
+                <button class="btn" data-move-prompt="up" type="button" aria-label="Move prompt up">Up</button>
+                <button class="btn" data-move-prompt="down" type="button" aria-label="Move prompt down">Down</button>
+              </div>
+            </article>
+            <article class="prompt-row" data-prompt-row data-od-id="prompt-row-wardrobe-holdout">
+              <span class="prompt-index">03</span>
+              <label class="control-stack"><span class="object-title">Prompt id</span><input class="control" data-prompt-id value="wardrobe-holdout" aria-label="Prompt id wardrobe holdout"></label>
+              <label class="control-stack"><span class="object-title">Prompt text</span><textarea class="prompt-textarea" data-prompt-field aria-label="Prompt text wardrobe holdout">kzapata in red jacket, outdoor overcast street, editorial frame</textarea></label>
+              <div class="prompt-row-actions">
+                <button class="btn" data-move-prompt="up" type="button" aria-label="Move prompt up">Up</button>
+                <button class="btn" data-move-prompt="down" type="button" aria-label="Move prompt down">Down</button>
+              </div>
+            </article>
+          </section>
+
+        </div>
+      </main>
+
+      <aside class="inspector" data-od-id="right-inspector">
+        <button class="side-collapse-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="eval-context-metadata">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Eval metadata</div>
+              <div class="object-note">Context changes with selected model or prompt set</div>
+            </div>
+          </div>
+          <div class="meta-list">
+            <div class="meta-row"><span class="object-note">Project</span><span class="object-title">Zapata Portrait Set</span></div>
+            <div class="meta-row"><span class="object-note">Model</span><span class="object-title" id="inspector-model">zapata-v6</span></div>
+            <div class="meta-row"><span class="object-note">FAL uploaded</span><span class="object-title" id="inspector-fal">yes</span></div>
+            <div class="meta-row"><span class="object-note">Endpoint</span><span class="object-title" id="inspector-endpoint">Ideogram 4</span></div>
+            <div class="meta-row"><span class="object-note">Eval type</span><span class="object-title" id="inspector-eval-type">Prompt set</span></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="eval-generation-queue">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Generation queue</div>
+              <div class="object-note">Prompt-set eval draft</div>
+            </div>
+            <a class="btn" data-od-id="button-open-eval-results" href="eval-viewer.html">Results</a>
+          </div>
+          <div class="queue-list">
+            <div class="queue-row" data-od-id="queue-eval-object"><span class="object-note">Eval object</span><span class="object-title">identity-proof-v3</span></div>
+            <div class="queue-row" data-od-id="queue-endpoint"><span class="object-note">Endpoint</span><span class="object-title" id="queue-endpoint-label">Ideogram 4</span></div>
+            <div class="queue-row" data-od-id="queue-estimate"><span class="object-note">Estimate</span><span class="object-title">6 images</span></div>
+            <div class="queue-row" data-od-id="queue-generation-state"><span class="object-note">Status</span><span class="object-title">ready</span></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="eval-activity-feed">
+          <div>
+            <div class="object-title">Activity feed</div>
+            <div class="object-note">Scoped to the selected eval draft</div>
+          </div>
+          <div class="activity-list" id="activity-list">
+            <div class="queue-row" data-od-id="activity-model-url"><span class="object-note">Model URL</span><span class="object-title">loaded</span></div>
+            <div class="queue-row" data-od-id="activity-prompt-set"><span class="object-note">Prompt set</span><span class="object-title">loaded</span></div>
+            <div class="queue-row" data-od-id="activity-eval-draft"><span class="object-note">Eval draft</span><span class="object-title">ready</span></div>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const endpoints = {
+        ideogram: {
+          label: "Ideogram 4 LoRA",
+          id: "ideogram/v4/lora",
+          summary: "Text-to-image with Ideogram V4.0q and up to three LoRA weights"
+        },
+        krea: {
+          label: "Krea 2 Turbo LoRA",
+          id: "fal-ai/krea-2/turbo/lora",
+          summary: "Text-to-image with the distilled Krea 2 Turbo checkpoint and LoRA weights"
+        }
+      };
+
+      const modelMeta = {
+        "zapata-ideogram-v4": { label: "zapata-v6", uploaded: true, handle: "https://fal.media/loras/zapata-v6.safetensors" },
+        "zapata-krea2-v2": { label: "zapata-krea2-v2", uploaded: true, handle: "https://fal.media/loras/zapata-krea2-v2.safetensors" },
+        "zapata-krea2-draft": { label: "zapata-krea2-draft", uploaded: false, handle: "not uploaded" }
+      };
+
+      const endpointSelect = document.getElementById("endpoint-select");
+      const endpointSummary = document.getElementById("endpoint-summary");
+      const endpointSchemaId = document.getElementById("endpoint-schema-id");
+      const endpointImageCount = document.getElementById("endpoint-image-count");
+      const queueEndpoint = document.getElementById("queue-endpoint-label");
+      const inspectorEndpoint = document.getElementById("inspector-endpoint");
+      const modelSelect = document.getElementById("model-select");
+      const statusDot = document.getElementById("fal-status-dot");
+      const statusLabel = document.getElementById("fal-status-label");
+      const falHandle = document.getElementById("fal-handle");
+      const inspectorModel = document.getElementById("inspector-model");
+      const inspectorFal = document.getElementById("inspector-fal");
+      const promptName = document.getElementById("prompt-set-name");
+      const promptSetPrompt = document.getElementById("prompt-set-prompt");
+      const loadPromptSetSelect = document.getElementById("load-prompt-set");
+      const promptFilePath = document.getElementById("prompt-file-path");
+      const promptList = document.querySelector("[data-od-id='prompt-object-list']");
+      const promptStatus = document.getElementById("prompt-status");
+      const activityList = document.getElementById("activity-list");
+
+      const promptSetLibrary = {
+        "identity-proof-v3": {
+          name: "identity-proof-v3",
+          generationPrompt: "Generate identity-consistency prompts for Zapata Portrait Set. Vary pose, crop, lighting, and wardrobe while keeping the trigger word kzapata present.",
+          items: [
+            { id: "front", prompt: "kzapata portrait, direct gaze, neutral studio sweep" },
+            { id: "three-quarter", prompt: "kzapata three-quarter portrait, soft key light, dark jacket" },
+            { id: "wardrobe-holdout", prompt: "kzapata in red jacket, outdoor overcast street, editorial frame" }
+          ]
+        },
+        "wardrobe-holdout": {
+          name: "wardrobe-holdout",
+          generationPrompt: "Generate wardrobe holdout prompts that test whether kzapata remains consistent across jackets, coats, and color changes.",
+          items: [
+            { id: "black-jacket", prompt: "kzapata portrait, black jacket, neutral background, sharp facial detail" },
+            { id: "red-jacket", prompt: "kzapata portrait, red jacket, overcast exterior, editorial crop" },
+            { id: "white-shirt", prompt: "kzapata waist-up portrait, white shirt, clean studio sweep" }
+          ]
+        },
+        "lighting-coverage": {
+          name: "lighting-coverage",
+          generationPrompt: "Generate lighting coverage prompts for kzapata across softbox, window, rim, low-key, and outdoor light.",
+          items: [
+            { id: "softbox", prompt: "kzapata portrait, large softbox key light, clean grey sweep" },
+            { id: "window-light", prompt: "kzapata three-quarter portrait, north window light, shallow depth" },
+            { id: "rim-light", prompt: "kzapata side profile, subtle rim light, dark shirt, plain backdrop" }
+          ]
+        }
+      };
+
+      function addActivity(label, value) {
+        const row = document.createElement("div");
+        row.className = "queue-row";
+        row.innerHTML = `<span class="object-note"></span><span class="object-title"></span>`;
+        row.querySelector(".object-note").textContent = label;
+        row.querySelector(".object-title").textContent = value;
+        activityList.prepend(row);
+      }
+
+      function syncEndpoint() {
+        const data = endpoints[endpointSelect.value];
+        document.querySelectorAll("[data-endpoint-fields]").forEach((fields) => {
+          fields.hidden = fields.dataset.endpointFields !== endpointSelect.value;
+        });
+        endpointSummary.textContent = data.summary;
+        endpointSchemaId.textContent = data.id;
+        queueEndpoint.textContent = data.label;
+        inspectorEndpoint.textContent = data.label;
+        Array.from(modelSelect.options).forEach((option) => {
+          const compatible = option.dataset.compatibleEndpoint === endpointSelect.value;
+          option.hidden = !compatible;
+          option.disabled = !compatible;
+        });
+        if (modelSelect.selectedOptions[0]?.disabled) {
+          const compatible = Array.from(modelSelect.options).find((option) => !option.disabled);
+          if (compatible) modelSelect.value = compatible.value;
+        }
+        syncModel();
+        syncImageCount();
+      }
+
+      function syncImageCount() {
+        const visibleFields = document.querySelector(`[data-endpoint-fields="${endpointSelect.value}"]`);
+        endpointImageCount.textContent = visibleFields?.querySelector("[data-image-count]")?.value || "1";
+      }
+
+      function syncModel() {
+        const data = modelMeta[modelSelect.value];
+        statusDot.classList.toggle("ready", data.uploaded);
+        statusLabel.textContent = data.uploaded ? "Uploaded" : "Needs upload";
+        falHandle.textContent = data.handle;
+        inspectorModel.textContent = data.label;
+        inspectorFal.textContent = data.uploaded ? "yes" : "no";
+      }
+
+      endpointSelect.addEventListener("change", () => {
+        syncEndpoint();
+        addActivity("Endpoint", endpoints[endpointSelect.value].label);
+      });
+
+      modelSelect.addEventListener("change", () => {
+        syncModel();
+        addActivity("Model selected", modelMeta[modelSelect.value].label);
+      });
+
+      document.querySelectorAll("[data-image-count]").forEach((field) => {
+        field.addEventListener("input", syncImageCount);
+      });
+
+      document.querySelectorAll("[data-image-size-select]").forEach((select) => {
+        const syncCustomSize = () => {
+          select.closest("[data-endpoint-fields]").querySelectorAll("[data-custom-size-field]").forEach((field) => {
+            field.hidden = select.value !== "custom";
+          });
+        };
+        select.addEventListener("change", syncCustomSize);
+        syncCustomSize();
+      });
+
+      function promptRows() {
+        return Array.from(document.querySelectorAll("[data-prompt-row]"));
+      }
+
+      function updatePromptOrder() {
+        promptRows().forEach((row, index) => {
+          row.querySelector(".prompt-index").textContent = String(index + 1).padStart(2, "0");
+        });
+      }
+
+      function createPromptRow(item, index) {
+        const row = document.createElement("article");
+        row.className = "prompt-row";
+        row.dataset.promptRow = "";
+        row.dataset.odId = `prompt-row-${item.id}`;
+        row.innerHTML = `
+          <span class="prompt-index">${String(index + 1).padStart(2, "0")}</span>
+          <label class="control-stack"><span class="object-title">Prompt id</span><input class="control" data-prompt-id aria-label="Prompt id"></label>
+          <label class="control-stack"><span class="object-title">Prompt text</span><textarea class="prompt-textarea" data-prompt-field aria-label="Prompt text"></textarea></label>
+          <div class="prompt-row-actions">
+            <button class="btn" data-move-prompt="up" type="button" aria-label="Move prompt up">Up</button>
+            <button class="btn" data-move-prompt="down" type="button" aria-label="Move prompt down">Down</button>
+          </div>
+        `;
+        row.querySelector("[data-prompt-id]").value = item.id;
+        row.querySelector("[data-prompt-field]").value = item.prompt;
+        return row;
+      }
+
+      function setPromptRows(items) {
+        promptList.replaceChildren(...items.map(createPromptRow));
+        updatePromptOrder();
+      }
+
+      function activePromptFields() {
+        return promptRows().map((row) => row.querySelector("[data-prompt-field]"));
+      }
+
+      function syncPromptFilePath() {
+        const slug = promptName.value.trim() || "untitled-prompt-set";
+        promptFilePath.textContent = `evals/prompt-sets/${slug}`;
+      }
+
+      function generatedPromptRows(instruction) {
+        const base = instruction.replace(/\s+/g, " ").replace(/\.$/, "").trim();
+        const context = base || "identity consistency coverage";
+        return [
+          { id: "identity-front", prompt: `kzapata portrait, direct gaze, ${context}, neutral studio sweep` },
+          { id: "identity-three-quarter", prompt: `kzapata three-quarter portrait, ${context}, soft key light` },
+          { id: "identity-profile", prompt: `kzapata side profile, ${context}, plain grey backdrop` },
+          { id: "wardrobe-holdout", prompt: `kzapata portrait, wardrobe variation, ${context}, editorial crop` },
+          { id: "lighting-holdout", prompt: `kzapata portrait, lighting variation, ${context}, clean facial detail` },
+          { id: "distance-holdout", prompt: `kzapata waist-up portrait, wider crop, ${context}, neutral background` }
+        ];
+      }
+
+      promptList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-move-prompt]");
+        if (!button) return;
+        const row = button.closest("[data-prompt-row]");
+        if (button.dataset.movePrompt === "up" && row.previousElementSibling) {
+          promptList.insertBefore(row, row.previousElementSibling);
+        }
+        if (button.dataset.movePrompt === "down" && row.nextElementSibling) {
+          promptList.insertBefore(row.nextElementSibling, row);
+        }
+        updatePromptOrder();
+        promptStatus.textContent = "Prompt order updated.";
+      });
+
+      document.getElementById("load-prompt-set-button").addEventListener("click", () => {
+        const savedSet = promptSetLibrary[loadPromptSetSelect.value];
+        if (!savedSet) return;
+        promptName.value = savedSet.name;
+        promptSetPrompt.value = savedSet.generationPrompt;
+        setPromptRows(savedSet.items);
+        syncPromptFilePath();
+        promptStatus.textContent = `Loaded ${savedSet.items.length} prompt objects from ${savedSet.name}.`;
+        addActivity("Prompt set", `loaded ${savedSet.name}`);
+      });
+
+      document.getElementById("llm-prompt-button").addEventListener("click", () => {
+        const instruction = promptSetPrompt.value.trim();
+        if (!instruction) {
+          promptStatus.textContent = "Enter a prompt-set prompt before generating.";
+          return;
+        }
+        setPromptRows(generatedPromptRows(instruction));
+        syncPromptFilePath();
+        promptStatus.textContent = `Generated 6 editable prompt objects for ${promptName.value.trim() || "llm-generated-eval"}.`;
+        addActivity("Prompt set", "generated from prompt");
+      });
+
+      document.getElementById("prompt-replace-button").addEventListener("click", () => {
+        const find = document.getElementById("prompt-find-input").value;
+        const replace = document.getElementById("prompt-replace-input").value;
+        if (!find) {
+          promptStatus.textContent = "Enter prompt text to find before replacing.";
+          return;
+        }
+        let changed = 0;
+        activePromptFields().forEach((field) => {
+          if (field.value.includes(find)) {
+            field.value = field.value.split(find).join(replace);
+            changed += 1;
+          }
+        });
+        promptStatus.textContent = `Replaced prompt text in ${changed} ordered rows.`;
+      });
+
+      document.getElementById("prompt-add-button").addEventListener("click", () => {
+        const phrase = document.getElementById("prompt-add-input").value.trim();
+        if (!phrase) {
+          promptStatus.textContent = "Enter a phrase before adding it to prompts.";
+          return;
+        }
+        let changed = 0;
+        activePromptFields().forEach((field) => {
+          const normalized = field.value.toLowerCase();
+          if (!normalized.includes(phrase.toLowerCase())) {
+            field.value = `${field.value.replace(/\s+$/, "")}, ${phrase}`;
+            changed += 1;
+          }
+        });
+        promptStatus.textContent = `Added "${phrase}" to ${changed} prompt rows.`;
+      });
+
+      document.getElementById("save-prompt-set").addEventListener("click", () => {
+        syncPromptFilePath();
+        addActivity("Prompt set", `saved ${promptRows().length} prompts`);
+        document.getElementById("inspector-eval-type").textContent = "Prompt set";
+        promptStatus.textContent = `${promptName.value.trim() || "Prompt set"} saved as an Eval object.`;
+      });
+
+      promptName.addEventListener("input", syncPromptFilePath);
+
+      document.getElementById("generate-selected").addEventListener("click", () => {
+        const canGenerate = modelMeta[modelSelect.value].uploaded;
+        addActivity("Generation", canGenerate ? "queued" : "blocked");
+        statusLabel.textContent = canGenerate ? statusLabel.textContent : "Upload required";
+      });
+
+      function bindSidebarToggle(id, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        const sync = () => {
+          const collapsed = document.body.classList.contains(className);
+          toggle.textContent = collapsed ? expandText : collapseText;
+          toggle.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+          toggle.setAttribute("aria-pressed", String(collapsed));
+        };
+        toggle.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      const closeAll = () => {
+        menus.forEach((wrap) => {
+          wrap.querySelector("[data-create-panel]").classList.remove("open");
+          wrap.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+        });
+      };
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = panel.classList.toggle("open");
+          trigger.setAttribute("aria-expanded", String(open));
+          menus.filter((item) => item !== wrap).forEach((item) => {
+            item.querySelector("[data-create-panel]").classList.remove("open");
+            item.querySelector("[data-create-trigger]").setAttribute("aria-expanded", "false");
+          });
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      const requestedEndpoint = new URLSearchParams(window.location.search).get("endpoint");
+      if (requestedEndpoint && endpoints[requestedEndpoint]) endpointSelect.value = requestedEndpoint;
+      syncEndpoint();
+      syncModel();
+    })();
+  </script>
+</body>
+</html>

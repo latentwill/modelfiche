@@ -1,0 +1,1461 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Model Detail</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 320px;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --radius-xs: 7px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: var(--inspector);
+    }
+
+    body.sidebar-left-collapsed {
+      --left-sidebar-width: 52px;
+    }
+
+    body.sidebar-right-collapsed {
+      --right-inspector-width: 52px;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wireframe {
+      position: relative;
+      max-width: 1440px;
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group,
+    .actions,
+    .search,
+    .meta-row,
+    .panel-head,
+    .run-row {
+      display: flex;
+      align-items: center;
+    }
+
+    .workspace-group,
+    .actions {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .workspace-switcher,
+    .search,
+    .btn,
+    .icon-btn,
+    .avatar {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .status-dot {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      background: var(--active);
+      border-color: var(--active);
+      border-radius: var(--radius-xs);
+    }
+
+    .crumbs {
+      min-width: 0;
+    }
+
+    .search {
+      height: 34px;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      background: var(--block);
+      min-width: 0;
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: var(--radius-xs);
+      flex-shrink: 0;
+    }
+
+    .actions {
+      justify-content: flex-end;
+    }
+
+    .btn,
+    .icon-btn,
+    .avatar {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .btn {
+      padding: 0 12px;
+    }
+
+    .btn.primary,
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .icon-btn,
+    .avatar {
+      width: 32px;
+      padding: 0;
+    }
+
+    .plus-btn {
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .create-menu.open {
+      display: grid;
+    }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      text-decoration: none;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      outline: none;
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      line-height: 1.2;
+    }
+
+    .create-menu-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .avatar {
+      border-radius: 50%;
+      background: var(--block);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      min-height: calc(100vh - 40px - var(--topbar));
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .main,
+    .inspector {
+      min-width: 0;
+    }
+
+    .sidebar {
+      position: relative;
+      border-right: 1px solid var(--ink);
+      background: #f2f2f4;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      transition: padding 180ms ease;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      align-self: flex-end;
+      margin-bottom: 12px;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      overflow: hidden;
+      padding: 12px 9px;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      position: absolute;
+      top: 112px;
+      left: 50%;
+      transform: translateX(-50%) rotate(-90deg);
+      transform-origin: center;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after {
+      content: "NAVIGATION";
+    }
+
+    body.sidebar-right-collapsed .inspector::after {
+      content: "METADATA";
+    }
+
+    .nav-section + .nav-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 12px 4px;
+      color: var(--muted);
+    }
+
+    .nav-item {
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) minmax(0, 26px);
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      margin-bottom: 6px;
+    }
+
+    .nav-item.active {
+      background: var(--active);
+      color: var(--surface);
+      border-color: var(--ink);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--surface);
+      border-color: var(--surface);
+    }
+
+    .project-tree {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .project-root {
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      margin-bottom: 2px;
+    }
+
+    .tree-caret {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .nav-branch {
+      display: grid;
+      gap: 4px;
+      margin: 0 0 8px 26px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .nav-group-label {
+      min-height: 18px;
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .nav-child {
+      min-height: 28px;
+      grid-template-columns: 14px minmax(0, 1fr) minmax(0, 24px);
+      gap: 8px;
+      margin-bottom: 0;
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: var(--radius-xs);
+    }
+
+    .nav-child .square {
+      width: 10px;
+      height: 10px;
+      border-radius: var(--radius-xs);
+    }
+
+    .badge {
+      width: 20px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .storage {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .meter {
+      height: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .meter span {
+      display: block;
+      width: 43%;
+      height: 100%;
+      background: var(--ink);
+      border-radius: inherit;
+    }
+
+    .main {
+      display: grid;
+      gap: 16px;
+      padding: 22px;
+      background: var(--surface);
+    }
+
+    .page-header,
+    .panel,
+    .inspector-card,
+    .eval-card,
+    .run-card {
+      border: 1px solid var(--line);
+      background: #fbfbfc;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .page-header {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .page-header .meta-grid {
+      grid-column: 1 / -1;
+    }
+
+    .title-block,
+    .panel,
+    .eval-card,
+    .run-card,
+    .inspector-card {
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel,
+    .eval-card,
+    .run-card,
+    .inspector-card {
+      padding: 14px;
+    }
+
+    .panel-head {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .chip-row,
+    .meta-grid,
+    .eval-grid,
+    .image-strip,
+    .run-grid,
+    .sample-grid,
+    .tree-list,
+    .note-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .meta-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .meta-row {
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+    }
+
+    .eval-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .eval-card {
+      background: var(--surface);
+    }
+
+    .image-strip {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .image-placeholder,
+    .sample-thumb {
+      min-height: 86px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .prompt-row,
+    .dataset-link,
+    .run-row {
+      min-height: 30px;
+      border: 1px solid var(--line);
+      background: var(--block);
+      padding: 7px 9px;
+      justify-content: space-between;
+      gap: 10px;
+      border-radius: var(--radius-sm);
+    }
+
+    .run-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .training-run-line {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    .training-run-toggle {
+      width: 100%;
+      min-height: 36px;
+      display: grid;
+      grid-template-columns: minmax(56px, 72px) minmax(0, 1fr) minmax(72px, 88px) minmax(56px, 70px);
+      gap: 10px;
+      align-items: center;
+      padding: 0 10px;
+      border: 0;
+      background: var(--block);
+      border-radius: inherit;
+      text-align: left;
+    }
+
+    .training-run-toggle:focus {
+      outline: 1px solid var(--ink);
+      outline-offset: -1px;
+    }
+
+    .training-run-details {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+      gap: 10px;
+      padding: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    .training-run-line:not(.open) .training-run-details {
+      display: none;
+    }
+
+    .training-run-detail-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .loss-chart {
+      width: 100%;
+      height: 132px;
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+
+    .sample-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .inspector {
+      position: relative;
+      border-left: 1px solid var(--ink);
+      background: #f4f4f6;
+      padding: 18px 14px;
+      display: grid;
+      grid-auto-rows: max-content;
+      align-content: start;
+      gap: 14px;
+      transition: padding 180ms ease;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      justify-self: end;
+      grid-column: 1 / -1;
+    }
+
+    .tree-node {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 8px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+    }
+
+    .tree-node.active {
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .tree-branch {
+      margin-left: 14px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+      display: grid;
+      gap: 8px;
+    }
+
+    .notes-card {
+      gap: 10px;
+    }
+
+    .notes-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .notes-context-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .notes-context {
+      min-height: 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      text-align: left;
+      color: var(--ink);
+    }
+
+    .notes-context.active {
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .notes-context .object-note {
+      text-align: right;
+    }
+
+    .note-toolbar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .notes-card .note-toolbar {
+      gap: 4px;
+      align-items: center;
+    }
+
+    .note-tool-button {
+      min-width: 30px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 11px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+    }
+
+    .notes-card .note-tool-button {
+      min-width: 26px;
+      height: 26px;
+      padding: 0 7px;
+    }
+
+    .notes-card .btn {
+      height: 26px;
+      padding: 0 8px;
+    }
+
+    .note-tool-button[data-md-action="italic"] {
+      font-style: italic;
+    }
+
+    .note-tool-button[data-md-action="underline"] {
+      text-decoration: underline;
+    }
+
+    .note-tool-button[data-md-action="strike"] {
+      text-decoration: line-through;
+    }
+
+    .note-input {
+      width: 100%;
+      min-height: 86px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--page);
+      color: var(--ink);
+      padding: 9px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .notes-card .note-input {
+      min-height: 64px;
+      padding: 8px;
+    }
+
+    .note-item {
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--block);
+      padding: 9px;
+      display: grid;
+      gap: 6px;
+      color: var(--ink);
+    }
+
+    .notes-card .note-list {
+      gap: 6px;
+    }
+
+    .notes-card .note-item {
+      padding: 7px;
+      gap: 4px;
+    }
+
+    .note-item.active {
+      border-color: var(--ink);
+      background: var(--surface);
+    }
+
+    .note-meta {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: normal;
+    }
+
+    .note-body {
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--ink);
+      white-space: pre-wrap;
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 4;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.2;
+      background: rgba(247, 247, 248, 0.94);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-xs);
+      padding: 5px 7px;
+      white-space: nowrap;
+    }
+
+    .redline.eval-note {
+      top: 208px;
+      left: calc(var(--sidebar) + 56px);
+    }
+
+    .redline.training-note {
+      bottom: 190px;
+      left: calc(var(--sidebar) + 56px);
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr);
+      }
+
+      .inspector {
+        grid-column: 1 / -1;
+        border-left: 0;
+        border-top: 1px solid var(--ink);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .eval-grid,
+      .run-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .redline {
+        display: none;
+      }
+    }
+
+    @media (max-width: 860px) {
+      body {
+        padding: 0;
+      }
+
+      .wireframe {
+        border-left: 0;
+        border-right: 0;
+      }
+
+      .topbar,
+      .shell,
+      .meta-grid,
+      .inspector {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        height: auto;
+        min-height: var(--topbar);
+        padding: 10px;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .main,
+      .inspector {
+        padding: 14px;
+      }
+
+      .image-strip,
+      .sample-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .training-run-toggle,
+      .training-run-details {
+        grid-template-columns: 1fr;
+        height: auto;
+        padding: 10px;
+      }
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="models-wireframe">
+    <div class="redline eval-note">01 - eval runs first</div>
+    <div class="redline training-note">02 - training data below eval</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="workspace-group" data-od-id="workspace-switcher-zone">
+        <div class="workspace-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set / Models / zapata-v6.safetensors</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search model files, evals, datasets...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></a>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <div class="nav-item nav-child active" data-od-id="nav-project-model-zapata-v6"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span class="badge"></span></div>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="models.html#model-eval-runs"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="models.html#model-eval-runs"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+          <div class="object-title">Storage</div>
+          <div class="meter"><span></span></div>
+          <div class="object-note">42.8 GB / 100 GB</div>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="models-main-content">
+        <section class="page-header" data-od-id="model-metadata-header">
+          <div class="title-block">
+            <div class="object-title" style="font-size: 18px;">Model: zapata-v6.safetensors</div>
+            <div class="object-note">Model artifact produced from project-contained dataset v6 and training run 019.</div>
+          </div>
+          <div class="chip-row" data-od-id="model-header-actions">
+            <a class="btn" data-od-id="button-open-dataset" href="dataset.html">Dataset</a>
+            <a class="btn" data-od-id="button-open-eval-viewer-header" href="eval-viewer.html">Eval viewer</a>
+            <a class="btn" data-od-id="button-export-model" href="transfers.html">Export</a>
+            <a class="btn primary" data-od-id="button-run-eval" href="eval-generator.html">Run Eval</a>
+          </div>
+          <div class="meta-grid" data-od-id="model-top-metadata">
+            <div class="meta-row" data-od-id="model-file-name"><span class="object-note">File name</span><span class="object-title">zapata-v6.safetensors</span></div>
+            <div class="meta-row" data-od-id="model-base-model"><span class="object-note">Base model</span><span class="object-title">SDXL portrait base</span></div>
+            <div class="meta-row" data-od-id="model-dataset-used"><span class="object-note">Dataset used</span><a class="object-title" href="dataset.html">Dataset v6</a></div>
+          </div>
+        </section>
+
+        <section class="panel" id="model-eval-runs" data-od-id="model-eval-runs-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Eval runs</div>
+              <div class="object-note">Each eval is an object with generated FAL images, prompt set, and linked dataset.</div>
+            </div>
+            <div class="actions" data-od-id="eval-header-actions">
+              <a class="btn" data-od-id="button-open-eval-generator" href="eval-generator.html">Generate eval</a>
+              <a class="btn" data-od-id="button-open-grid-generator" href="grid-generator.html">Generate grid</a>
+              <a class="btn" data-od-id="button-open-eval-viewer" href="eval-viewer.html">Open viewer</a>
+            </div>
+          </div>
+
+          <div class="eval-grid" data-od-id="eval-runs-grid">
+            <article class="eval-card" data-od-id="eval-run-identity-proof-v2">
+              <div class="panel-head">
+                <div>
+                  <div class="object-title">Eval 2026-07-09 A</div>
+                  <div class="object-note">FAL inference batch · selected model artifact</div>
+                </div>
+                <a class="meta-chip" data-od-id="eval-identity-proof-viewer-link" href="eval-viewer.html">view prompt set</a>
+              </div>
+              <div class="image-strip" data-od-id="eval-images-identity-proof-v2">
+                <div class="image-placeholder" data-od-id="eval-image-a1"></div>
+                <div class="image-placeholder" data-od-id="eval-image-a2"></div>
+                <div class="image-placeholder" data-od-id="eval-image-a3"></div>
+                <div class="image-placeholder" data-od-id="eval-image-a4"></div>
+              </div>
+              <div class="prompt-row" data-od-id="eval-prompt-set-identity-proof-v2">
+                <span class="object-note">Prompt Set used</span>
+                <span class="object-title">Identity proof v2</span>
+              </div>
+              <a class="dataset-link" data-od-id="eval-dataset-link-identity-proof-v2" href="dataset.html">
+                <span class="object-note">Dataset link</span>
+                <span class="object-title">Dataset v6</span>
+              </a>
+            </article>
+
+            <article class="eval-card" data-od-id="eval-run-wardrobe-holdout">
+              <div class="panel-head">
+                <div>
+                  <div class="object-title">Eval 2026-07-08 B</div>
+                  <div class="object-note">FAL inference batch · holdout prompt comparison</div>
+                </div>
+                <a class="meta-chip" data-od-id="eval-wardrobe-viewer-link" href="eval-viewer.html">view prompt set</a>
+              </div>
+              <div class="image-strip" data-od-id="eval-images-wardrobe-holdout">
+                <div class="image-placeholder" data-od-id="eval-image-b1"></div>
+                <div class="image-placeholder" data-od-id="eval-image-b2"></div>
+                <div class="image-placeholder" data-od-id="eval-image-b3"></div>
+                <div class="image-placeholder" data-od-id="eval-image-b4"></div>
+              </div>
+              <div class="prompt-row" data-od-id="eval-prompt-set-wardrobe-holdout">
+                <span class="object-note">Prompt Set used</span>
+                <span class="object-title">Wardrobe holdout v1</span>
+              </div>
+              <a class="dataset-link" data-od-id="eval-dataset-link-wardrobe-holdout" href="dataset.html">
+                <span class="object-note">Dataset link</span>
+                <span class="object-title">Dataset v6</span>
+              </a>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel" id="training-run-data-panel" data-od-id="training-run-data-panel">
+          <div class="panel-head">
+            <div>
+              <div class="object-title">Training run data</div>
+              <div class="object-note">Training details sit below Eval so generated outputs stay primary.</div>
+            </div>
+            <div class="chip-row" data-od-id="training-run-header-actions">
+              <span class="meta-chip">Run 019 · complete</span>
+              <a class="btn" data-od-id="button-open-run-import" href="run-import.html">Run import</a>
+              <a class="btn" data-od-id="button-open-sample-viewer" href="sample-viewer.html">Sample viewer</a>
+            </div>
+          </div>
+
+          <div class="run-grid" data-od-id="training-run-grid">
+            <article class="training-run-line" data-od-id="training-run-019">
+              <button class="training-run-toggle" type="button" data-training-run-toggle aria-expanded="false" aria-controls="training-run-019-details" data-od-id="training-run-019-toggle">
+                <span class="object-title">Run 019</span>
+                <span class="object-note">zapata-v6.safetensors</span>
+                <span class="object-note">Dataset v6</span>
+                <span class="object-title" data-run-toggle-label>Expand</span>
+              </button>
+              <div class="training-run-details" id="training-run-019-details">
+                <div class="training-run-detail-stack">
+                  <div class="run-row" data-od-id="training-run-019-file">
+                    <span class="object-note">Artifact</span>
+                    <span class="object-title">zapata-v6.safetensors</span>
+                  </div>
+                  <div class="run-row" data-od-id="training-run-019-samples">
+                    <span class="object-note">Samples</span>
+                    <span class="object-title">24 review samples</span>
+                  </div>
+                  <div class="sample-grid" data-od-id="training-run-sample-grid">
+                    <div class="sample-thumb" data-od-id="training-sample-1"></div>
+                    <div class="sample-thumb" data-od-id="training-sample-2"></div>
+                    <div class="sample-thumb" data-od-id="training-sample-3"></div>
+                    <div class="sample-thumb" data-od-id="training-sample-4"></div>
+                  </div>
+                </div>
+                <div class="training-run-detail-stack">
+                  <div>
+                    <div class="object-title">Loss graph</div>
+                    <div class="object-note">Small training curve pinned to run 019.</div>
+                  </div>
+                  <svg class="loss-chart" data-od-id="training-loss-graph" viewBox="0 0 320 132" role="img" aria-label="Loss graph">
+                    <line x1="28" y1="16" x2="28" y2="110" stroke="#c9c9cf" stroke-width="1"></line>
+                    <line x1="28" y1="110" x2="296" y2="110" stroke="#c9c9cf" stroke-width="1"></line>
+                    <polyline points="32,30 72,48 112,60 152,73 192,82 232,91 272,98 294,101" fill="none" stroke="#1c1b1a" stroke-width="3"></polyline>
+                    <polyline points="32,42 72,62 112,77 152,88 192,94 232,100 272,104 294,106" fill="none" stroke="#696970" stroke-width="2" stroke-dasharray="5 5"></polyline>
+                    <rect x="38" y="18" width="48" height="8" fill="#d5d5da"></rect>
+                    <rect x="38" y="32" width="72" height="8" fill="#e3e3e6"></rect>
+                  </svg>
+                  <div class="run-row" data-od-id="training-loss-summary">
+                    <span class="object-note">Final loss</span>
+                    <span class="object-title">0.126</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="training-run-line" data-od-id="training-run-018">
+              <div class="training-run-toggle" data-od-id="training-run-018-line">
+                <span class="object-title">Run 018</span>
+                <span class="object-note">zapata-v5.safetensors</span>
+                <span class="object-note">Dataset v5</span>
+                <span class="object-title">Collapsed</span>
+              </div>
+            </article>
+
+            <article class="training-run-line" data-od-id="training-run-017">
+              <div class="training-run-toggle" data-od-id="training-run-017-line">
+                <span class="object-title">Run 017</span>
+                <span class="object-note">zapata-v5-draft.safetensors</span>
+                <span class="object-note">Dataset v5</span>
+                <span class="object-title">Collapsed</span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="right-context-panel">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+
+        <article class="inspector-card" data-od-id="model-context-metadata-card">
+          <div>
+            <div class="object-title">Model metadata</div>
+            <div class="object-note">Context follows selected model, eval, dataset, or training run.</div>
+          </div>
+          <div class="meta-row" data-od-id="inspector-model-file"><span class="object-note">File</span><span class="object-title">zapata-v6.safetensors</span></div>
+          <div class="meta-row" data-od-id="inspector-model-base"><span class="object-note">Base</span><span class="object-title">SDXL portrait base</span></div>
+          <div class="meta-row" data-od-id="inspector-model-dataset"><span class="object-note">Dataset</span><a class="object-title" href="dataset.html">Dataset v6</a></div>
+        </article>
+
+        <article class="inspector-card notes-card" data-od-id="model-notes-card" data-note-scope="model">
+          <div class="notes-head">
+            <div class="object-title">Notes</div>
+            <span class="object-note" data-note-status>2 previous notes</span>
+          </div>
+          <div class="notes-context-list" data-od-id="model-notes-contexts">
+            <div class="notes-context active" data-od-id="notes-context-model">
+              <span class="object-title">Model</span>
+              <span class="object-note">2 notes</span>
+            </div>
+            <div class="notes-context" data-od-id="notes-context-eval-a">
+              <span class="object-title">Eval 2026-07-09 A</span>
+              <span class="object-note">3 notes</span>
+            </div>
+            <div class="notes-context" data-od-id="notes-context-dataset-v6">
+              <span class="object-title">Dataset v6</span>
+              <span class="object-note">2 notes</span>
+            </div>
+          </div>
+          <div class="note-toolbar" data-od-id="model-note-toolbar">
+            <button class="note-tool-button" data-md-action="bold" data-od-id="model-note-bold" aria-label="Bold">B</button>
+            <button class="note-tool-button" data-md-action="italic" data-od-id="model-note-italic" aria-label="Italic">I</button>
+            <button class="note-tool-button" data-md-action="underline" data-od-id="model-note-underline" aria-label="Underline">U</button>
+            <button class="note-tool-button" data-md-action="strike" data-od-id="model-note-strike" aria-label="Strikethrough">S</button>
+            <button class="note-tool-button" data-md-action="bullet" data-od-id="model-note-bullets" aria-label="Bullets">Bullets</button>
+            <button class="btn primary" data-add-note data-od-id="model-add-note-button">Add Note</button>
+          </div>
+          <textarea class="note-input" data-note-input data-od-id="model-note-input" aria-label="Model note input" placeholder="Write markdown note...">Eval A needs one more prompt-set pass before marking v6 final.</textarea>
+          <div class="note-list" data-note-list data-od-id="model-previous-notes">
+            <button class="note-item active" data-note-item data-note-user="Ed Kennedy" data-note-date="Jul 9, 2026" data-note-text="Eval A needs one more prompt-set pass before marking v6 final." data-od-id="model-note-eval-followup">
+              <span class="object-title">Eval followup</span>
+              <span class="note-meta">Jul 9, 2026 - Ed Kennedy</span>
+              <span class="note-body">Eval A needs one more prompt-set pass before marking v6 final.</span>
+            </button>
+            <button class="note-item" data-note-item data-note-user="Ed Kennedy" data-note-date="Jul 8, 2026" data-note-text="Dataset v6 gave the cleanest face consistency so far." data-od-id="model-note-dataset-quality">
+              <span class="object-title">Dataset quality</span>
+              <span class="note-meta">Jul 8, 2026 - Ed Kennedy</span>
+              <span class="note-body">Dataset v6 gave the cleanest face consistency so far.</span>
+            </button>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      function applyMarkdown(input, action) {
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
+        const value = input.value;
+        const selected = value.slice(start, end) || "note";
+        let next = selected;
+
+        if (action === "bold") next = `**${selected}**`;
+        if (action === "italic") next = `*${selected}*`;
+        if (action === "underline") next = `<u>${selected}</u>`;
+        if (action === "strike") next = `~~${selected}~~`;
+        if (action === "bullet") next = selected.split("\n").map((line) => line.startsWith("- ") ? line : `- ${line}`).join("\n");
+
+        input.value = `${value.slice(0, start)}${next}${value.slice(end)}`;
+        input.focus();
+        input.setSelectionRange(start, start + next.length);
+      }
+
+      document.querySelectorAll("[data-note-scope]").forEach((scope) => {
+        const input = scope.querySelector("[data-note-input]");
+        const list = scope.querySelector("[data-note-list]");
+        const status = scope.querySelector("[data-note-status]");
+        const noteUser = "Ed Kennedy";
+        let count = list.querySelectorAll("[data-note-item]").length;
+
+        function selectNote(item) {
+          list.querySelectorAll("[data-note-item]").forEach((note) => note.classList.toggle("active", note === item));
+          input.value = item.dataset.noteText || item.querySelector(".note-body")?.textContent || "";
+          status.textContent = "Selected previous note.";
+        }
+
+        scope.querySelectorAll("[data-md-action]").forEach((button) => {
+          button.addEventListener("click", () => applyMarkdown(input, button.dataset.mdAction));
+        });
+
+        list.querySelectorAll("[data-note-item]").forEach((item) => {
+          item.addEventListener("click", () => selectNote(item));
+        });
+
+        scope.querySelector("[data-add-note]").addEventListener("click", () => {
+          const text = input.value.trim();
+          if (!text) {
+            status.textContent = "Write a note before adding.";
+            return;
+          }
+
+          count += 1;
+          const item = document.createElement("button");
+          item.className = "note-item active";
+          item.type = "button";
+          item.dataset.noteItem = "true";
+          item.dataset.noteText = text;
+          item.dataset.noteUser = noteUser;
+          item.dataset.noteDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          item.setAttribute("data-od-id", `model-note-added-${count}`);
+          const title = document.createElement("span");
+          title.className = "object-title";
+          title.textContent = `Note ${count}`;
+          const meta = document.createElement("span");
+          meta.className = "note-meta";
+          meta.textContent = `${item.dataset.noteDate} - ${noteUser}`;
+          const body = document.createElement("span");
+          body.className = "note-body";
+          body.textContent = text;
+          item.append(title, meta, body);
+          list.querySelectorAll("[data-note-item]").forEach((note) => note.classList.remove("active"));
+          item.addEventListener("click", () => selectNote(item));
+          list.prepend(item);
+          status.textContent = `${count} previous notes`;
+        });
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      function bindSidebarToggle(buttonId, className, expandedText, collapsedText, expandedLabel, collapsedLabel) {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+
+        function sync() {
+          const collapsed = document.body.classList.contains(className);
+          button.textContent = collapsed ? collapsedText : expandedText;
+          button.setAttribute("aria-pressed", String(collapsed));
+          button.setAttribute("aria-label", collapsed ? collapsedLabel : expandedLabel);
+        }
+
+        button.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+
+        sync();
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+    })();
+  </script>
+  <script>
+    (() => {
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      if (!menus.length) return;
+
+      const closeAll = (except) => {
+        menus.forEach((wrap) => {
+          if (wrap === except) return;
+          const trigger = wrap.querySelector("[data-create-trigger]");
+          const panel = wrap.querySelector("[data-create-panel]");
+          panel?.classList.remove("open");
+          trigger?.setAttribute("aria-expanded", "false");
+        });
+      };
+
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        const items = Array.from(wrap.querySelectorAll("[role='menuitem']"));
+        if (!trigger || !panel) return;
+
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const opening = !panel.classList.contains("open");
+          closeAll(wrap);
+          panel.classList.toggle("open", opening);
+          trigger.setAttribute("aria-expanded", String(opening));
+        });
+
+        trigger.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            closeAll(wrap);
+            panel.classList.add("open");
+            trigger.setAttribute("aria-expanded", "true");
+            items[0]?.focus();
+          }
+        });
+
+        items.forEach((item, index) => {
+          item.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              panel.classList.remove("open");
+              trigger.setAttribute("aria-expanded", "false");
+              trigger.focus();
+            }
+
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              items[(index + step + items.length) % items.length]?.focus();
+            }
+          });
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeAll();
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      document.querySelectorAll("[data-training-run-toggle]").forEach((button) => {
+        const detailsId = button.getAttribute("aria-controls");
+        const details = detailsId ? document.getElementById(detailsId) : null;
+        if (!details) return;
+
+        const row = button.closest(".training-run-line");
+        const label = button.querySelector("[data-run-toggle-label]");
+
+        button.addEventListener("click", () => {
+          const open = !row.classList.contains("open");
+          row.classList.toggle("open", open);
+          button.setAttribute("aria-expanded", String(open));
+          if (label) label.textContent = open ? "Collapse" : "Expand";
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

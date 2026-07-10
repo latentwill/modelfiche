@@ -1,0 +1,1818 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Greybox Wireframe - Visual Model Training Review DAM</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --radius: 10px;
+      --gap: 16px;
+      --sidebar: 240px;
+      --sidebar-collapsed: 52px;
+      --inspector: 304px;
+      --inspector-collapsed: 52px;
+      --topbar: 56px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+    }
+
+    body.sidebar-left-collapsed {
+      --sidebar: var(--sidebar-collapsed);
+    }
+
+    body.sidebar-right-collapsed {
+      --inspector: var(--inspector-collapsed);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .button-label {
+      font-size: 10px;
+      text-transform: none;
+    }
+
+    .wireframe {
+      position: relative;
+      max-width: 1440px;
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .topbar > * {
+      min-width: 0;
+    }
+
+    .project-group,
+    .actions,
+    .search {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .project-switcher {
+      width: 190px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--block);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      flex-shrink: 0;
+    }
+
+    .logo-block {
+      width: 22px;
+      height: 18px;
+      background: var(--ink);
+      border-radius: 3px;
+    }
+
+    .crumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .crumbs .bar {
+      height: 8px;
+      border-radius: 20px;
+      background: var(--block-2);
+    }
+
+    .search {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #f1f1f3;
+      padding: 0 10px;
+    }
+
+    .search .placeholder {
+      height: 8px;
+      flex: 1;
+      border-radius: 20px;
+      background: var(--block-2);
+    }
+
+    .keycap {
+      width: 38px;
+      height: 22px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .actions {
+      justify-content: flex-end;
+    }
+
+    .btn {
+      height: 32px;
+      min-width: 82px;
+      border: 1px solid var(--ink);
+      border-radius: 6px;
+      background: var(--block);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+    }
+
+    .btn.primary {
+      background: var(--ink);
+    }
+
+    .btn.primary .button-label {
+      color: var(--surface);
+    }
+
+    .icon-btn,
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--line);
+      background: var(--block);
+    }
+
+    .icon-btn {
+      border-radius: 6px;
+    }
+
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .create-menu.open {
+      display: grid;
+    }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      text-decoration: none;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      outline: none;
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      line-height: 1.2;
+    }
+
+    .create-menu-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .avatar {
+      border-radius: 999px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--inspector);
+      min-height: calc(100vh - 40px - var(--topbar));
+    }
+
+    .sidebar {
+      position: relative;
+      border-right: 1px solid var(--ink);
+      padding: 18px 14px;
+      background: #f2f2f4;
+    }
+
+    .side-collapse-toggle {
+      position: absolute;
+      top: 10px;
+      right: -12px;
+      z-index: 12;
+      width: 24px;
+      height: 24px;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 11px/1 var(--mono);
+      cursor: pointer;
+    }
+
+    .right-sidebar-toggle {
+      left: -12px;
+      right: auto;
+    }
+
+    body.sidebar-left-collapsed .sidebar,
+    body.sidebar-right-collapsed .inspector {
+      padding: 40px 8px 12px;
+      overflow: hidden;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle),
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      display: block;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.12em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      text-align: center;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after {
+      content: "NAVIGATION";
+    }
+
+    body.sidebar-right-collapsed .inspector::after {
+      content: "METADATA";
+    }
+
+    .nav-section + .nav-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-label {
+      width: 52px;
+      height: 7px;
+      margin: 0 0 12px 4px;
+      border-radius: 99px;
+      background: var(--block-2);
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 12px 4px;
+      color: var(--muted);
+    }
+
+    .nav-item {
+      height: 32px;
+      display: grid;
+      grid-template-columns: 18px 1fr minmax(0, 26px);
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+
+    .nav-item .square {
+      width: 14px;
+      height: 14px;
+      border: 1px solid var(--line);
+      background: var(--block);
+      border-radius: 3px;
+    }
+
+    .project-tree {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .project-root {
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      margin-bottom: 2px;
+    }
+
+    .tree-caret {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .nav-branch {
+      display: grid;
+      gap: 4px;
+      margin: 0 0 8px 26px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .nav-group-label {
+      min-height: 18px;
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .nav-child {
+      height: 28px;
+      grid-template-columns: 14px minmax(0, 1fr) minmax(0, 24px);
+      gap: 8px;
+      margin-bottom: 0;
+    }
+
+    .nav-child .square {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    .nav-item .label,
+    .storage .line,
+    .meta-line {
+      height: 8px;
+      border-radius: 99px;
+      background: var(--block-2);
+    }
+
+    .nav-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-transform: none;
+    }
+
+    .nav-item .badge {
+      width: 22px;
+      height: 14px;
+      border-radius: 99px;
+      background: var(--block-2);
+      justify-self: end;
+    }
+
+    .nav-item.active {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .label,
+    .nav-item.active .badge {
+      background: var(--surface);
+      border-color: var(--surface);
+    }
+
+    .nav-item.active .nav-text {
+      color: var(--surface);
+    }
+
+    .nav-item.disabled {
+      opacity: 0.38;
+    }
+
+    .storage {
+      margin-top: 22px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .meter {
+      height: 8px;
+      margin: 12px 0;
+      border-radius: 99px;
+      overflow: hidden;
+      background: var(--block);
+      border: 1px solid var(--line);
+    }
+
+    .meter span {
+      display: block;
+      width: 46%;
+      height: 100%;
+      background: var(--ink);
+    }
+
+    .main {
+      min-width: 0;
+      padding: 22px;
+      background: var(--surface);
+    }
+
+    .page-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    .title-block {
+      max-width: 560px;
+    }
+
+    .h1-bar {
+      width: 210px;
+      height: 24px;
+      background: var(--ink);
+      border-radius: 3px;
+      margin-bottom: 12px;
+    }
+
+    .subtitle-bar {
+      width: 330px;
+      height: 10px;
+      background: var(--block-2);
+      border-radius: 99px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .kpi {
+      min-height: 96px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: #fbfbfc;
+    }
+
+    .kpi .label {
+      width: 68%;
+      height: 8px;
+      background: var(--block-2);
+      border-radius: 99px;
+      margin-bottom: 18px;
+    }
+
+    .kpi .object-title {
+      margin-bottom: 18px;
+    }
+
+    .kpi .number {
+      width: 54%;
+      height: 26px;
+      background: var(--ink);
+      border-radius: 4px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.84fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .workspace.comparison-only,
+    .workspace.single-panel {
+      grid-template-columns: 1fr;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-head .object-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .panel-title {
+      width: 150px;
+      height: 11px;
+      background: var(--ink);
+      border-radius: 3px;
+    }
+
+    .panel-tools {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .tool-pill {
+      width: 62px;
+      height: 22px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      background: var(--block);
+    }
+
+    .comparison-board {
+      padding: 14px;
+    }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .compare-col {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 10px;
+    }
+
+    .compare-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .compare-top .name {
+      width: 64%;
+      height: 10px;
+      background: var(--ink);
+      border-radius: 3px;
+    }
+
+    .compare-top .object-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .thumb-stack {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 11px;
+    }
+
+    .thumb {
+      aspect-ratio: 1 / 0.82;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+      border-radius: 6px;
+    }
+
+    .score-row {
+      display: grid;
+      grid-template-columns: 1fr 42px;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .score-row .bar {
+      height: 8px;
+      border-radius: 99px;
+      background: var(--block-2);
+    }
+
+    .score-row .chip {
+      height: 18px;
+      border-radius: 99px;
+      background: var(--block);
+      border: 1px solid var(--line);
+    }
+
+    .chart-wrap {
+      padding: 14px;
+    }
+
+    .chart {
+      width: 100%;
+      height: 230px;
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .review-card {
+      padding: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .review-card > .object-title {
+      margin-bottom: 10px;
+    }
+
+    .review-card:first-of-type {
+      border-top: 0;
+    }
+
+    .gallery-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      margin: 10px 0 12px;
+    }
+
+    .gallery-strip .thumb {
+      border-radius: 4px;
+    }
+
+    .review-lines {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .review-lines .line {
+      height: 8px;
+      border-radius: 99px;
+      background: var(--block-2);
+    }
+
+    .mini-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .mini-actions .btn {
+      height: 28px;
+      min-width: 92px;
+    }
+
+    .lower-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+      gap: 16px;
+    }
+
+    .model-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .model-table th,
+    .model-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 11px 12px;
+      vertical-align: middle;
+    }
+
+    .model-table th {
+      background: #f0f0f2;
+      height: 38px;
+    }
+
+    .table-bar {
+      height: 8px;
+      border-radius: 99px;
+      background: var(--block-2);
+      width: 100%;
+    }
+
+    .artifact-cell {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .artifact-thumb {
+      width: 42px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .inspector {
+      position: relative;
+      border-left: 1px solid var(--ink);
+      background: #f4f4f6;
+      padding: 18px 14px;
+      min-width: 0;
+    }
+
+    .inspector-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .selected-preview {
+      aspect-ratio: 1.25 / 1;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+    }
+
+    .inspector-body {
+      padding: 13px;
+    }
+
+    .note-toolbar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 10px 0 8px;
+    }
+
+    .note-tool-button {
+      min-width: 30px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 11px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+    }
+
+    .note-tool-button[data-md-action="italic"] {
+      font-style: italic;
+    }
+
+    .note-tool-button[data-md-action="underline"] {
+      text-decoration: underline;
+    }
+
+    .note-tool-button[data-md-action="strike"] {
+      text-decoration: line-through;
+    }
+
+    .note-input {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--page);
+      color: var(--ink);
+      padding: 9px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .note-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .note-item {
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      padding: 9px;
+      display: grid;
+      gap: 6px;
+      color: var(--ink);
+    }
+
+    .note-item.active {
+      border-color: var(--ink);
+      background: var(--surface);
+    }
+
+    .note-body {
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--ink);
+      white-space: pre-wrap;
+    }
+
+    .inspector-title {
+      width: 68%;
+      height: 14px;
+      background: var(--ink);
+      border-radius: 3px;
+      margin-bottom: 12px;
+    }
+
+    .metadata-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metadata-row {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .metadata-row .key {
+      height: 7px;
+      background: var(--block-2);
+      border-radius: 99px;
+    }
+
+    .metadata-row .value {
+      height: 9px;
+      background: var(--block);
+      border-radius: 99px;
+    }
+
+    .activity-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .activity-item {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 9px;
+      padding: 9px;
+    }
+
+    .activity-dot {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--surface);
+    }
+
+    .activity-copy {
+      min-width: 0;
+      display: grid;
+      align-content: center;
+      gap: 7px;
+    }
+
+    .activity-bar {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .tab {
+      flex: 1;
+      height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--block);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tab.active {
+      background: var(--ink);
+    }
+
+    .tab.active .button-label {
+      color: var(--surface);
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 4;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      background: rgba(247, 247, 248, 0.94);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 5px 7px;
+      white-space: nowrap;
+    }
+
+    .redline::after {
+      content: "";
+      position: absolute;
+      width: 42px;
+      height: 1px;
+      background: var(--accent);
+      top: 50%;
+      left: 100%;
+    }
+
+    .redline.grid-note {
+      top: 76px;
+      left: 20px;
+    }
+
+    .redline.compare-note {
+      top: 318px;
+      left: calc(var(--sidebar) + 44px);
+    }
+
+    .redline.inspector-note {
+      top: 174px;
+      right: 278px;
+    }
+
+    .redline.inspector-note::after {
+      right: auto;
+      left: 100%;
+      width: 34px;
+    }
+
+    @media (max-width: 1180px) {
+      body {
+        padding: 12px;
+      }
+
+      .wireframe {
+        min-height: calc(100vh - 24px);
+      }
+
+      .topbar {
+        grid-template-columns: minmax(0, 1fr) minmax(180px, 360px);
+      }
+
+      .actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+        padding-bottom: 10px;
+      }
+
+      .topbar {
+        height: auto;
+        min-height: var(--topbar);
+        align-items: center;
+        padding-top: 10px;
+      }
+
+      .shell {
+        grid-template-columns: minmax(188px, 216px) minmax(0, 1fr);
+      }
+
+      .sidebar {
+        padding: 14px 10px;
+      }
+
+      body.sidebar-left-collapsed .sidebar {
+        padding: 38px 8px 12px;
+      }
+
+      .nav-section + .nav-section {
+        margin-top: 14px;
+        padding-top: 12px;
+      }
+
+      .nav-section > .object-title {
+        margin-bottom: 8px;
+      }
+
+      .nav-item {
+        grid-template-columns: 16px minmax(0, 1fr) 18px;
+        gap: 8px;
+        padding: 0 7px;
+      }
+
+      .nav-item .nav-text {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .nav-item .badge {
+        width: 16px;
+        min-width: 0;
+      }
+
+      .storage {
+        margin-top: 14px;
+      }
+
+      .inspector {
+        grid-column: 2;
+        border-left: 0;
+        border-top: 1px solid var(--ink);
+        display: grid;
+        grid-template-columns: minmax(0, 0.55fr) minmax(0, 1fr);
+        gap: 14px;
+      }
+
+      body.sidebar-right-collapsed .inspector {
+        display: block;
+        min-height: var(--inspector-collapsed);
+      }
+
+      body.sidebar-right-collapsed .inspector::after {
+        writing-mode: horizontal-tb;
+        transform: none;
+      }
+
+      .inspector-card {
+        margin-bottom: 0;
+      }
+
+      .redline.inspector-note {
+        right: 26px;
+        top: auto;
+        bottom: 246px;
+      }
+
+      .redline.compare-note {
+        left: 236px;
+      }
+    }
+
+    @media (max-width: 960px) {
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .project-group {
+        flex-wrap: wrap;
+      }
+
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--ink);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .side-collapse-toggle {
+        display: none;
+      }
+
+      .nav-section {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 10px;
+      }
+
+      .nav-section + .nav-section {
+        margin-top: 0;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+      }
+
+      .nav-section > .object-title {
+        margin-left: 0;
+      }
+
+      .nav-item {
+        min-height: 34px;
+        height: auto;
+      }
+
+      .main,
+      .inspector {
+        grid-column: auto;
+      }
+
+      .page-header,
+      .workspace,
+      .lower-grid,
+      .inspector {
+        grid-template-columns: 1fr;
+      }
+
+      .toolbar {
+        justify-content: flex-start;
+      }
+
+      .kpi-grid,
+      .compare-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .redline.compare-note,
+      .redline.inspector-note {
+        display: none;
+      }
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 0;
+      }
+
+      .wireframe {
+        border-left: 0;
+        border-right: 0;
+        min-height: 100vh;
+      }
+
+      .main,
+      .inspector {
+        padding: 14px;
+      }
+
+      .sidebar {
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+
+      .nav-section {
+        padding: 9px;
+      }
+
+      .kpi-grid,
+      .compare-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .subtitle-bar {
+        max-width: 100%;
+      }
+
+      .model-table {
+        min-width: 0;
+        width: 100%;
+      }
+
+      .table-scroll {
+        overflow-x: hidden;
+      }
+
+      .redline.grid-note {
+        top: 112px;
+        left: 12px;
+      }
+    }
+    .collapsible-box {
+      position: relative;
+    }
+
+    .collapse-toggle {
+      position: absolute;
+      top: -13px;
+      right: 10px;
+      z-index: 6;
+      height: 22px;
+      min-width: 66px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      cursor: pointer;
+    }
+
+    .collapse-line {
+      display: none;
+    }
+
+    .collapsible-box.is-collapsed {
+      min-height: 42px !important;
+      max-height: 42px !important;
+      overflow: hidden !important;
+      padding: 10px 88px 10px 12px !important;
+      display: block !important;
+    }
+
+    .collapsible-box.is-collapsed > :not(.collapse-toggle):not(.collapse-line) {
+      display: none !important;
+    }
+
+    .collapsible-box.is-collapsed .collapse-line {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="dashboard-wireframe">
+    <div class="redline grid-note">01 · 12-col grid · max 1440</div>
+    <div class="redline compare-note">02 · comparison stays central</div>
+    <div class="redline inspector-note">03 · selected model artifact</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="project-group" data-od-id="project-switcher-zone">
+        <div class="project-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search assets, runs, model files...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <div class="nav-item project-root active" data-od-id="nav-project-zapata-portrait"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-dataset-v6" href="dataset.html"><span class="square"></span><span class="nav-text">Dataset v6</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="models.html#model-eval-runs"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="models.html#model-eval-runs"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+          <div class="object-title">Storage</div>
+          <div class="meter"><span></span></div>
+          <div class="object-note">42.8 GB / 100 GB</div>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="dashboard-main-content">
+        <section class="page-header" data-od-id="dashboard-header">
+          <div class="title-block">
+            <div class="object-title" style="font-size: 18px;">Project: Zapata Portrait Set</div>
+            <div class="object-note" style="margin-top: 8px;">Trigger words: kzapata, kzstyle-v2 · Workspace: Titles XYZ</div>
+          </div>
+        </section>
+
+        <section class="workspace comparison-only" data-od-id="comparison-workspace">
+          <article class="panel" data-od-id="model-dataset-sample-comparison">
+            <div class="panel-head">
+              <div class="object-title">Run / dataset / model / sample comparison</div>
+              <div class="panel-tools">
+                <span class="tool-pill"></span>
+                <span class="tool-pill"></span>
+                <span class="tool-pill"></span>
+              </div>
+            </div>
+            <div class="comparison-board">
+              <div class="compare-grid">
+                <div class="compare-col" data-od-id="compare-column-run-018">
+                  <div class="compare-top"><span class="object-title">Run 018</span><span class="status-dot"></span></div>
+                  <div class="thumb-stack"><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div></div>
+                  <div class="score-row"><span class="bar"></span><span class="chip"></span></div>
+                  <div class="score-row"><span class="bar" style="width: 72%;"></span><span class="chip"></span></div>
+                </div>
+                <div class="compare-col" data-od-id="compare-column-run-019">
+                  <div class="compare-top"><span class="object-title">Run 019</span><span class="status-dot"></span></div>
+                  <div class="thumb-stack"><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div></div>
+                  <div class="score-row"><span class="bar"></span><span class="chip"></span></div>
+                  <div class="score-row"><span class="bar" style="width: 66%;"></span><span class="chip"></span></div>
+                </div>
+                <div class="compare-col" data-od-id="compare-column-run-020">
+                  <div class="compare-top"><span class="object-title">Run 020</span><span class="status-dot"></span></div>
+                  <div class="thumb-stack"><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div></div>
+                  <div class="score-row"><span class="bar"></span><span class="chip"></span></div>
+                  <div class="score-row"><span class="bar" style="width: 80%;"></span><span class="chip"></span></div>
+                </div>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="workspace single-panel" data-od-id="dashboard-chart-row">
+          <article class="panel" data-od-id="model-progress-chart">
+            <div class="panel-head">
+              <div class="object-title">Zapata Portrait Set run progress</div>
+              <div class="panel-tools"><span class="tool-pill"></span><span class="tool-pill"></span></div>
+            </div>
+            <div class="chart-wrap">
+              <svg class="chart" role="img" aria-label="Schematic model progress chart" viewBox="0 0 640 260" preserveAspectRatio="none">
+                <defs>
+                  <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <line x1="0" y1="0" x2="0" y2="8" stroke="#c9c9cf" stroke-width="2"></line>
+                  </pattern>
+                </defs>
+                <line x1="46" y1="26" x2="46" y2="218" stroke="#1c1b1a" stroke-width="1"></line>
+                <line x1="46" y1="218" x2="604" y2="218" stroke="#1c1b1a" stroke-width="1"></line>
+                <g stroke="#d5d5da" stroke-width="1">
+                  <line x1="46" y1="172" x2="604" y2="172"></line>
+                  <line x1="46" y1="126" x2="604" y2="126"></line>
+                  <line x1="46" y1="80" x2="604" y2="80"></line>
+                </g>
+                <g fill="#e3e3e6" stroke="#c9c9cf">
+                  <rect x="82" y="142" width="44" height="76"></rect>
+                  <rect x="166" y="104" width="44" height="114"></rect>
+                  <rect x="250" y="118" width="44" height="100"></rect>
+                  <rect x="334" y="70" width="44" height="148"></rect>
+                  <rect x="418" y="92" width="44" height="126"></rect>
+                  <rect x="502" y="58" width="44" height="160"></rect>
+                </g>
+                <g fill="url(#hatch)" stroke="#1c1b1a" stroke-width="1">
+                  <rect x="130" y="188" width="28" height="30"></rect>
+                  <rect x="298" y="170" width="28" height="48"></rect>
+                  <rect x="466" y="154" width="28" height="64"></rect>
+                </g>
+                <polyline points="76,176 154,146 238,160 322,108 406,124 490,86 574,98" fill="none" stroke="#1c1b1a" stroke-width="3"></polyline>
+                <g fill="#1c1b1a">
+                  <circle cx="76" cy="176" r="4"></circle>
+                  <circle cx="154" cy="146" r="4"></circle>
+                  <circle cx="238" cy="160" r="4"></circle>
+                  <circle cx="322" cy="108" r="4"></circle>
+                  <circle cx="406" cy="124" r="4"></circle>
+                  <circle cx="490" cy="86" r="4"></circle>
+                  <circle cx="574" cy="98" r="4"></circle>
+                </g>
+              </svg>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel" data-od-id="model-progress-table">
+          <div class="panel-head">
+            <div class="object-title">Run model files</div>
+            <div class="panel-tools"><span class="tool-pill"></span><span class="tool-pill"></span></div>
+          </div>
+          <div class="table-scroll">
+            <table class="model-table">
+              <thead>
+                <tr>
+                  <th><div class="table-label">Run</div></th>
+                  <th><div class="table-label">Dataset</div></th>
+                  <th><div class="table-label">Model (.safetensors)</div></th>
+                  <th><div class="table-label">Eval batch</div></th>
+                  <th><div class="table-label">Output set</div></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-od-id="model-row-run-018"><td><div class="artifact-cell"><span class="artifact-thumb"></span><span class="table-bar"></span></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 54%;"></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 74%;"></div></td></tr>
+                <tr data-od-id="model-row-run-019"><td><div class="artifact-cell"><span class="artifact-thumb"></span><span class="table-bar"></span></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 62%;"></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 68%;"></div></td></tr>
+                <tr data-od-id="model-row-run-020"><td><div class="artifact-cell"><span class="artifact-thumb"></span><span class="table-bar"></span></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 78%;"></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 86%;"></div></td></tr>
+                <tr data-od-id="model-row-run-021"><td><div class="artifact-cell"><span class="artifact-thumb"></span><span class="table-bar"></span></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 48%;"></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 64%;"></div></td></tr>
+                <tr data-od-id="model-row-run-022"><td><div class="artifact-cell"><span class="artifact-thumb"></span><span class="table-bar"></span></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 70%;"></div></td><td><div class="table-bar"></div></td><td><div class="table-bar" style="width: 58%;"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="right-inspector-selected-model">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="selected-model-metadata-card">
+          <div class="selected-preview"></div>
+          <div class="inspector-body">
+            <div class="object-title">Model metadata</div>
+            <div class="object-note" style="margin: 8px 0 14px;">zapata_portrait_run019.safetensors</div>
+            <div class="metadata-grid">
+              <div class="metadata-row"><span class="key"></span><span class="value"></span></div>
+              <div class="metadata-row"><span class="key"></span><span class="value" style="width: 72%;"></span></div>
+              <div class="metadata-row"><span class="key"></span><span class="value" style="width: 86%;"></span></div>
+              <div class="metadata-row"><span class="key"></span><span class="value" style="width: 64%;"></span></div>
+              <div class="metadata-row"><span class="key"></span><span class="value" style="width: 78%;"></span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="project-notes-card">
+          <div class="inspector-body" data-note-scope="project">
+            <div class="object-title">Project notes</div>
+            <div class="object-note" style="margin: 8px 0 10px;">Markdown notes scoped to selected project / model context.</div>
+            <div class="note-toolbar" data-od-id="project-note-toolbar">
+              <button class="note-tool-button" data-md-action="bold" data-od-id="project-note-bold" aria-label="Bold">B</button>
+              <button class="note-tool-button" data-md-action="italic" data-od-id="project-note-italic" aria-label="Italic">I</button>
+              <button class="note-tool-button" data-md-action="underline" data-od-id="project-note-underline" aria-label="Underline">U</button>
+              <button class="note-tool-button" data-md-action="strike" data-od-id="project-note-strike" aria-label="Strikethrough">S</button>
+              <button class="note-tool-button" data-md-action="bullet" data-od-id="project-note-bullets" aria-label="Bullets">Bullets</button>
+            </div>
+            <textarea class="note-input" data-note-input data-od-id="project-note-input" aria-label="Project note input" placeholder="Write markdown note...">Review Run 019 against dataset v6 before promoting model artifact.</textarea>
+            <div class="mini-actions" style="margin-top: 8px;">
+              <button class="btn primary" data-add-note data-od-id="project-add-note-button">Add Note</button>
+              <span class="object-note" data-note-status>2 previous notes</span>
+            </div>
+            <div class="note-list" data-note-list data-od-id="project-previous-notes">
+              <button class="note-item active" data-note-item data-note-text="Review Run 019 against dataset v6 before promoting model artifact." data-od-id="project-note-review-run">
+                <span class="object-title">Run 019 review</span>
+                <span class="note-body">Review Run 019 against dataset v6 before promoting model artifact.</span>
+              </button>
+              <button class="note-item" data-note-item data-note-text="- Check eval gallery outliers&#10;- Confirm caption pass v3 lineage" data-od-id="project-note-eval-outliers">
+                <span class="object-title">Eval follow-up</span>
+                <span class="note-body">- Check eval gallery outliers<br>- Confirm caption pass v3 lineage</span>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="selected-model-activity-feed">
+          <div class="inspector-body">
+            <div class="object-title">Model activity feed</div>
+            <div class="object-note" style="margin: 8px 0 14px;">Context follows selected model file</div>
+            <div class="activity-list">
+              <div class="activity-item" data-od-id="model-activity-eval-completed">
+                <span class="activity-dot"></span>
+                <span class="activity-copy"><span class="object-title">Eval completed</span><span class="object-note">run 019 · output gallery</span><span class="activity-bar" style="width: 84%;"></span></span>
+              </div>
+              <div class="activity-item" data-od-id="model-activity-lineage-linked">
+                <span class="activity-dot"></span>
+                <span class="activity-copy"><span class="object-title">Lineage linked</span><span class="object-note">dataset v6 · captions v3</span><span class="activity-bar" style="width: 68%;"></span></span>
+              </div>
+              <div class="activity-item" data-od-id="model-activity-samples-reviewed">
+                <span class="activity-dot"></span>
+                <span class="activity-copy"><span class="object-title">Samples reviewed</span><span class="object-note">Zapata Portrait Set · 42 outputs</span><span class="activity-bar" style="width: 76%;"></span></span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+      </aside>
+    </div>
+  </div>
+  <script>
+    (() => {
+      function applyMarkdown(input, action) {
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const value = input.value;
+        const selected = value.slice(start, end) || "note";
+        let next = selected;
+        let cursorStart = start;
+        let cursorEnd = end;
+
+        if (action === "bold") next = `**${selected}**`;
+        if (action === "italic") next = `*${selected}*`;
+        if (action === "underline") next = `<u>${selected}</u>`;
+        if (action === "strike") next = `~~${selected}~~`;
+        if (action === "bullet") next = selected.split("\n").map((line) => line.startsWith("- ") ? line : `- ${line}`).join("\n");
+
+        input.value = `${value.slice(0, start)}${next}${value.slice(end)}`;
+        cursorEnd = cursorStart + next.length;
+        input.focus();
+        input.setSelectionRange(cursorStart, cursorEnd);
+      }
+
+      document.querySelectorAll("[data-note-scope]").forEach((scope) => {
+        const input = scope.querySelector("[data-note-input]");
+        const list = scope.querySelector("[data-note-list]");
+        const status = scope.querySelector("[data-note-status]");
+        let count = list.querySelectorAll("[data-note-item]").length;
+
+        function selectNote(item) {
+          list.querySelectorAll("[data-note-item]").forEach((note) => note.classList.toggle("active", note === item));
+          input.value = item.dataset.noteText || item.querySelector(".note-body")?.textContent || "";
+          status.textContent = "Selected previous note.";
+        }
+
+        scope.querySelectorAll("[data-md-action]").forEach((button) => {
+          button.addEventListener("click", () => applyMarkdown(input, button.dataset.mdAction));
+        });
+
+        list.querySelectorAll("[data-note-item]").forEach((item) => {
+          item.addEventListener("click", () => selectNote(item));
+        });
+
+        scope.querySelector("[data-add-note]").addEventListener("click", () => {
+          const text = input.value.trim();
+          if (!text) {
+            status.textContent = "Write a note before adding.";
+            return;
+          }
+
+          count += 1;
+          const item = document.createElement("button");
+          item.className = "note-item active";
+          item.type = "button";
+          item.dataset.noteItem = "true";
+          item.dataset.noteText = text;
+          item.setAttribute("data-od-id", `project-note-added-${count}`);
+          const title = document.createElement("span");
+          title.className = "object-title";
+          title.textContent = `Note ${count}`;
+          const body = document.createElement("span");
+          body.className = "note-body";
+          body.textContent = text;
+          item.append(title, body);
+          list.querySelectorAll("[data-note-item]").forEach((note) => note.classList.remove("active"));
+          item.addEventListener("click", () => selectNote(item));
+          list.prepend(item);
+          status.textContent = `${count} previous notes`;
+        });
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      const boxSelector = [
+        ".page-header",
+        ".panel",
+        ".inspector-card",
+        ".kpi"
+      ].join(",");
+
+      document.querySelectorAll(boxSelector).forEach((box, index) => {
+        if (box.dataset.collapseReady === "true" || box.matches("a")) return;
+        const title = box.querySelector(".object-title")?.textContent?.trim();
+        const fallback = box.getAttribute("data-od-id") || `Box ${index + 1}`;
+        const labelText = title || fallback.replace(/-/g, " ");
+
+        const line = document.createElement("div");
+        line.className = "collapse-line object-title";
+        line.textContent = labelText;
+
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "collapse-toggle";
+        toggle.textContent = "Collapse";
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const collapsed = box.classList.toggle("is-collapsed");
+          toggle.textContent = collapsed ? "Expand" : "Collapse";
+          toggle.setAttribute("aria-expanded", String(!collapsed));
+        });
+
+        box.classList.add("collapsible-box");
+        box.prepend(line);
+        box.append(toggle);
+        box.dataset.collapseReady = "true";
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      function bindSidebarToggle(buttonId, className, collapseText, expandText, collapseLabel, expandLabel) {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        button.addEventListener("click", () => {
+          const collapsed = document.body.classList.toggle(className);
+          button.textContent = collapsed ? expandText : collapseText;
+          button.setAttribute("aria-pressed", String(collapsed));
+          button.setAttribute("aria-label", collapsed ? expandLabel : collapseLabel);
+        });
+      }
+
+      bindSidebarToggle("left-sidebar-toggle", "sidebar-left-collapsed", "<", ">", "Collapse left sidebar", "Expand left sidebar");
+      bindSidebarToggle("right-sidebar-toggle", "sidebar-right-collapsed", ">", "<", "Collapse right inspector", "Expand right inspector");
+    })();
+  </script>
+  <script>
+    (() => {
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      if (!menus.length) return;
+
+      const closeAll = (except) => {
+        menus.forEach((wrap) => {
+          if (wrap === except) return;
+          const trigger = wrap.querySelector("[data-create-trigger]");
+          const panel = wrap.querySelector("[data-create-panel]");
+          panel?.classList.remove("open");
+          trigger?.setAttribute("aria-expanded", "false");
+        });
+      };
+
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        const items = Array.from(wrap.querySelectorAll("[role='menuitem']"));
+        if (!trigger || !panel) return;
+
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const opening = !panel.classList.contains("open");
+          closeAll(wrap);
+          panel.classList.toggle("open", opening);
+          trigger.setAttribute("aria-expanded", String(opening));
+        });
+
+        trigger.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            closeAll(wrap);
+            panel.classList.add("open");
+            trigger.setAttribute("aria-expanded", "true");
+            items[0]?.focus();
+          }
+        });
+
+        items.forEach((item, index) => {
+          item.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              panel.classList.remove("open");
+              trigger.setAttribute("aria-expanded", "false");
+              trigger.focus();
+            }
+
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              items[(index + step + items.length) % items.length]?.focus();
+            }
+          });
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeAll();
+      });
+    })();
+  </script>
+</body>
+</html>

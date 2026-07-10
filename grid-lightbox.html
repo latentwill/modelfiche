@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Grid Lightbox</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --radius: 10px;
+      --topbar: 56px;
+      --grid-cell: 82px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .button-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .grid-lightbox {
+      position: relative;
+      height: calc(100vh - 40px);
+      max-width: 1640px;
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+      display: grid;
+      grid-template-rows: var(--topbar) minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 520px) auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .source-group,
+    .toolbar,
+    .actions,
+    .zoom-controls,
+    .meta-strip,
+    .cell-meta,
+    .title-row,
+    .stage-meta,
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .source-pill {
+      width: 206px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--block);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      flex-shrink: 0;
+    }
+
+    .logo-block,
+    .square {
+      display: inline-block;
+      flex-shrink: 0;
+      border: 1px solid var(--line);
+      background: var(--block-2);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .breadcrumb {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      justify-content: center;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--block);
+      padding: 0 10px;
+    }
+
+    .actions {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .btn,
+    .icon-btn {
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      color: var(--ink);
+    }
+
+    .btn.primary {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .icon-btn {
+      width: 32px;
+      padding: 0;
+      font: 700 14px/1 var(--mono);
+    }
+
+    .stage {
+      min-width: 0;
+      padding: 18px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 14px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .stage-header,
+    .grid-shell {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfbfc;
+      overflow: hidden;
+    }
+
+    .stage-header {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .stage-title {
+      display: grid;
+      gap: 6px;
+    }
+
+    .title-row {
+      gap: 8px;
+      align-items: center;
+    }
+
+    .editable-title {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      outline: none;
+      text-transform: none;
+    }
+
+    .editable-title[contenteditable="true"] {
+      padding: 2px 5px;
+      border: 1px solid var(--ink);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    .title-edit-button {
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      flex: 0 0 auto;
+    }
+
+    .title-edit-button svg {
+      width: 13px;
+      height: 13px;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      fill: none;
+    }
+
+    .stage-meta {
+      gap: 4px 12px;
+      flex-wrap: wrap;
+    }
+
+    .meta-item {
+      gap: 5px;
+      align-items: baseline;
+      max-width: 100%;
+    }
+
+    .zoom-controls {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .zoom-range {
+      width: 150px;
+      accent-color: var(--active);
+    }
+
+    .grid-shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+
+    .grid-viewport {
+      min-width: 0;
+      min-height: 0;
+      overflow-x: auto;
+      overflow-y: auto;
+      padding: 16px;
+      background: #efeff2;
+    }
+
+    .grid-board {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 30px 64px repeat(8, minmax(min(100%, var(--grid-cell)), 1fr));
+      gap: 8px;
+      align-content: start;
+    }
+
+    .axis-corner,
+    .axis-label,
+    .column-label,
+    .row-label {
+      min-width: 0;
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      font: 700 9px/1.1 var(--mono);
+      letter-spacing: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .axis-label {
+      color: var(--ink);
+      background: var(--block);
+    }
+
+    .axis-label.x {
+      grid-column: 3 / -1;
+    }
+
+    .axis-label.y {
+      grid-row: span 6;
+      padding: 8px 0;
+      text-align: center;
+      transform: rotate(180deg);
+      white-space: normal;
+      writing-mode: vertical-rl;
+    }
+
+    .column-label,
+    .row-label {
+      background: #f5f5f7;
+    }
+
+    .grid-cell {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--block);
+      display: grid;
+      align-items: end;
+      justify-items: start;
+      padding: 6px;
+      color: var(--muted);
+      font: 700 9px/1 var(--mono);
+      cursor: pointer;
+    }
+
+    .grid-cell.active {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        #f0f0f2;
+    }
+
+    .mini-map {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--block);
+      padding: 6px;
+    }
+
+    .mini-map span {
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      background: var(--surface);
+    }
+
+    .mini-map span.active {
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 3;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .redline-stage {
+      top: 92px;
+      left: 28px;
+    }
+
+    .redline-zoom {
+      top: 92px;
+      right: 28px;
+    }
+
+    @media (max-width: 980px) {
+      body {
+        overflow-y: auto;
+      }
+
+      .grid-lightbox {
+        height: auto;
+        min-height: calc(100vh - 40px);
+      }
+
+      .topbar,
+      .stage-header {
+        grid-template-columns: 1fr;
+        height: auto;
+        padding: 12px;
+      }
+
+      .actions,
+      .zoom-controls {
+        justify-content: flex-start;
+      }
+
+      .mini-map {
+        min-height: 52px;
+      }
+
+      .stage-meta { align-items: flex-start; }
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 0;
+      }
+
+      .grid-lightbox {
+        min-height: 100vh;
+        border: 0;
+      }
+
+      .source-pill,
+      .toolbar,
+      .zoom-range {
+        width: 100%;
+      }
+
+      .stage {
+        padding: 12px;
+      }
+
+      .redline {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-lightbox" data-od-id="grid-lightbox-screen">
+    <div class="redline redline-stage">01 - composed grid stage</div>
+    <div class="redline redline-zoom">02 - zoom only</div>
+
+    <header class="topbar" data-od-id="grid-lightbox-topbar">
+      <div class="source-group" data-od-id="grid-lightbox-source-context">
+        <div class="source-pill">
+          <span class="logo-block"></span>
+          <span class="object-note">Grid review</span>
+        </div>
+        <div class="breadcrumb">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set / Evals / Grid - endpoint sweep v1</span>
+        </div>
+      </div>
+      <div class="toolbar" data-od-id="grid-lightbox-toolbar">
+        <span class="object-note">Zoom and scan composed grid images</span>
+      </div>
+      <div class="actions" data-od-id="grid-lightbox-actions">
+        <a class="btn" data-od-id="button-back-to-grid-generator" href="grid-generator.html">Grid generator</a>
+        <a class="btn primary" data-od-id="button-close-grid-lightbox" href="grid-generator.html">Close</a>
+      </div>
+    </header>
+
+    <main class="stage" data-od-id="grid-lightbox-main-stage">
+      <section class="stage-header" data-od-id="grid-lightbox-stage-header">
+        <div class="stage-title">
+          <div class="title-row" data-od-id="grid-lightbox-title-row">
+            <div class="object-title editable-title" id="grid-title" data-od-id="grid-lightbox-editable-title" style="font-size: 18px;">Sweep V1</div>
+            <button class="icon-btn title-edit-button" id="edit-grid-title" data-od-id="button-edit-grid-title" type="button" aria-label="Edit grid title">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 11.5 2.5 14l2.5-.5 7.3-7.3-2-2L3 11.5Z"></path>
+                <path d="m9.8 4.2 1-1c.5-.5 1.2-.5 1.7 0l.3.3c.5.5.5 1.2 0 1.7l-1 1"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="stage-meta meta-strip" data-od-id="grid-lightbox-title-metadata">
+            <span class="meta-item" data-od-id="grid-lightbox-meta-grid-type"><span class="object-note">Grid type</span><span class="object-note">Prompt x Steps</span></span>
+            <span class="meta-item" data-od-id="grid-lightbox-meta-endpoint"><span class="object-note">Endpoint</span><span class="object-note">Ideogram 4</span></span>
+            <span class="meta-item" data-od-id="grid-lightbox-meta-model"><span class="object-note">Model</span><span class="object-note">zapata-v6</span></span>
+            <span class="meta-item" data-od-id="grid-lightbox-meta-count"><span class="object-note">Composition</span><span class="object-note">48 images</span></span>
+            <span class="meta-item" data-od-id="grid-lightbox-selected-cell"><span class="object-note">Selected</span><span class="object-note" id="selected-cell">A1</span></span>
+          </div>
+        </div>
+        <div class="zoom-controls" data-od-id="grid-lightbox-zoom-controls">
+          <button class="icon-btn" id="zoom-out" data-od-id="button-grid-lightbox-zoom-out" type="button" aria-label="Zoom grid out">-</button>
+          <input class="zoom-range" id="zoom-range" data-od-id="input-grid-lightbox-zoom" type="range" min="52" max="132" value="82" aria-label="Grid lightbox zoom">
+          <button class="icon-btn" id="zoom-in" data-od-id="button-grid-lightbox-zoom-in" type="button" aria-label="Zoom grid in">+</button>
+          <span class="object-note" id="zoom-label">82px cells</span>
+        </div>
+      </section>
+
+      <section class="grid-shell" data-od-id="grid-lightbox-shell">
+        <div class="grid-viewport" data-od-id="grid-lightbox-viewport" tabindex="0" aria-label="Scrollable composed grid">
+          <div class="grid-board" data-od-id="grid-lightbox-composed-grid">
+            <span class="axis-corner" aria-hidden="true"></span><span class="axis-corner" aria-hidden="true"></span><span class="axis-label x" data-od-id="grid-lightbox-x-axis-label">X axis - Prompt</span>
+            <span class="axis-corner" aria-hidden="true"></span><span class="axis-corner" aria-hidden="true"></span><span class="column-label" data-od-id="grid-lightbox-column-front">front</span><span class="column-label" data-od-id="grid-lightbox-column-three-quarter">three-quarter</span><span class="column-label" data-od-id="grid-lightbox-column-profile">profile</span><span class="column-label" data-od-id="grid-lightbox-column-holdout">holdout</span><span class="column-label">front</span><span class="column-label">three-quarter</span><span class="column-label">profile</span><span class="column-label">holdout</span>
+            <span class="axis-label y" data-od-id="grid-lightbox-y-axis-label">Y axis - Steps</span><span class="row-label" data-od-id="grid-lightbox-row-18">18</span>
+            <span class="grid-cell active">A1</span><span class="grid-cell">A2</span><span class="grid-cell">A3</span><span class="grid-cell">A4</span><span class="grid-cell">A5</span><span class="grid-cell">A6</span><span class="grid-cell">A7</span><span class="grid-cell">A8</span>
+            <span class="row-label" data-od-id="grid-lightbox-row-24">24</span>
+            <span class="grid-cell">B1</span><span class="grid-cell">B2</span><span class="grid-cell">B3</span><span class="grid-cell">B4</span><span class="grid-cell">B5</span><span class="grid-cell">B6</span><span class="grid-cell">B7</span><span class="grid-cell">B8</span>
+            <span class="row-label" data-od-id="grid-lightbox-row-32">32</span>
+            <span class="grid-cell">C1</span><span class="grid-cell">C2</span><span class="grid-cell">C3</span><span class="grid-cell">C4</span><span class="grid-cell">C5</span><span class="grid-cell">C6</span><span class="grid-cell">C7</span><span class="grid-cell">C8</span>
+            <span class="row-label" data-od-id="grid-lightbox-row-40">40</span>
+            <span class="grid-cell">D1</span><span class="grid-cell">D2</span><span class="grid-cell">D3</span><span class="grid-cell">D4</span><span class="grid-cell">D5</span><span class="grid-cell">D6</span><span class="grid-cell">D7</span><span class="grid-cell">D8</span>
+            <span class="row-label">18</span>
+            <span class="grid-cell">E1</span><span class="grid-cell">E2</span><span class="grid-cell">E3</span><span class="grid-cell">E4</span><span class="grid-cell">E5</span><span class="grid-cell">E6</span><span class="grid-cell">E7</span><span class="grid-cell">E8</span>
+            <span class="row-label">24</span>
+            <span class="grid-cell">F1</span><span class="grid-cell">F2</span><span class="grid-cell">F3</span><span class="grid-cell">F4</span><span class="grid-cell">F5</span><span class="grid-cell">F6</span><span class="grid-cell">F7</span><span class="grid-cell">F8</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const range = document.getElementById("zoom-range");
+      const label = document.getElementById("zoom-label");
+      const selectedCell = document.getElementById("selected-cell");
+      const gridTitle = document.getElementById("grid-title");
+      const editTitleButton = document.getElementById("edit-grid-title");
+      let titleBeforeEdit = gridTitle.textContent.trim();
+
+      function syncZoom() {
+        const size = Number(range.value);
+        root.style.setProperty("--grid-cell", `${size}px`);
+        label.textContent = `${size}px cells`;
+      }
+
+      function beginTitleEdit() {
+        titleBeforeEdit = gridTitle.textContent.trim();
+        gridTitle.setAttribute("contenteditable", "true");
+        gridTitle.focus();
+        const selection = window.getSelection();
+        const rangeSelection = document.createRange();
+        rangeSelection.selectNodeContents(gridTitle);
+        selection.removeAllRanges();
+        selection.addRange(rangeSelection);
+      }
+
+      function commitTitleEdit() {
+        const nextTitle = gridTitle.textContent.trim();
+        gridTitle.textContent = nextTitle || titleBeforeEdit || "Sweep V1";
+        gridTitle.removeAttribute("contenteditable");
+      }
+
+      document.getElementById("zoom-out").addEventListener("click", () => {
+        range.value = Math.max(Number(range.min), Number(range.value) - 10);
+        syncZoom();
+      });
+
+      document.getElementById("zoom-in").addEventListener("click", () => {
+        range.value = Math.min(Number(range.max), Number(range.value) + 10);
+        syncZoom();
+      });
+
+      range.addEventListener("input", syncZoom);
+
+      editTitleButton.addEventListener("click", beginTitleEdit);
+
+      gridTitle.addEventListener("blur", commitTitleEdit);
+
+      gridTitle.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          gridTitle.blur();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          gridTitle.textContent = titleBeforeEdit || "Sweep V1";
+          gridTitle.blur();
+        }
+      });
+
+      document.querySelectorAll(".grid-cell").forEach((cell) => {
+        cell.addEventListener("click", () => {
+          document.querySelectorAll(".grid-cell").forEach((item) => {
+            item.classList.toggle("active", item === cell);
+          });
+          selectedCell.textContent = cell.textContent.trim();
+        });
+      });
+
+      syncZoom();
+    })();
+  </script>
+</body>
+</html>

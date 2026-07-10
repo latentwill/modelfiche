@@ -1,0 +1,1900 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wireframe - Dataset Caption View</title>
+  <style>
+    :root {
+      --page: #f7f7f8;
+      --surface: #ffffff;
+      --block: #e3e3e6;
+      --block-2: #d5d5da;
+      --line: #c9c9cf;
+      --ink: #1c1b1a;
+      --muted: #696970;
+      --accent: #d44a3a;
+      --active: #2f2f33;
+      --topbar: 56px;
+      --sidebar: 240px;
+      --inspector: 304px;
+      --radius: 10px;
+      --gap: 16px;
+      --font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--font);
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: 20px;
+      --left-sidebar-width: var(--sidebar);
+      --right-inspector-width: min(var(--inspector), 24vw);
+    }
+
+    body.sidebar-left-collapsed {
+      --left-sidebar-width: 52px;
+    }
+
+    body.sidebar-right-collapsed {
+      --right-inspector-width: 52px;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .nav-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .object-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .button-label {
+      font-size: 10px;
+      text-transform: none;
+    }
+
+    .wireframe {
+      position: relative;
+      max-width: 1440px;
+      min-height: calc(100vh - 40px);
+      margin: 0 auto;
+      border: 1px solid var(--ink);
+      background:
+        linear-gradient(to right, rgba(212, 74, 58, 0.08) 1px, transparent 1px) 0 0 / calc(100% / 12) 100%,
+        var(--surface);
+    }
+
+    .topbar {
+      height: var(--topbar);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 420px) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .workspace-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .workspace-switcher,
+    .crumbs,
+    .search,
+    .actions,
+    .panel-head,
+    .tool-row,
+    .meta-row,
+    .image-card-head,
+    .batch-actions {
+      display: flex;
+      align-items: center;
+    }
+
+    .workspace-switcher {
+      width: 190px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--block);
+      padding: 0 10px;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .crumbs {
+      min-width: 0;
+    }
+
+    .logo-block,
+    .square,
+    .badge,
+    .activity-dot {
+      display: inline-block;
+      flex: 0 0 auto;
+      background: var(--block-2);
+      border: 1px solid var(--line);
+    }
+
+    .logo-block {
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .search {
+      justify-content: space-between;
+      gap: 10px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      padding: 0 10px;
+      min-width: 0;
+    }
+
+    .keycap {
+      border: 1px solid var(--line);
+      padding: 3px 6px;
+      background: var(--surface);
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .actions {
+      gap: 8px;
+      justify-content: end;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .icon-btn,
+    .avatar,
+    .btn,
+    .ghost-btn {
+      height: 32px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      width: 32px;
+      padding: 0;
+      font-family: var(--mono);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .avatar {
+      width: 32px;
+      padding: 0;
+      border-radius: 50%;
+      background: var(--block);
+    }
+
+    .btn,
+    .ghost-btn {
+      padding: 0 12px;
+      background: var(--surface);
+    }
+
+    .btn.primary {
+      background: var(--active);
+      border-color: var(--active);
+      color: var(--surface);
+    }
+
+    .ghost-btn {
+      min-height: 32px;
+    }
+
+    .plus-btn {
+      color: var(--surface);
+      background: var(--active);
+      border-color: var(--active);
+    }
+
+    .create-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .create-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 40;
+      width: 220px;
+      display: none;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--ink);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .create-menu.open {
+      display: grid;
+    }
+
+    .create-menu-item {
+      min-height: 34px;
+      display: grid;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      text-decoration: none;
+    }
+
+    .create-menu-item:hover,
+    .create-menu-item:focus {
+      outline: none;
+      border-color: var(--ink);
+      background: var(--block);
+    }
+
+    .create-menu-label {
+      font-family: var(--mono);
+      line-height: 1.2;
+    }
+
+    .create-menu-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-inspector-width);
+      min-height: calc(100vh - 40px - var(--topbar));
+      transition: grid-template-columns 180ms ease;
+    }
+
+    .sidebar,
+    .main,
+    .inspector {
+      min-width: 0;
+    }
+
+    .sidebar {
+      position: relative;
+      border-right: 1px solid var(--ink);
+      background: #f2f2f4;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      transition: padding 180ms ease;
+    }
+
+    .side-collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 12px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+
+    .sidebar > .side-collapse-toggle {
+      align-self: flex-end;
+      margin-bottom: 12px;
+    }
+
+    body.sidebar-left-collapsed .sidebar {
+      align-items: center;
+      overflow: hidden;
+      padding: 12px 9px;
+    }
+
+    body.sidebar-left-collapsed .sidebar > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after,
+    body.sidebar-right-collapsed .inspector::after {
+      position: absolute;
+      top: 112px;
+      left: 50%;
+      transform: translateX(-50%) rotate(-90deg);
+      transform-origin: center;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    body.sidebar-left-collapsed .sidebar::after {
+      content: "NAVIGATION";
+    }
+
+    .nav-section {
+      display: block;
+    }
+
+    .nav-section + .nav-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .nav-section > .object-title {
+      margin: 0 0 12px 4px;
+      color: var(--muted);
+    }
+
+    .nav-item {
+      height: 32px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) minmax(0, 26px);
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+
+    .nav-item.active {
+      background: var(--active);
+      color: var(--surface);
+      border-color: var(--ink);
+    }
+
+    .nav-item.active .square,
+    .nav-item.active .badge {
+      background: var(--surface);
+      border-color: var(--surface);
+    }
+
+    .nav-item.disabled {
+      opacity: 0.5;
+    }
+
+    .project-tree {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .project-root {
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
+      margin-bottom: 2px;
+    }
+
+    .tree-caret {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .nav-branch {
+      display: grid;
+      gap: 4px;
+      margin: 0 0 8px 26px;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .nav-group-label {
+      min-height: 18px;
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .nav-child {
+      height: 28px;
+      grid-template-columns: 14px minmax(0, 1fr) minmax(0, 24px);
+      gap: 8px;
+      font-size: 12px;
+      margin-bottom: 0;
+    }
+
+    .nav-child .square {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    .square {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+
+    .badge {
+      width: 20px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .storage {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .meter {
+      height: 8px;
+      border: 1px solid var(--line);
+      background: var(--page);
+      border-radius: 8px;
+    }
+
+    .meter span {
+      display: block;
+      width: 43%;
+      height: 100%;
+      background: var(--ink);
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 16px;
+      padding: 22px;
+      background: var(--surface);
+    }
+
+    .page-header,
+    .panel,
+    .caption-tools,
+    .caption-version-tracker,
+    .batch-panel,
+    .inspector-card {
+      border: 1px solid var(--line);
+      background: #fbfbfc;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .page-header {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .title-block {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .chip-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .caption-version-tracker {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .version-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .version-table-wrap {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .version-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .version-table th,
+    .version-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .version-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .version-table th {
+      background: #f0f0f2;
+    }
+
+    .version-table .version-step.active td {
+      background: var(--block);
+    }
+
+    .version-table .object-title,
+    .version-table .object-note {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+    }
+
+    .caption-tools {
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 6px;
+      align-items: end;
+    }
+
+    .caption-config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(164px, 1fr));
+      gap: 6px;
+      align-items: end;
+    }
+
+    .tool-field {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .caption-config-grid [data-od-id="caption-prompt-field"] {
+      grid-column: 1 / -1;
+    }
+
+    .tool-grid .btn {
+      width: 100%;
+    }
+
+    .caption-tools .btn,
+    .caption-tools .ghost-btn {
+      height: 28px;
+      min-height: 28px;
+      padding: 0 9px;
+      font-size: 11px;
+    }
+
+    .caption-tools .field-label {
+      font-size: 9px;
+    }
+
+    .field-label {
+      font: 700 10px/1 var(--mono);
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .text-input,
+    .select-input,
+    .caption-field {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--page);
+      color: var(--ink);
+      border-radius: 4px;
+    }
+
+    .text-input,
+    .select-input {
+      min-height: 30px;
+      padding: 0 8px;
+      min-width: 0;
+    }
+
+    .btn.compact {
+      height: 26px;
+      min-height: 26px;
+      padding: 0 9px;
+      font-size: 11px;
+    }
+
+    .tool-row {
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .image-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .image-card {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 108px minmax(0, 1fr);
+      gap: 12px;
+      min-height: 210px;
+      transition: border-color 160ms ease, background-color 160ms ease;
+    }
+
+    .image-card.selected {
+      border-color: var(--ink);
+      background: #f0f0f2;
+    }
+
+    .image-card-head {
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 7px;
+    }
+
+    .fullscreen-link {
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font: 700 10px/1 var(--mono);
+      color: var(--muted);
+      white-space: nowrap;
+      width: 100%;
+    }
+
+    .select-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font: 700 11px/1 var(--mono);
+      color: var(--muted);
+    }
+
+    .select-control input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--ink);
+    }
+
+    .image-placeholder {
+      position: relative;
+      min-height: 142px;
+      border: 1px solid var(--line);
+      background: var(--block);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .image-placeholder::before,
+    .image-placeholder::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: -12%;
+      width: 124%;
+      height: 1px;
+      background: var(--line);
+      transform-origin: center;
+    }
+
+    .image-placeholder::before {
+      transform: rotate(39deg);
+    }
+
+    .image-placeholder::after {
+      transform: rotate(-39deg);
+    }
+
+    .image-meta {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .caption-type-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .caption-type-tag {
+      min-height: 20px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      text-transform: uppercase;
+    }
+
+    .caption-type-tag.active {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: var(--surface);
+    }
+
+    .caption-field {
+      min-height: 106px;
+      resize: vertical;
+      padding: 9px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .batch-panel {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .batch-actions {
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .inspector {
+      position: relative;
+      border-left: 1px solid var(--ink);
+      background: #f4f4f6;
+      padding: 18px 14px;
+      display: grid;
+      grid-auto-rows: max-content;
+      align-content: start;
+      gap: 14px;
+      overflow: hidden;
+      transition: padding 180ms ease;
+    }
+
+    .inspector > .side-collapse-toggle {
+      display: flex;
+      justify-self: end;
+      grid-column: 1 / -1;
+    }
+
+    body.sidebar-right-collapsed .inspector {
+      overflow: hidden;
+      padding: 12px 9px;
+    }
+
+    body.sidebar-right-collapsed .inspector > :not(.side-collapse-toggle) {
+      display: none;
+    }
+
+    body.sidebar-right-collapsed .inspector::after {
+      content: "METADATA";
+    }
+
+    .inspector-card {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+
+    .inspector .object-title,
+    .inspector .object-note {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .inspector .activity-copy .object-title,
+    .inspector .activity-copy .object-note,
+    .inspector .note-item .object-title,
+    .inspector .note-body {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+    }
+
+    .note-toolbar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .note-tool-button {
+      min-width: 30px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 700 11px/1 var(--mono);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+    }
+
+    .note-tool-button[data-md-action="italic"] {
+      font-style: italic;
+    }
+
+    .note-tool-button[data-md-action="underline"] {
+      text-decoration: underline;
+    }
+
+    .note-tool-button[data-md-action="strike"] {
+      text-decoration: line-through;
+    }
+
+    .note-input {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--page);
+      color: var(--ink);
+      padding: 9px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .note-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .note-item {
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      padding: 9px;
+      display: grid;
+      gap: 6px;
+      color: var(--ink);
+    }
+
+    .note-item.active {
+      border-color: var(--ink);
+      background: var(--surface);
+    }
+
+    .note-meta {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: normal;
+    }
+
+    .note-body {
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--ink);
+      white-space: pre-wrap;
+    }
+
+    .metadata-list {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .meta-row {
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 7px;
+      min-width: 0;
+    }
+
+    .meta-row .object-title,
+    .meta-row .object-note {
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+    }
+
+    .meta-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .activity-list {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .activity-item {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--block);
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 9px;
+      padding: 9px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .activity-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 5px;
+      margin-top: 0;
+      background:
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--line) 50%, transparent calc(50% + 1px)),
+        var(--surface);
+    }
+
+    .activity-copy {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .activity-bar {
+      display: block;
+      height: 8px;
+      background: var(--block);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+
+    .redline {
+      position: absolute;
+      z-index: 4;
+      font: 700 11px/1 var(--mono);
+      color: var(--accent);
+      background: var(--page);
+      border: 1px solid var(--accent);
+      padding: 5px 7px;
+      pointer-events: none;
+    }
+
+    .grid-note {
+      top: 8px;
+      left: 28px;
+    }
+
+    .tools-note {
+      top: 214px;
+      left: calc(var(--sidebar) + 315px);
+    }
+
+    .caption-note {
+      right: calc(20px + var(--inspector) + 22px);
+      top: 396px;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr);
+      }
+
+      .inspector {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .tool-grid,
+      .caption-config-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .caption-note {
+        display: none;
+      }
+    }
+
+    @media (max-width: 860px) {
+      .topbar {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: var(--topbar);
+        padding: 10px;
+      }
+
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .image-grid,
+      .inspector,
+      .tool-grid,
+      .caption-config-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .image-card {
+        grid-template-columns: 92px minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 560px) {
+      .image-card {
+        grid-template-columns: 1fr;
+      }
+    }
+    .collapsible-box {
+      position: relative;
+    }
+
+    .collapse-toggle {
+      position: absolute;
+      top: -13px;
+      right: 10px;
+      z-index: 6;
+      height: 22px;
+      min-width: 66px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+      cursor: pointer;
+    }
+
+    .collapse-line {
+      display: none;
+    }
+
+    .collapsible-box.is-collapsed {
+      min-height: 42px !important;
+      max-height: 42px !important;
+      overflow: hidden !important;
+      padding: 10px 88px 10px 12px !important;
+      display: block !important;
+    }
+
+    .collapsible-box.is-collapsed > :not(.collapse-toggle):not(.collapse-line) {
+      display: none !important;
+    }
+
+    .collapsible-box.is-collapsed .collapse-line {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .object-title,
+    .nav-text,
+    .button-label,
+    .table-label,
+    .object-note,
+    .create-menu-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wireframe" data-od-id="dataset-wireframe">
+    <div class="redline grid-note">01 - dataset metadata</div>
+    <div class="redline tools-note">02 - caption tools</div>
+    <div class="redline caption-note">03 - selectable image captions</div>
+
+    <header class="topbar" data-od-id="top-app-bar">
+      <div class="workspace-group" data-od-id="workspace-switcher-zone">
+        <div class="workspace-switcher" aria-label="Workspace switcher">
+          <span class="logo-block"></span>
+          <span class="object-note">Workspace: Titles XYZ</span>
+        </div>
+        <div class="crumbs" aria-label="Breadcrumbs">
+          <span class="object-note">Workspaces / Titles XYZ / Projects / Zapata Portrait Set / Dataset v6</span>
+        </div>
+      </div>
+      <div class="search" data-od-id="global-search">
+        <span class="object-note">Search captions, files, trigger words...</span>
+        <span class="keycap object-note">CMD</span>
+      </div>
+      <div class="actions" data-od-id="topbar-actions">
+        <a class="btn" data-od-id="button-topbar-import" href="transfers.html">Import</a>
+        <a class="btn" data-od-id="button-topbar-export" href="transfers.html">Export</a>
+        <div class="create-menu-wrap" data-create-menu>
+          <button class="icon-btn plus-btn" data-create-trigger data-od-id="button-create-menu" aria-label="Create" aria-haspopup="menu" aria-expanded="false">+</button>
+          <div class="create-menu" data-create-panel role="menu" aria-label="Create">
+            <a class="create-menu-item" role="menuitem" data-create-action="project" data-od-id="create-menu-project" href="project.html"><span class="create-menu-label">+ PROJECT</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="dataset" data-od-id="create-menu-dataset" href="dataset.html"><span class="create-menu-label">+ DATASET</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="model" data-od-id="create-menu-model" href="models.html"><span class="create-menu-label">+ MODEL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="eval" data-od-id="create-menu-eval" href="eval-generator.html"><span class="create-menu-label">+ EVAL</span></a>
+            <a class="create-menu-item" role="menuitem" data-create-action="grid" data-od-id="create-menu-grid" href="grid-generator.html"><span class="create-menu-label">+ GRID</span></a>
+          </div>
+        </div>
+        <button class="avatar" data-od-id="button-user-menu" aria-label="User menu"></button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" data-od-id="left-sidebar-nav" aria-label="Main navigation">
+        <button class="side-collapse-toggle left-sidebar-toggle" id="left-sidebar-toggle" data-od-id="button-collapse-left-sidebar" aria-label="Collapse left sidebar" aria-pressed="false">&lt;</button>
+        <div class="nav-section" data-od-id="sidebar-section-main">
+          <div class="object-title">Main</div>
+          <a class="nav-item" data-od-id="nav-dashboard" href="index.html"><span class="square"></span><span class="nav-text">Dashboard</span><span></span></a>
+          <a class="nav-item" data-od-id="nav-gallery" href="gallery.html"><span class="square"></span><span class="nav-text">Gallery</span><span></span></a>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-projects">
+          <div class="object-title">Projects</div>
+          <div class="project-tree" data-od-id="nav-project-expanded-zapata">
+            <a class="nav-item project-root" data-od-id="nav-project-zapata-portrait" href="project.html"><span class="square"></span><span class="nav-text">Zapata Portrait Set</span><span class="tree-caret">v</span></a>
+            <div class="nav-branch" data-od-id="nav-project-zapata-models">
+              <div class="nav-group-label">Models</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-model-zapata-v6" href="models.html"><span class="square"></span><span class="nav-text">zapata-v6.safetensors</span><span></span></a>
+              <div class="nav-item nav-child" data-od-id="nav-project-model-zapata-v5"><span class="square"></span><span class="nav-text">zapata-v5.safetensors</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-datasets">
+              <div class="nav-group-label">Datasets</div>
+              <div class="nav-item nav-child active" data-od-id="nav-project-dataset-v6"><span class="square"></span><span class="nav-text">Dataset v6</span><span class="badge"></span></div>
+              <div class="nav-item nav-child" data-od-id="nav-project-dataset-v5"><span class="square"></span><span class="nav-text">Dataset v5</span><span></span></div>
+            </div>
+            <div class="nav-branch" data-od-id="nav-project-zapata-evals">
+              <div class="nav-group-label">Evals</div>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-identity-proof-v2" href="models.html#model-eval-runs"><span class="square"></span><span class="nav-text">Identity proof v2</span><span></span></a>
+              <a class="nav-item nav-child" data-od-id="nav-project-eval-wardrobe-holdout" href="models.html#model-eval-runs"><span class="square"></span><span class="nav-text">Wardrobe holdout</span><span></span></a>
+            </div>
+          </div>
+          <div class="nav-item" data-od-id="nav-project-vcribb-editorial"><span class="square"></span><span class="nav-text">vcribb editorial</span><span></span></div>
+          <div class="nav-item" data-od-id="nav-project-product-pack"><span class="square"></span><span class="nav-text">Product pack concept</span><span></span></div>
+        </div>
+        <div class="nav-section" data-od-id="sidebar-section-operations">
+          <div class="object-title">Operations</div>
+          <a class="nav-item" data-od-id="nav-transfers" href="transfers.html"><span class="square"></span><span class="nav-text">Transfers</span><span></span></a>
+        </div>
+        <div class="storage" data-od-id="sidebar-storage">
+          <a class="nav-item" data-od-id="nav-settings" href="settings.html"><span class="square"></span><span class="nav-text">Settings</span><span></span></a>
+          <div class="object-title">Storage</div>
+          <div class="meter"><span></span></div>
+          <div class="object-note">42.8 GB / 100 GB</div>
+        </div>
+      </nav>
+
+      <main class="main" data-od-id="dataset-main-content">
+        <section class="page-header" data-od-id="dataset-header">
+          <div class="title-block">
+            <div class="object-title" style="font-size: 18px;">Dataset v6 inside Zapata Portrait Set</div>
+            <div class="object-note">Project subset for source images, full captions, trigger-word coverage, inclusion state, and export readiness.</div>
+            <div class="chip-row" data-od-id="dataset-header-trigger-words">
+              <span class="meta-chip">trigger: kzapata</span>
+              <span class="meta-chip">trigger: kzstyle-v2</span>
+              <span class="meta-chip">42 images</span>
+              <span class="meta-chip">caption pass v3</span>
+            </div>
+          </div>
+          <div class="batch-actions" data-od-id="dataset-header-actions">
+            <a class="ghost-btn" data-od-id="button-export-dataset" href="transfers.html">Export</a>
+            <button class="ghost-btn" data-od-id="button-version-dataset">Version</button>
+          </div>
+        </section>
+
+        <section class="caption-version-tracker" data-od-id="caption-version-tracker">
+          <div class="version-head">
+            <div>
+              <div class="object-title">Caption version tracker</div>
+              <div class="object-note">Tracks caption edits as project-scoped dataset versions before export.</div>
+            </div>
+            <div class="chip-row" data-od-id="caption-version-tags">
+              <span class="meta-chip">current: captions v3</span>
+              <span class="meta-chip">draft: captions v4</span>
+              <span class="meta-chip">dataset subset: v6</span>
+            </div>
+          </div>
+          <div class="version-table-wrap">
+            <table class="version-table" data-od-id="caption-version-rail" aria-label="Caption version tracker">
+              <thead>
+                <tr>
+                  <th><span class="object-title">Version</span></th>
+                  <th><span class="object-title">Caption source</span></th>
+                  <th><span class="object-title">State</span></th>
+                  <th><span class="object-title">Scope</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="version-step" data-od-id="caption-version-v1">
+                  <td><span class="object-title">v1 import</span></td>
+                  <td><span class="object-note">raw source text</span></td>
+                  <td><span class="object-note">archived</span></td>
+                  <td><span class="object-note">42 images</span></td>
+                </tr>
+                <tr class="version-step" data-od-id="caption-version-v2">
+                  <td><span class="object-title">v2 cleanup</span></td>
+                  <td><span class="object-note">trigger pass</span></td>
+                  <td><span class="object-note">locked</span></td>
+                  <td><span class="object-note">kzapata</span></td>
+                </tr>
+                <tr class="version-step active" data-od-id="caption-version-v3">
+                  <td><span class="object-title">v3 current</span></td>
+                  <td><span class="object-note">text + JSON review</span></td>
+                  <td><span class="object-note">current</span></td>
+                  <td><span class="object-note">dataset v6</span></td>
+                </tr>
+                <tr class="version-step" data-od-id="caption-version-v4">
+                  <td><span class="object-title">v4 draft</span></td>
+                  <td><span class="object-note">pending export</span></td>
+                  <td><span class="object-note">draft</span></td>
+                  <td><span class="object-note">selected edits</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="caption-tools" data-od-id="caption-tools-panel">
+          <div class="tool-row">
+            <div>
+              <div class="object-title">Caption operations</div>
+              <div class="object-note">Applies to selected images first; if none are selected, applies to the visible dataset.</div>
+            </div>
+            <div class="batch-actions">
+              <button class="ghost-btn" id="select-all-button" data-od-id="button-select-all-images">Select all</button>
+              <button class="ghost-btn" id="clear-selection-button" data-od-id="button-clear-image-selection">Clear</button>
+            </div>
+          </div>
+          <div class="caption-config-grid" data-od-id="caption-model-prompt-options">
+            <label class="tool-field" data-od-id="caption-model-field">
+              <span class="field-label">Caption model</span>
+              <select class="select-input" id="caption-model-select" aria-label="Caption model">
+                <option>Qwen2-VL</option>
+                <option>BLIP-2</option>
+                <option>Manual pass</option>
+              </select>
+            </label>
+            <label class="tool-field" data-od-id="caption-type-field">
+              <span class="field-label">Caption type</span>
+              <select class="select-input" id="caption-type-select" aria-label="Caption type">
+                <option>Normal text captions</option>
+                <option>JSON captions</option>
+                <option>Text + JSON captions</option>
+              </select>
+            </label>
+            <label class="tool-field" data-od-id="caption-prompt-preset-field">
+              <span class="field-label">Prompt preset</span>
+              <select class="select-input" id="caption-prompt-preset" aria-label="Caption prompt preset">
+                <option>Identity + lighting</option>
+                <option>Trigger coverage</option>
+                <option>Eval holdout</option>
+              </select>
+            </label>
+            <label class="tool-field" data-od-id="caption-prompt-field">
+              <span class="field-label">Caption prompt</span>
+              <input class="text-input" id="caption-prompt-input" type="text" value="Subject identity, lighting, wardrobe, background, trigger words." aria-label="Caption prompt">
+            </label>
+          </div>
+          <div class="tool-grid">
+            <label class="tool-field" data-od-id="caption-find-field">
+              <span class="field-label">Find</span>
+              <input class="text-input" id="find-input" type="text" value="studio light" aria-label="Find text">
+            </label>
+            <label class="tool-field" data-od-id="caption-replace-field">
+              <span class="field-label">Replace with</span>
+              <input class="text-input" id="replace-input" type="text" value="softbox light" aria-label="Replace text">
+            </label>
+            <button class="btn primary" id="replace-button" data-od-id="button-replace-caption-text">Replace</button>
+            <label class="tool-field" data-od-id="caption-add-word-field">
+              <span class="field-label">Add word</span>
+              <input class="text-input" id="word-input" type="text" value="editorial" aria-label="Add word">
+            </label>
+            <button class="btn primary" id="add-word-button" data-od-id="button-add-caption-word">Add word</button>
+          </div>
+          <div class="object-note" id="caption-status" data-od-id="caption-operation-status">Ready. Select images for scoped caption edits.</div>
+        </section>
+
+        <section class="image-grid" data-od-id="dataset-image-grid">
+          <article class="image-card" data-image-card data-od-id="dataset-image-card-1042">
+            <div>
+              <div class="image-card-head">
+                <label class="select-control"><input type="checkbox" data-card-check aria-label="Select IMG_1042"> IMG_1042</label>
+                <a class="fullscreen-link" data-od-id="button-fullscreen-image-1042" href="image-lightbox.html">Full screen</a>
+              </div>
+              <div class="image-placeholder" data-od-id="dataset-image-placeholder-1042"></div>
+            </div>
+            <div class="image-meta">
+              <div class="caption-type-row" data-od-id="caption-type-tags-1042">
+                <span class="caption-type-tag active">Text</span>
+                <span class="caption-type-tag">JSON</span>
+              </div>
+              <textarea class="caption-field" data-caption-field aria-label="Caption for IMG_1042">kzapata portrait in studio light, neutral background, forward gaze, dark jacket, sharp facial detail, medium crop, clean production lighting, dataset v6 inclusion approved.</textarea>
+            </div>
+          </article>
+
+          <article class="image-card" data-image-card data-od-id="dataset-image-card-1048">
+            <div>
+              <div class="image-card-head">
+                <label class="select-control"><input type="checkbox" data-card-check aria-label="Select IMG_1048"> IMG_1048</label>
+                <a class="fullscreen-link" data-od-id="button-fullscreen-image-1048" href="image-lightbox.html">Full screen</a>
+              </div>
+              <div class="image-placeholder" data-od-id="dataset-image-placeholder-1048"></div>
+            </div>
+            <div class="image-meta">
+              <div class="caption-type-row" data-od-id="caption-type-tags-1048">
+                <span class="caption-type-tag active">Text</span>
+                <span class="caption-type-tag">JSON</span>
+              </div>
+              <textarea class="caption-field" data-caption-field aria-label="Caption for IMG_1048">kzapata side profile portrait, studio light on cheek and hairline, plain grey field, structured collar, realistic skin texture, balanced exposure, keep for identity consistency.</textarea>
+            </div>
+          </article>
+
+          <article class="image-card" data-image-card data-od-id="dataset-image-card-1055">
+            <div>
+              <div class="image-card-head">
+                <label class="select-control"><input type="checkbox" data-card-check aria-label="Select IMG_1055"> IMG_1055</label>
+                <a class="fullscreen-link" data-od-id="button-fullscreen-image-1055" href="image-lightbox.html">Full screen</a>
+              </div>
+              <div class="image-placeholder" data-od-id="dataset-image-placeholder-1055"></div>
+            </div>
+            <div class="image-meta">
+              <div class="caption-type-row" data-od-id="caption-type-tags-1055">
+                <span class="caption-type-tag active">Text</span>
+                <span class="caption-type-tag active">JSON</span>
+              </div>
+              <textarea class="caption-field" data-caption-field aria-label="Caption for IMG_1055">kzapata relaxed expression, three-quarter view, soft studio light, black shirt, subtle smile, shallow depth, reference image reserved for holdout comparison and caption QA.</textarea>
+            </div>
+          </article>
+
+          <article class="image-card" data-image-card data-od-id="dataset-image-card-1061">
+            <div>
+              <div class="image-card-head">
+                <label class="select-control"><input type="checkbox" data-card-check aria-label="Select IMG_1061"> IMG_1061</label>
+                <a class="fullscreen-link" data-od-id="button-fullscreen-image-1061" href="image-lightbox.html">Full screen</a>
+              </div>
+              <div class="image-placeholder" data-od-id="dataset-image-placeholder-1061"></div>
+            </div>
+            <div class="image-meta">
+              <div class="caption-type-row" data-od-id="caption-type-tags-1061">
+                <span class="caption-type-tag active">Text</span>
+                <span class="caption-type-tag">JSON</span>
+              </div>
+              <textarea class="caption-field" data-caption-field aria-label="Caption for IMG_1061">kzapata seated portrait, wider crop with shoulders visible, studio light from camera left, monochrome wardrobe, clean background edge, useful for body proportion and framing.</textarea>
+            </div>
+          </article>
+
+          <article class="image-card" data-image-card data-od-id="dataset-image-card-1070">
+            <div>
+              <div class="image-card-head">
+                <label class="select-control"><input type="checkbox" data-card-check aria-label="Select IMG_1070"> IMG_1070</label>
+                <a class="fullscreen-link" data-od-id="button-fullscreen-image-1070" href="image-lightbox.html">Full screen</a>
+              </div>
+              <div class="image-placeholder" data-od-id="dataset-image-placeholder-1070"></div>
+            </div>
+            <div class="image-meta">
+              <div class="caption-type-row" data-od-id="caption-type-tags-1070">
+                <span class="caption-type-tag active">Text</span>
+                <span class="caption-type-tag active">JSON</span>
+              </div>
+              <textarea class="caption-field" data-caption-field aria-label="Caption for IMG_1070">kzapata close portrait, brighter studio light, direct eye contact, high detail around brows and jawline, flagged for reviewer check because contrast is stronger than the main set.</textarea>
+            </div>
+          </article>
+
+          <article class="image-card" data-image-card data-od-id="dataset-image-card-1077">
+            <div>
+              <div class="image-card-head">
+                <label class="select-control"><input type="checkbox" data-card-check aria-label="Select IMG_1077"> IMG_1077</label>
+                <a class="fullscreen-link" data-od-id="button-fullscreen-image-1077" href="image-lightbox.html">Full screen</a>
+              </div>
+              <div class="image-placeholder" data-od-id="dataset-image-placeholder-1077"></div>
+            </div>
+            <div class="image-meta">
+              <div class="caption-type-row" data-od-id="caption-type-tags-1077">
+                <span class="caption-type-tag active">Text</span>
+                <span class="caption-type-tag">JSON</span>
+              </div>
+              <textarea class="caption-field" data-caption-field aria-label="Caption for IMG_1077">kzapata editorial portrait, studio light with darker falloff, black coat, neutral wall, cinematic but still natural, assigned to kzstyle-v2 trigger coverage for eval batch.</textarea>
+            </div>
+          </article>
+        </section>
+      </main>
+
+      <aside class="inspector" data-od-id="right-context-panel">
+        <button class="side-collapse-toggle right-sidebar-toggle" id="right-sidebar-toggle" data-od-id="button-collapse-right-sidebar" aria-label="Collapse right inspector" aria-pressed="false">&gt;</button>
+        <article class="inspector-card" data-od-id="dataset-context-metadata-card">
+          <div>
+            <div class="object-title">Dataset metadata</div>
+            <div class="object-note">Context follows the selected dataset or selected image group.</div>
+          </div>
+          <div class="metadata-list">
+            <div class="meta-row"><span class="object-note">Project</span><span class="object-title">Zapata Portrait Set</span></div>
+            <div class="meta-row"><span class="object-note">Dataset version</span><span class="object-title">v6</span></div>
+            <div class="meta-row"><span class="object-note">Trigger words</span><span class="object-title">kzapata, kzstyle-v2</span></div>
+            <div class="meta-row"><span class="object-note">Selected images</span><span class="object-title"><span data-selected-count>0</span></span></div>
+            <div class="meta-row"><span class="object-note">Caption state</span><span class="object-title">editable full text</span></div>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="dataset-notes-card" data-note-scope="dataset">
+          <div>
+            <div class="object-title">Dataset notes</div>
+            <div class="object-note">Markdown notes scoped to dataset v6 and selected image groups.</div>
+          </div>
+          <div class="note-toolbar" data-od-id="dataset-note-toolbar">
+            <button class="note-tool-button" data-md-action="bold" data-od-id="dataset-note-bold" aria-label="Bold">B</button>
+            <button class="note-tool-button" data-md-action="italic" data-od-id="dataset-note-italic" aria-label="Italic">I</button>
+            <button class="note-tool-button" data-md-action="underline" data-od-id="dataset-note-underline" aria-label="Underline">U</button>
+            <button class="note-tool-button" data-md-action="strike" data-od-id="dataset-note-strike" aria-label="Strikethrough">S</button>
+            <button class="note-tool-button" data-md-action="bullet" data-od-id="dataset-note-bullets" aria-label="Bullets">Bullets</button>
+          </div>
+          <textarea class="note-input" data-note-input data-od-id="dataset-note-input" aria-label="Dataset note input" placeholder="Write markdown note...">Check text vs JSON captions before exporting dataset v6.</textarea>
+          <div class="batch-actions">
+            <button class="btn primary compact" data-add-note data-od-id="dataset-add-note-button">Add Note</button>
+            <span class="object-note" data-note-status>2 previous notes</span>
+          </div>
+          <div class="note-list" data-note-list data-od-id="dataset-previous-notes">
+            <button class="note-item active" data-note-item data-note-user="Ed Kennedy" data-note-date="Jul 9, 2026" data-note-text="Check text vs JSON captions before exporting dataset v6." data-od-id="dataset-note-caption-types">
+              <span class="object-title">Caption type QA</span>
+              <span class="note-meta">Jul 9, 2026 - Ed Kennedy</span>
+              <span class="note-body">Check text vs JSON captions before exporting dataset v6.</span>
+            </button>
+            <button class="note-item" data-note-item data-note-user="Ed Kennedy" data-note-date="Jul 8, 2026" data-note-text="- Holdout images need final inclusion check&#10;- Add wardrobe term to IMG_1042 caption" data-od-id="dataset-note-holdout-check">
+              <span class="object-title">Holdout checklist</span>
+              <span class="note-meta">Jul 8, 2026 - Ed Kennedy</span>
+              <span class="note-body">- Holdout images need final inclusion check<br>- Add wardrobe term to IMG_1042 caption</span>
+            </button>
+          </div>
+        </article>
+
+        <article class="inspector-card" data-od-id="dataset-activity-feed">
+          <div>
+            <div class="object-title">Dataset activity feed</div>
+            <div class="object-note">Scoped to Zapata Portrait Set / dataset v6.</div>
+          </div>
+          <div class="activity-list">
+            <div class="activity-item" data-od-id="dataset-activity-caption-pass">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Caption pass updated</span><span class="object-note">Find/replace review applied to source subset</span><span class="activity-bar" style="width: 80%;"></span></span>
+            </div>
+            <div class="activity-item" data-od-id="dataset-activity-trigger-added">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Trigger word coverage checked</span><span class="object-note">kzapata present across train split</span><span class="activity-bar" style="width: 70%;"></span></span>
+            </div>
+            <div class="activity-item" data-od-id="dataset-activity-holdout-marked">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Holdout images marked</span><span class="object-note">Expression subset held for eval comparison</span><span class="activity-bar" style="width: 62%;"></span></span>
+            </div>
+            <div class="activity-item" data-od-id="dataset-activity-export-ready">
+              <span class="activity-dot"></span>
+              <span class="activity-copy"><span class="object-title">Export package staged</span><span class="object-note">AI Toolkit dataset package pending approval</span><span class="activity-bar" style="width: 76%;"></span></span>
+            </div>
+          </div>
+        </article>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const cards = Array.from(document.querySelectorAll("[data-image-card]"));
+    const selectedCounts = Array.from(document.querySelectorAll("[data-selected-count]"));
+    const status = document.getElementById("caption-status");
+    const captionTypeSelect = document.getElementById("caption-type-select");
+
+    function selectedCards() {
+      return cards.filter((card) => card.querySelector("[data-card-check]").checked);
+    }
+
+    function activeCards() {
+      const selected = selectedCards();
+      return selected.length ? selected : cards;
+    }
+
+    function updateSelection() {
+      const count = selectedCards().length;
+      selectedCounts.forEach((node) => {
+        node.textContent = String(count);
+      });
+      cards.forEach((card) => {
+        const checked = card.querySelector("[data-card-check]").checked;
+        card.classList.toggle("selected", checked);
+        card.dataset.selected = checked ? "true" : "false";
+      });
+    }
+
+    cards.forEach((card) => {
+      const checkbox = card.querySelector("[data-card-check]");
+      checkbox.addEventListener("change", updateSelection);
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("textarea, input, button, a, label")) return;
+        checkbox.checked = !checkbox.checked;
+        updateSelection();
+      });
+    });
+
+    document.getElementById("select-all-button").addEventListener("click", () => {
+      cards.forEach((card) => {
+        card.querySelector("[data-card-check]").checked = true;
+      });
+      updateSelection();
+      status.textContent = "Selected all visible dataset images.";
+    });
+
+    document.getElementById("clear-selection-button").addEventListener("click", () => {
+      cards.forEach((card) => {
+        card.querySelector("[data-card-check]").checked = false;
+      });
+      updateSelection();
+      status.textContent = "Selection cleared. Caption operations will apply to all visible images.";
+    });
+
+    document.getElementById("replace-button").addEventListener("click", () => {
+      const find = document.getElementById("find-input").value;
+      const replace = document.getElementById("replace-input").value;
+      if (!find) {
+        status.textContent = "Enter text to find before applying a replacement.";
+        return;
+      }
+
+      let changed = 0;
+      activeCards().forEach((card) => {
+        const field = card.querySelector("[data-caption-field]");
+        if (field.value.includes(find)) {
+          field.value = field.value.split(find).join(replace);
+          changed += 1;
+        }
+      });
+      const scope = selectedCards().length ? "selected images" : "visible dataset";
+      status.textContent = `Replaced caption text in ${changed} ${scope}.`;
+    });
+
+    document.getElementById("add-word-button").addEventListener("click", () => {
+      const word = document.getElementById("word-input").value.trim();
+      if (!word) {
+        status.textContent = "Enter a word before applying the batch add.";
+        return;
+      }
+
+      let changed = 0;
+      activeCards().forEach((card) => {
+        const field = card.querySelector("[data-caption-field]");
+        const words = field.value.toLowerCase().split(/\W+/);
+        if (!words.includes(word.toLowerCase())) {
+          field.value = `${field.value.replace(/\s+$/, "")}, ${word}.`;
+          changed += 1;
+        }
+      });
+      const scope = selectedCards().length ? "selected captions" : "visible captions";
+      status.textContent = `Added "${word}" to ${changed} ${scope}.`;
+    });
+
+    captionTypeSelect.addEventListener("change", () => {
+      const scope = selectedCards().length ? "selected images" : "visible dataset";
+      status.textContent = `Caption operations now target ${captionTypeSelect.value.toLowerCase()} for the ${scope}.`;
+    });
+
+    updateSelection();
+  </script>
+  <script>
+    (() => {
+      function applyMarkdown(input, action) {
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const value = input.value;
+        const selected = value.slice(start, end) || "note";
+        let next = selected;
+        let cursorStart = start;
+        let cursorEnd = end;
+
+        if (action === "bold") next = `**${selected}**`;
+        if (action === "italic") next = `*${selected}*`;
+        if (action === "underline") next = `<u>${selected}</u>`;
+        if (action === "strike") next = `~~${selected}~~`;
+        if (action === "bullet") next = selected.split("\n").map((line) => line.startsWith("- ") ? line : `- ${line}`).join("\n");
+
+        input.value = `${value.slice(0, start)}${next}${value.slice(end)}`;
+        cursorEnd = cursorStart + next.length;
+        input.focus();
+        input.setSelectionRange(cursorStart, cursorEnd);
+      }
+
+      document.querySelectorAll("[data-note-scope]").forEach((scope) => {
+        const input = scope.querySelector("[data-note-input]");
+        const list = scope.querySelector("[data-note-list]");
+        const status = scope.querySelector("[data-note-status]");
+        const noteUser = "Ed Kennedy";
+        let count = list.querySelectorAll("[data-note-item]").length;
+
+        function selectNote(item) {
+          list.querySelectorAll("[data-note-item]").forEach((note) => note.classList.toggle("active", note === item));
+          input.value = item.dataset.noteText || item.querySelector(".note-body")?.textContent || "";
+          status.textContent = "Selected previous note.";
+        }
+
+        scope.querySelectorAll("[data-md-action]").forEach((button) => {
+          button.addEventListener("click", () => applyMarkdown(input, button.dataset.mdAction));
+        });
+
+        list.querySelectorAll("[data-note-item]").forEach((item) => {
+          item.addEventListener("click", () => selectNote(item));
+        });
+
+        scope.querySelector("[data-add-note]").addEventListener("click", () => {
+          const text = input.value.trim();
+          if (!text) {
+            status.textContent = "Write a note before adding.";
+            return;
+          }
+
+          count += 1;
+          const item = document.createElement("button");
+          item.className = "note-item active";
+          item.type = "button";
+          item.dataset.noteItem = "true";
+          item.dataset.noteText = text;
+          item.dataset.noteUser = noteUser;
+          item.dataset.noteDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          item.setAttribute("data-od-id", `dataset-note-added-${count}`);
+          const title = document.createElement("span");
+          title.className = "object-title";
+          title.textContent = `Note ${count}`;
+          const meta = document.createElement("span");
+          meta.className = "note-meta";
+          meta.textContent = `${item.dataset.noteDate} - ${noteUser}`;
+          const body = document.createElement("span");
+          body.className = "note-body";
+          body.textContent = text;
+          item.append(title, meta, body);
+          list.querySelectorAll("[data-note-item]").forEach((note) => note.classList.remove("active"));
+          item.addEventListener("click", () => selectNote(item));
+          list.prepend(item);
+          status.textContent = `${count} previous notes`;
+        });
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      function bindSidebarToggle(buttonId, className, expandedText, collapsedText, expandedLabel, collapsedLabel) {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+
+        function sync() {
+          const collapsed = document.body.classList.contains(className);
+          button.textContent = collapsed ? collapsedText : expandedText;
+          button.setAttribute("aria-pressed", String(collapsed));
+          button.setAttribute("aria-label", collapsed ? collapsedLabel : expandedLabel);
+        }
+
+        button.addEventListener("click", () => {
+          document.body.classList.toggle(className);
+          sync();
+        });
+
+        sync();
+      }
+
+      bindSidebarToggle(
+        "left-sidebar-toggle",
+        "sidebar-left-collapsed",
+        "<",
+        ">",
+        "Collapse left sidebar",
+        "Expand left sidebar"
+      );
+
+      bindSidebarToggle(
+        "right-sidebar-toggle",
+        "sidebar-right-collapsed",
+        ">",
+        "<",
+        "Collapse right inspector",
+        "Expand right inspector"
+      );
+    })();
+  </script>
+  <script>
+    (() => {
+      const boxSelector = [
+        ".page-header",
+        ".caption-version-tracker",
+        ".caption-tools",
+        ".image-card",
+        ".inspector-card"
+      ].join(",");
+
+      document.querySelectorAll(boxSelector).forEach((box, index) => {
+        if (box.dataset.collapseReady === "true" || box.matches("a")) return;
+        const title = box.querySelector(".object-title")?.textContent?.trim();
+        const filename = box.querySelector(".select-control")?.textContent?.trim();
+        const fallback = box.getAttribute("data-od-id") || `Box ${index + 1}`;
+        const labelText = title || filename || fallback.replace(/-/g, " ");
+
+        const line = document.createElement("div");
+        line.className = "collapse-line object-title";
+        line.textContent = labelText;
+
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "collapse-toggle";
+        toggle.textContent = "Collapse";
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const collapsed = box.classList.toggle("is-collapsed");
+          toggle.textContent = collapsed ? "Expand" : "Collapse";
+          toggle.setAttribute("aria-expanded", String(!collapsed));
+        });
+
+        box.classList.add("collapsible-box");
+        box.prepend(line);
+        box.append(toggle);
+        box.dataset.collapseReady = "true";
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      const menus = Array.from(document.querySelectorAll("[data-create-menu]"));
+      if (!menus.length) return;
+
+      const closeAll = (except) => {
+        menus.forEach((wrap) => {
+          if (wrap === except) return;
+          const trigger = wrap.querySelector("[data-create-trigger]");
+          const panel = wrap.querySelector("[data-create-panel]");
+          panel?.classList.remove("open");
+          trigger?.setAttribute("aria-expanded", "false");
+        });
+      };
+
+      menus.forEach((wrap) => {
+        const trigger = wrap.querySelector("[data-create-trigger]");
+        const panel = wrap.querySelector("[data-create-panel]");
+        const items = Array.from(wrap.querySelectorAll("[role='menuitem']"));
+        if (!trigger || !panel) return;
+
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const opening = !panel.classList.contains("open");
+          closeAll(wrap);
+          panel.classList.toggle("open", opening);
+          trigger.setAttribute("aria-expanded", String(opening));
+        });
+
+        trigger.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            closeAll(wrap);
+            panel.classList.add("open");
+            trigger.setAttribute("aria-expanded", "true");
+            items[0]?.focus();
+          }
+        });
+
+        items.forEach((item, index) => {
+          item.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              panel.classList.remove("open");
+              trigger.setAttribute("aria-expanded", "false");
+              trigger.focus();
+            }
+
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              items[(index + step + items.length) % items.length]?.focus();
+            }
+          });
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-create-menu]")) closeAll();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeAll();
+      });
+    })();
+  </script>
+</body>
+</html>
