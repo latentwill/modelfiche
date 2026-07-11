@@ -476,6 +476,11 @@ export function ModelScreen({ id }: { id: string }) {
   const [actionError, setActionError] = useState("");
   const selectedState = str(selectedVersion?.lifecycle_state, "").toLowerCase();
   const latestVersion = versions[0] ?? {};
+  const importedRunId = str(resource.data?.description).match(/training run ([0-9a-f-]{36})/i)?.[1] ?? "";
+  const versionRunIds = new Set(versions.map(version => str((version.readiness as Row | undefined)?.training_run_id)).filter(Boolean));
+  if (importedRunId) versionRunIds.add(importedRunId);
+  const projectRuns = rows(runs.data);
+  const relatedRuns = projectRuns.filter(run => versionRunIds.has(idOf(run)) || (!versionRunIds.size && str(run.name) === str(resource.data?.name)));
 
   async function changeVersion(action: "approve" | "archive") {
     if (!selectedVersion) return;
@@ -497,7 +502,7 @@ export function ModelScreen({ id }: { id: string }) {
     <ActionMessage message={message} error={actionError} />
     {resource.data && <Panel title="Model record"><Notice error={project.error} loading={project.loading} /><dl className="details"><dt>Description</dt><dd>{str(resource.data.description, "No description")}</dd><dt>Latest trigger words</dt><dd>{Array.isArray(latestVersion.trigger_words) && latestVersion.trigger_words.length ? latestVersion.trigger_words.join(", ") : "None registered"}</dd><dt>Base model</dt><dd>{str(latestVersion.base_model, "Not registered")}</dd><dt>Project</dt><dd>{projectId ? <a href={`#/project/${projectId}`}>{str(project.data?.title ?? project.data?.name, "Open project")}</a> : "Not assigned"}</dd><dt>Versions</dt><dd>{versions.length}</dd></dl></Panel>}
 
-    <Panel title="Eval runs">
+    <Panel title="Project eval runs">
       <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
       {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => <a href={`#/eval/${idOf(evaluation)}`} key={idOf(evaluation)}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={String(output.asset_revision_id ?? output.asset_id)} alt="Eval output" />)}</div><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.prompt_set_name)} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a>)}</div>}
     </Panel>
@@ -514,19 +519,19 @@ export function ModelScreen({ id }: { id: string }) {
     </Panel>
 
     <Panel title="Training run data">
-      <Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !rows(runs.data).length} />
-      {rows(runs.data).map(run => <ModelTrainingRun key={idOf(run)} run={run} />)}
+      <Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !relatedRuns.length} />
+      {relatedRuns.map(run => <ModelTrainingRun key={idOf(run)} run={run} />)}
     </Panel>
   </Page>;
 }
 
 function ModelTrainingRun({ run }: { run: Row }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const runId = idOf(run);
   const samples = useResource<unknown>(expanded ? `/api/runs/${runId}/samples` : null);
   const metrics = useResource<LossMetrics>(expanded ? `/api/runs/${runId}/metrics?name=loss` : null);
   const sampleRows = rows(samples.data);
-  return <details className="training-run" onToggle={event => setExpanded(event.currentTarget.open)}>
+  return <details className="training-run" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary><strong>{str(run.name, "Training run")}</strong><span>{str(run.dataset_version_name, "No linked dataset")}</span><Status value={run.status} /></summary>
     <div className="training-run-body">
       <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>

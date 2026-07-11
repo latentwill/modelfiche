@@ -140,6 +140,7 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         dataset = client.get("/api/datasets", params={"project_id": project["id"]}).json()[0]
         item = client.get(f"/api/dataset-versions/{dataset['current_version_id']}/items").json()[0]
         asset_id = item["asset_id"]
+        assert client.get(f"/api/assets/{asset_id}").json()["project_id"] == project["id"]
     else:
         run = client.get("/api/runs", params={"project_id": project["id"]}).json()[0]
         detail = client.get(f"/api/runs/{run['id']}").json()

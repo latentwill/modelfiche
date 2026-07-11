@@ -193,6 +193,10 @@ class SQLAlchemyImportSink:
             asset_id = self._assets[key]
             asset = self.session.get(models.Asset, asset_id)
             if asset is not None:
+                # Dataset ownership and gallery categorization must agree. A dataset
+                # discovered under another project's import job may be reassigned
+                # from its path, so carry its member assets to that project too.
+                asset.project_id = project_id
                 asset.metadata_ = {**dict(asset.metadata_ or {}), "category": "dataset_image", "caption": caption, "dataset_version_id": version.id}
             item = existing_items.get(asset_id)
             if item is None:
@@ -381,6 +385,8 @@ class SQLAlchemyImportSink:
                 select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id)
             )
             if version is not None:
+                version.model_id = model.id
+                version.readiness = {**dict(version.readiness or {}), "imported": True, "training_run_id": run.id}
                 continue
             asset = self.session.get(models.Asset, checkpoint.asset_id)
             version_name = PurePosixPath(asset.name).stem if asset else f"step-{checkpoint.step}"
