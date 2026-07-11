@@ -99,6 +99,15 @@ def test_classify_database_accepts_database_produced_by_0002_migration(tmp_path:
     assert classify_database(database_path) is BaselineState.STAMPED_0002
 
 
+
+def test_classify_database_accepts_unmarked_storage_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "unmarked-head.sqlite3"
+    _create_baseline(database_path, "0001", version="0001_initial")
+
+    _upgrade_to_head(database_path)
+
+    assert classify_database(database_path) is BaselineState.HEAD_UNMARKED
+
 def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: Path) -> None:
     database_path = tmp_path / "stamped-0001.sqlite3"
     _create_baseline(database_path, "0001", version="0001_initial")
