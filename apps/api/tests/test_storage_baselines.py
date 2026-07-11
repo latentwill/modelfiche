@@ -116,12 +116,13 @@ def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: P
 
     with _connection(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0003_flexible_image_storage",
+            "0006_source_capability_timestamps",
         )
         for table in (
             "content_blobs",
             "storage_feature_gates",
             "storage_verification_receipts",
+            "training_metrics",
             "storage_cutover_marker",
             "storage_transfers",
             "checkpoint_revisions",

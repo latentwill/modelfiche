@@ -22,7 +22,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0003_flexible_image_storage",
+            "0006_source_capability_timestamps",
         )
 
 
@@ -33,11 +33,24 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0003_flexible_image_storage",
+            "0006_source_capability_timestamps",
         )
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='training_metrics'"
+        ).fetchone() == (1,)
+        source_capability_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(source_capabilities)").fetchall()
+        }
+        assert "updated_at" in source_capability_columns
+        content_blob_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(content_blobs)").fetchall()
+        }
+        assert {"created_at", "updated_at"} <= content_blob_columns
         assert connection.execute(
             "SELECT state FROM storage_feature_gates ORDER BY name"
         ).fetchall() == [("disabled",)] * 6

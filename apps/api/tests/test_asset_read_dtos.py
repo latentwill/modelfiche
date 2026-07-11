@@ -23,7 +23,8 @@ def _seed_image_dataset(client: TestClient):
 def test_image_read_dtos_expose_asset_id_as_asset_revision_id(client: TestClient):
     asset, dataset = _seed_image_dataset(client)
 
-    gallery_row = client.get("/api/gallery").json()[0]
+    assert client.get("/api/gallery").json() == []
+    gallery_row = client.get("/api/gallery?include_dataset_assets=true").json()[0]
     asset_row = client.get(f"/api/assets/{asset['id']}").json()
     metadata = client.get(f"/api/assets/{asset['id']}/metadata").json()
     context = client.get(f"/api/assets/{asset['id']}/context").json()
@@ -37,6 +38,7 @@ def test_image_read_dtos_expose_asset_id_as_asset_revision_id(client: TestClient
     assert metadata["asset_revision_id"] == asset["id"]
     assert context["asset_revision_id"] == asset["id"]
     assert version_item["asset_revision_id"] == asset["id"]
+    assert version_item["asset_metadata"] == {}
     assert draft_item["asset_revision_id"] == asset["id"]
 
 def test_eval_and_grid_image_read_dtos_expose_asset_revision_id(client: TestClient):

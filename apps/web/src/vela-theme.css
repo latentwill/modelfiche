@@ -406,8 +406,14 @@
 .vela-theme .run-summary > div:last-child { border-right: 0; }
 .vela-theme .run-summary span:first-child { color: var(--vela-muted); font: 10px var(--vela-font-mono); text-transform: uppercase; }
 .vela-theme .metrics-grid { display: grid; grid-template-columns: 150px 150px minmax(0, 1fr); gap: 14px; align-items: end; }
-.vela-theme .metric-chart { height: 74px; display: flex; align-items: flex-end; gap: 5px; border-bottom: 1px solid var(--vela-border); }
-.vela-theme .metric-chart span { flex: 1; min-height: 4px; background: var(--vela-accent-soft); }
+.vela-theme .loss-graph { min-width: 0; min-height: 180px; }
+.vela-theme .loss-graph-svg { display: block; width: 100%; height: 180px; overflow: visible; color: var(--vela-muted); }
+.vela-theme .loss-graph-svg line { fill: none; stroke: currentColor; stroke-width: 1; opacity: .4; }
+.vela-theme .loss-graph-svg path { fill: none; stroke: var(--vela-accent); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
+.vela-theme .loss-graph-svg text { fill: var(--vela-muted); font: 10px var(--vela-font-mono); }
+.vela-theme .loss-graph-empty { min-height: 180px; display: grid; align-content: center; gap: 4px; padding: 14px; border: 1px dashed var(--vela-border); border-radius: var(--vela-radius-md); background: var(--vela-surface-soft); }
+.vela-theme .loss-graph-empty strong { font: 700 12px var(--vela-font-display); text-transform: uppercase; }
+.vela-theme .loss-graph-empty small { color: var(--vela-muted); }
 .vela-theme .checkpoint-timeline,
 .vela-theme .sample-step-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
 .vela-theme .checkpoint-timeline button { flex: 0 0 150px; min-height: 78px; display: grid; justify-items: start; text-align: left; }

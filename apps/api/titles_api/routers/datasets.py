@@ -16,6 +16,19 @@ def _dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
 
 
+def _asset_fields(db: Session, asset_id: str) -> dict[str, Any]:
+    asset = db.get(models.Asset, asset_id)
+    image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset_id))
+    return {
+        "asset_revision_id": asset_id,
+        "filename": asset.name if asset else None,
+        "mime_type": asset.mime_type if asset else None,
+        "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
+        "width": image.width if image else None,
+        "height": image.height if image else None,
+    }
+
+
 @router.get("/datasets")
 def list_datasets(db: DB, project_id: str | None = None):
     query = select(models.Dataset).order_by(models.Dataset.updated_at.desc())
@@ -79,13 +92,10 @@ def version_items(version_id: str, db: DB, included: bool | None = None, limit: 
         query = query.where(models.DatasetItem.included == included)
     rows = []
     for item in db.scalars(query.offset(offset).limit(limit)).all():
-        asset = db.get(models.Asset, item.asset_id)
         rows.append(
             {
                 **_dump(item),
-                "asset_revision_id": item.asset_id,
-                "filename": asset.name if asset else None,
-                "mime_type": asset.mime_type if asset else None,
+                **_asset_fields(db, item.asset_id),
             }
         )
     return rows
@@ -126,13 +136,10 @@ def draft(draft_id: str, db: DB):
     items = db.scalars(select(models.DatasetDraftItem).where(models.DatasetDraftItem.draft_id == draft.id).order_by(models.DatasetDraftItem.position)).all()
     rows = []
     for item in items:
-        asset = db.get(models.Asset, item.asset_id)
         rows.append(
             {
                 **_dump(item),
-                "asset_revision_id": item.asset_id,
-                "filename": asset.name if asset else None,
-                "mime_type": asset.mime_type if asset else None,
+                **_asset_fields(db, item.asset_id),
             }
         )
     return {**_dump(draft), "items": rows}

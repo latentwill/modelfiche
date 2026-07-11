@@ -66,7 +66,41 @@ def run(run_id: str, db: DB):
             "hydration_state": location.hydration_state if location else None,
             "model_version_name": version.name if version else None,
         })
-    return {**dump(run), "dataset_version_name": dataset_version.name if dataset_version else None, "checkpoints": checkpoint_rows}
+    dataset = db.get(models.Dataset, dataset_version.dataset_id) if dataset_version else None
+    stages = db.scalars(
+        select(models.TrainingStage)
+        .where(models.TrainingStage.run_id == run.id)
+        .order_by(models.TrainingStage.created_at)
+    ).all()
+    return {
+        **dump(run),
+        "dataset_id": dataset.id if dataset else None,
+        "dataset_name": dataset.name if dataset else None,
+        "dataset_version_name": dataset_version.name if dataset_version else None,
+        "stages": [dump(stage) for stage in stages],
+        "checkpoints": checkpoint_rows,
+        "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0),
+        "metric_count": int(db.scalar(select(func.count()).select_from(models.TrainingMetric).where(models.TrainingMetric.run_id == run.id)) or 0),
+    }
+
+@router.get("/runs/{run_id}/metrics")
+def run_metrics(run_id: str, db: DB, name: str = Query("loss", min_length=1, max_length=120)):
+    get_or_404(db, models.TrainingRun, run_id)
+    metrics = db.scalars(
+        select(models.TrainingMetric)
+        .where(models.TrainingMetric.run_id == run_id, models.TrainingMetric.name == name)
+        .order_by(models.TrainingMetric.step, models.TrainingMetric.id)
+    ).all()
+    return {
+        "run_id": run_id,
+        "metric_name": name,
+        "points": [
+            {"step": metric.step, "value": metric.value, "wall_time": metric.wall_time}
+            for metric in metrics
+        ],
+        "final_value": metrics[-1].value if metrics else None,
+        "source_key": metrics[-1].source_key if metrics else None,
+    }
 
 
 @router.get("/runs/{run_id}/config")

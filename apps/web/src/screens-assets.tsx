@@ -35,6 +35,69 @@ const formatBytes = (value: unknown) => {
   for (let index = 1; index < units.length && amount >= 1024; index += 1) { amount /= 1024; unit = units[index]; }
   return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
 };
+type LossMetricPoint = { step: number; value: number; wall_time: number | null };
+type LossMetrics = {
+  run_id?: string;
+  metric_name?: string;
+  points?: unknown;
+  final_value?: number | null;
+  source_key?: string | null;
+};
+
+function finiteMetricNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+function normalizeLossPoints(value: unknown): LossMetricPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const point = item as Record<string, unknown>;
+    const step = finiteMetricNumber(point.step);
+    const metricValue = finiteMetricNumber(point.value);
+    if (step === null || metricValue === null) return [];
+    return [{ step, value: metricValue, wall_time: finiteMetricNumber(point.wall_time) }];
+  }).sort((left, right) => left.step - right.step);
+}
+
+export function LossGraph({ points }: { points: unknown }) {
+  const normalized = normalizeLossPoints(points);
+  if (!normalized.length) {
+    return <div className="loss-graph-empty" role="status"><strong>No loss metrics available</strong><small>The imported run artifacts did not include usable loss points.</small></div>;
+  }
+
+  const width = 560;
+  const height = 180;
+  const padding = 24;
+  const minStep = normalized[0].step;
+  const maxStep = normalized[normalized.length - 1].step;
+  const minValue = Math.min(...normalized.map(point => point.value));
+  const maxValue = Math.max(...normalized.map(point => point.value));
+  const stepRange = maxStep - minStep || 1;
+  const valueRange = maxValue - minValue || 1;
+  const coordinate = (value: number) => Number(value.toFixed(2)).toString();
+  const x = (step: number) => padding + ((step - minStep) / stepRange) * (width - padding * 2);
+  const y = (value: number) => height - padding - ((value - minValue) / valueRange) * (height - padding * 2);
+  const path = normalized.map((point, index) => `${index ? "L" : "M"} ${coordinate(x(point.step))} ${coordinate(y(point.value))}`).join(" ");
+
+  return <div className="loss-graph" role="img" aria-label="Loss over training step">
+    <svg className="loss-graph-svg" viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false">
+      <line data-loss-axis="y" x1={padding} y1={padding} x2={padding} y2={height - padding} />
+      <line data-loss-axis="x" x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} />
+      <path data-loss-path d={path} />
+      <text x={padding} y={height - 7}>Step {minStep}</text>
+      <text x={width - padding} y={height - 7} textAnchor="end">Step {maxStep}</text>
+      <text x={padding} y={padding - 8}>Loss {maxValue.toPrecision(3)}</text>
+      <text x={padding} y={height - padding - 7} textAnchor="start">Loss {minValue.toPrecision(3)}</text>
+    </svg>
+  </div>;
+}
+
 
 function ActionMessage({ message, error }: { message?: string; error?: string }) {
   if (error) return <div className="vela-notice vela-notice-error" role="alert"><strong>Action failed</strong><span>{error}</span></div>;
@@ -235,6 +298,7 @@ export function RunScreen({ id }: { id: string }) {
   const samples = useResource<unknown>(`/api/runs/${id}/samples`);
   const checkpointsResource = useResource<unknown>(`/api/runs/${id}/checkpoints`);
   const config = useResource<Row>(`/api/runs/${id}/config`);
+  const metrics = useResource<LossMetrics>(`/api/runs/${id}/metrics?name=loss`);
   const lineage = useResource<unknown>(`/api/lineage${query({ subject_type: "training_run", subject_id: id, depth: 3 })}`);
   const rawCheckpoints = rows(checkpointsResource.data);
   const enrichedCheckpoints = rows(run.data?.checkpoints);
@@ -280,7 +344,7 @@ export function RunScreen({ id }: { id: string }) {
     setBusy("refresh"); setMessage(""); setActionError("");
     try {
       const job = await api<Row>(`/api/runs/${id}/refresh`, jsonBody({}));
-      await Promise.all([run.reload(), samples.reload(), checkpointsResource.reload()]);
+      await Promise.all([run.reload(), samples.reload(), checkpointsResource.reload(), metrics.reload()]);
       setMessage(`Run refresh queued${job.id ? ` as job ${job.id}` : ""}.`);
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
@@ -311,7 +375,8 @@ export function RunScreen({ id }: { id: string }) {
     </div>}
 
     <Panel title="Training metrics">
-      <div className="metrics-grid"><div><strong>{str(run.data?.final_loss, "Unavailable")}</strong><span>Final loss</span></div><div><strong>{str(run.data?.learning_rate, "Unavailable")}</strong><span>Learning rate</span></div>{Array.isArray(run.data?.loss_history) && run.data.loss_history.length ? <div className="metric-chart" aria-label="Recent loss history">{run.data.loss_history.slice(-24).map((value, index) => <span key={index} title={String(value)} style={{ height: `${Math.min(74, Math.max(4, Number(value) * 70))}px` }} />)}</div> : <div className="vela-empty"><span>No loss history</span><small>The imported run artifacts did not include metric history.</small></div>}</div>
+      <Notice error={metrics.error} loading={metrics.loading} />
+      <div className="metrics-grid"><div><strong>{str(metrics.data?.final_value, "Unavailable")}</strong><span>Final loss</span></div><div><strong>{str(run.data?.learning_rate, "Unavailable")}</strong><span>Learning rate</span></div><LossGraph points={metrics.data?.points} /></div>
     </Panel>
 
     <Panel title="Checkpoint timeline">
@@ -450,21 +515,40 @@ export function ModelScreen({ id }: { id: string }) {
 
     <Panel title="Training run data">
       <Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !rows(runs.data).length} />
-      {rows(runs.data).map(run => <details className="training-run" key={idOf(run)}><summary><strong>{str(run.name, "Training run")}</strong><span>{str(run.dataset_version_name)}</span><Status value={run.status} /></summary><div className="training-run-body"><dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd></dl><div className="actions"><a className="button vela-button" href={`#/run/${idOf(run)}`}><ExternalLink size={14} />Open run</a><a className="button vela-button" href={`#/samples/${idOf(run)}`}><FileImage size={14} />View samples</a></div></div></details>)}
+      {rows(runs.data).map(run => <ModelTrainingRun key={idOf(run)} run={run} />)}
     </Panel>
   </Page>;
 }
 
+function ModelTrainingRun({ run }: { run: Row }) {
+  const [expanded, setExpanded] = useState(false);
+  const runId = idOf(run);
+  const samples = useResource<unknown>(expanded ? `/api/runs/${runId}/samples` : null);
+  const metrics = useResource<LossMetrics>(expanded ? `/api/runs/${runId}/metrics?name=loss` : null);
+  const sampleRows = rows(samples.data);
+  return <details className="training-run" onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary><strong>{str(run.name, "Training run")}</strong><span>{str(run.dataset_version_name, "No linked dataset")}</span><Status value={run.status} /></summary>
+    <div className="training-run-body">
+      <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>
+      <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}`}><FileImage size={14} />View all samples</a></div>
+      {expanded && <>
+        <section className="vela-section"><div className="vela-section-heading"><h3>Loss graph</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
+        <section className="vela-section"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <AssetGrid assets={sampleRows.slice(0, 8)} />}</section>
+      </>}
+    </div>
+  </details>;
+}
+
 export function GalleryScreen({ projectId = "" }: { projectId?: string }) {
   const projects = useResource<unknown>("/api/projects?limit=100");
-  const defaultFilters = { project_id: projectId, kind: "image", decision: "", rating: "", q: "" };
+  const defaultFilters = { project_id: projectId, kind: "image", decision: "", rating: "", q: "", include_dataset_assets: false, limit: 2000 };
   const [filters, setFilters] = useState(defaultFilters);
   const [size, setSize] = useState(170);
   const path = `/api/gallery${query(filters)}`;
   const resource = useResource<unknown>(path);
   const assets = rows(resource.data);
   const isFiltered = Object.entries(filters).some(([key, value]) => value !== defaultFilters[key as keyof typeof defaultFilters]);
-  return <Page title="Gallery" subtitle="Dataset, training sample, eval, and generated assets in one operator workspace" actions={<a className="button vela-button vela-button-primary" href="#/transfers?mode=import"><Upload size={15} />Import assets</a>}>
+  return <Page title="Gallery" subtitle="Training samples, evals, and generated assets; dataset members are opt-in" actions={<a className="button vela-button vela-button-primary" href="#/transfers?mode=import"><Upload size={15} />Import assets</a>}>
     <Panel title="Filters">
       <Notice error={projects.error} loading={projects.loading} />
       <div className="form-grid">
@@ -472,6 +556,7 @@ export function GalleryScreen({ projectId = "" }: { projectId?: string }) {
         <Field label="Search"><input value={filters.q} onChange={event => setFilters({ ...filters, q: event.target.value })} placeholder="Filename" /></Field>
         <Field label="Decision"><select value={filters.decision} onChange={event => setFilters({ ...filters, decision: event.target.value })}><option value="">Any</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="hold">Hold</option><option value="reject">Reject</option></select></Field>
         <Field label="Rating"><select value={filters.rating} onChange={event => setFilters({ ...filters, rating: event.target.value })}><option value="">Any</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} star{value === 1 ? "" : "s"}</option>)}</select></Field>
+        <Field label="Dataset images"><label><input type="checkbox" checked={filters.include_dataset_assets} onChange={event => setFilters({ ...filters, include_dataset_assets: event.target.checked })} /> Include dataset members</label></Field>
         <Field label={`Thumbnail size · ${size}px`}><input aria-label="Thumbnail size" type="range" min="120" max="260" value={size} onChange={event => setSize(Number(event.target.value))} /></Field>
       </div>
       <div className="actions"><button onClick={() => setFilters(defaultFilters)} disabled={!isFiltered} title={!isFiltered ? "No additional filters are active" : undefined}><X size={14} />Clear filters</button><span className="vela-meta" aria-live="polite">{assets.length} matching assets</span></div>

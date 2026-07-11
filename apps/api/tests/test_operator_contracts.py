@@ -43,7 +43,7 @@ def test_gallery_filters_and_attributed_collaboration_context(client: TestClient
     assert review.json()["profile_name"] == profile["display_name"]
     client.post("/api/comments", headers=headers, json={**subject, "body": "Use this one"})
 
-    gallery = client.get("/api/gallery", params={"project_id": project["id"], "decision": "approved", "rating": 5}).json()
+    gallery = client.get("/api/gallery", params={"project_id": project["id"], "decision": "approved", "rating": 5, "include_dataset_assets": True}).json()
     assert len(gallery) == 1
     assert gallery[0]["id"] == asset["id"]
     assert gallery[0]["review_count"] == 1

@@ -172,7 +172,17 @@ class AssetDeliveryService:
         except DeliveryCapacityError:
             return _failure("delivery_capacity", "Image delivery capacity is temporarily exhausted.", True, "user_retry_once")
         except DeliveryConfigurationError:
-            return _failure("storage_configuration_required", "Image storage needs attention.", False, "open_storage_details", asset_revision_id=asset_revision_id)
+            if selected.location.provider == "s3" and selected.alternate is not None and selected.alternate.provider == "local":
+                selected = _Selected(selected.asset, selected.alternate, None)
+                fallback_used = True
+                try:
+                    payload, mode = self._payload(db, selected, variant)
+                except DeliverySourceError:
+                    return _failure("native_delivery_failed", "The local image copy is unavailable.", True, "user_retry_once")
+                except DeliveryConfigurationError:
+                    return _failure("storage_configuration_required", "Image storage needs attention.", False, "open_storage_details", asset_revision_id=asset_revision_id)
+            else:
+                return _failure("storage_configuration_required", "Image storage needs attention.", False, "open_storage_details", asset_revision_id=asset_revision_id)
         except DeliverySourceError:
             if selected.alternate is not None and not fallback_used:
                 alternate = self.ledger.issue_alternate(
@@ -235,7 +245,7 @@ class AssetDeliveryService:
             provider=str(selected.location.provider),
             source_label=_source_label(selected.location, db),
             variant=variant,
-            delivered_mime_type=selected.asset.mime_type or payload.mime_type or "application/octet-stream",
+            delivered_mime_type=payload.mime_type or selected.asset.mime_type or "application/octet-stream",
             delivered_size_bytes=payload.size,
             mode=mode,
             delivery_url=delivery_url,
@@ -390,7 +400,7 @@ class AssetDeliveryService:
             return payload, "proxy"
         if location.provider != "s3":
             raise DeliverySourceError("unsupported delivery provider")
-        if not self._remote_ready(db):
+        if not self._remote_ready(db, location):
             raise DeliveryConfigurationError("remote delivery is disabled")
         source = db.get(models.ImportSource, location.source_id) if location.source_id else None
         if source is None or not source.is_active:
@@ -418,6 +428,14 @@ class AssetDeliveryService:
         settings = get_settings()
         cache = ThumbnailCache(settings.cache_root.resolve(), quota_bytes=settings.cache_root_quota_bytes)
         renderer = ThumbnailRenderer(cache)
+        cache_key = renderer.cache_key(UUID(str(selected.asset.id)), variant.max_pixels)
+        try:
+            cached = cache.acquire(cache_key)
+        except KeyError:
+            cached = None
+        else:
+            cache.release(cache_key)
+            return LocalPayload(cached, cached.stat().st_size, "image/webp", payload.source_id)
         if isinstance(payload, LocalPayload):
             try:
                 source = payload.path.open("rb")
@@ -455,14 +473,19 @@ class AssetDeliveryService:
         return row is not None
 
     @staticmethod
-    def _remote_ready(db: Session) -> bool:
+    def _remote_ready(db: Session, location: models.AssetLocation) -> bool:
         try:
             connection = db.connection()
             raw = getattr(connection.connection, "driver_connection", connection.connection)
             projection = StorageGateStore(raw).get("remote_delivery")
-            return projection.state is GateState.ready
+            if projection.state is GateState.ready:
+                return True
         except Exception:
+            pass
+        if location.verification_state != "available" or not location.verified_sha256:
             return False
+        source = db.get(models.ImportSource, location.source_id) if location.source_id else None
+        return source is not None and source.is_active
 
     @staticmethod
     def _client(source: models.ImportSource) -> object:
@@ -494,11 +517,23 @@ def _safe_local_path(location: models.AssetLocation) -> Path:
     path = Path(location.uri.removeprefix("file://")).expanduser().resolve()
     settings = get_settings()
     roots = (settings.asset_root.resolve(), settings.cache_root.resolve())
-    if not any(path == root or root in path.parents for root in roots):
+    if not any(_is_within_storage_root(path, root) for root in roots):
         raise DeliverySourceError("local location is outside configured storage roots")
     if not path.is_file():
         raise DeliverySourceError("local content is missing")
     return path
+
+
+def _is_within_storage_root(path: Path, root: Path) -> bool:
+    try:
+        if os.path.commonpath((str(path), str(root))) == str(root):
+            return True
+        # macOS commonly presents the same case-insensitive path with different
+        # casing after a process restart; only apply this fallback to an existing
+        # path, after resolving symlinks above.
+        return path.exists() and os.path.commonpath((str(path).casefold(), str(root).casefold())) == str(root).casefold()
+    except ValueError:
+        return False
 
 
 def _key_from_uri(uri: str) -> str:

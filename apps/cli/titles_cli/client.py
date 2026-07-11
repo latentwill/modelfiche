@@ -79,7 +79,13 @@ class TitlesClient:
         request_id: str | None = None,
         timeout: float = 30.0,
     ) -> None:
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            # Mutating requests must prove they originated inside the launcher-
+            # owned local UI boundary. The API still validates this exact value
+            # against TITLES_CORS_ORIGINS.
+            "Origin": os.getenv("TITLES_CLI_ORIGIN", "http://127.0.0.1:5173"),
+        }
         if profile:
             headers["X-Profile-ID"] = profile
         if workspace:

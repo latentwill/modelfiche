@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from titles_api import models
 from titles_api.asset_cache import AssetCache
+from titles_api.storage.repository import StorageRepository
 from titles_api.integrations.config import S3Settings
 from titles_api.integrations.s3.browser import S3Browser
 
@@ -89,19 +90,14 @@ class CheckpointHydrationHandler:
             if checkpoint is None:
                 raise LookupError("checkpoint was removed during hydration")
             asset = session.get(models.Asset, checkpoint.asset_id)
-            local = session.scalar(select(models.AssetLocation).where(
-                models.AssetLocation.asset_id == asset.id,
-                models.AssetLocation.provider == "local",
-                models.AssetLocation.uri == str(entry.path),
-            ))
-            if local is None:
-                session.add(models.AssetLocation(
-                    asset_id=asset.id, provider="local", uri=str(entry.path), size=entry.size,
-                    hydration_state="hydrated",
-                ))
-            else:
-                local.size = entry.size
-                local.hydration_state = "hydrated"
-            asset.sha256 = entry.sha256
+            if asset is None:
+                raise LookupError("checkpoint asset was removed during hydration")
+            StorageRepository(session, asset.workspace_id).attach_verified_local_location(
+                asset_id=asset.id,
+                uri=str(entry.path),
+                size=entry.size,
+                sha256=entry.sha256,
+                mime_type=asset.mime_type or "application/octet-stream",
+            )
             checkpoint.state = "hydrated"
         return {"checkpoint_id": checkpoint_id, "asset_id": asset.id, "path": str(entry.path), "size": entry.size, "sha256": entry.sha256}

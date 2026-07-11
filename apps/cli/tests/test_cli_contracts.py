@@ -142,6 +142,15 @@ def test_import_refresh_maps_training_run_to_run_refresh(
     assert fake_client.calls == [("POST", "/api/runs/run-1/refresh", {}, None)]
 
 
+
+def test_import_backfill_metrics_refreshes_one_existing_run(
+    fake_client: FakeClient,
+) -> None:
+    result = runner.invoke(main.app, ["--json", "import", "backfill-metrics", "--run", "run-1"])
+
+    assert result.exit_code == 0, result.output
+    assert fake_client.calls == [("POST", "/api/runs/run-1/refresh", {}, None)]
+
 @pytest.mark.parametrize(
     "arguments",
     [

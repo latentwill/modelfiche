@@ -522,6 +522,36 @@ def import_refresh(ctx: typer.Context, subject: str) -> None:
     call(ctx, lambda client: client.post(f"/api/runs/{subject_id}/refresh"))
 
 
+
+@import_app.command("backfill-metrics")
+def import_backfill_metrics(
+    ctx: typer.Context,
+    run: str | None = typer.Option(None, "--run", help="One training run ID or run:<id> subject."),
+    project: str | None = typer.Option(None, "--project", help="Limit the backfill to one project."),
+) -> None:
+    """Re-import existing remote run metadata without hydrating large artifacts."""
+    if run:
+        subject_type, run_id = split_subject(run) if ":" in run else ("run", run)
+        if subject_type not in {"run", "training-run", "training_run"}:
+            unsupported(ctx, "import backfill-metrics", "Only training runs can be backfilled")
+            return
+        call(ctx, lambda client: client.post(f"/api/runs/{run_id}/refresh"))
+        return
+
+    def enqueue(client: TitlesClient) -> dict[str, Any]:
+        candidates = client.get("/api/runs", project_id=project)
+        queued: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        for row in candidates if isinstance(candidates, list) else []:
+            run_id = row.get("id")
+            if not run_id or not row.get("source_prefix"):
+                skipped.append({"run_id": run_id, "reason": "missing remote source prefix"})
+                continue
+            queued.append(client.post(f"/api/runs/{run_id}/refresh"))
+        return {"queued": queued, "skipped": skipped}
+
+    call(ctx, enqueue)
+
 job_app = typer.Typer(no_args_is_help=True)
 app.add_typer(job_app, name="job")
 

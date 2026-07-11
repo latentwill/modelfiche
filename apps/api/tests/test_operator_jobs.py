@@ -91,6 +91,9 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         f"{prefix}one.png": image_body,
     } if kind == "dataset" else {
         f"{prefix}run_manifest.json": b'{"checkpoints":[],"samples":[]}',
+        f"{prefix}run_state.json": b'{"status":"manual_backup_monitoring"}',
+        f"{prefix}checkpoints/step-100.safetensors": b"checkpoint",
+        f"{prefix}backup_monitoring/status.json": b'{}',
         f"{prefix}samples/step-100.png": image_body,
     })
     source = client.post("/api/import-sources", json={
@@ -139,6 +142,13 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         asset_id = item["asset_id"]
     else:
         run = client.get("/api/runs", params={"project_id": project["id"]}).json()[0]
+        detail = client.get(f"/api/runs/{run['id']}").json()
+        assert detail["status"] == "completed"
+        assert detail["stages"] == []
+        models_list = client.get("/api/models", params={"project_id": project["id"]}).json()
+        assert len(models_list) == 1
+        assert models_list[0]["name"] == run["name"]
+        assert models_list[0]["version_count"] == 1
         sample = client.get(f"/api/runs/{run['id']}/samples").json()[0]
         asset_id = sample["asset_id"]
         assert sample["asset_revision_id"] == sample["asset_id"]

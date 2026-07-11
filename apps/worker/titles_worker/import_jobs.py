@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 
 from titles_api import models
 from titles_api.asset_cache import AssetCache
+from titles_api.storage.repository import StorageRepository
 from titles_api.integrations.config import S3Settings
 from titles_api.integrations.s3.browser import S3Browser
 from titles_api.integrations.s3.importer import ImportContext, S3Importer
@@ -141,23 +142,13 @@ class S3ImportHandler:
                 asset = session.get(models.Asset, remote.asset_id)
                 if asset is None:
                     raise LookupError(f"image asset was removed during hydration: {remote.asset_id}")
-                local = session.scalar(select(models.AssetLocation).where(
-                    models.AssetLocation.asset_id == asset.id,
-                    models.AssetLocation.provider == "local",
-                    models.AssetLocation.uri == str(entry.path),
-                ))
-                if local is None:
-                    session.add(models.AssetLocation(
-                        asset_id=asset.id,
-                        provider="local",
-                        uri=str(entry.path),
-                        size=entry.size,
-                        hydration_state="hydrated",
-                    ))
-                else:
-                    local.size = entry.size
-                    local.hydration_state = "hydrated"
-                asset.sha256 = entry.sha256
+                StorageRepository(session, asset.workspace_id).attach_verified_local_location(
+                    asset_id=asset.id,
+                    uri=str(entry.path),
+                    size=entry.size,
+                    sha256=entry.sha256,
+                    mime_type=asset.mime_type or "application/octet-stream",
+                )
             hydrated_count += 1
             hydrated_bytes += entry.size
             context.progress(0.25 + 0.7 * ((index + 1) / total))

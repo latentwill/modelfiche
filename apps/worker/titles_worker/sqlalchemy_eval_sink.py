@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import mimetypes
+import base64
+import binascii
+import hashlib
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from titles_api import models
 from titles_api.asset_cache import AssetCache
 from titles_api.storage.network import SafeHttpTransport
+from titles_api.storage.repository import StorageRepository
 
 
 
@@ -41,13 +45,22 @@ class SQLAlchemyEvalOutputSink:
             run = _required(session, models.EvalRun, eval_run_id)
             definition = _required(session, models.EvalDefinition, run.definition_id)
             project = _required(session, models.Project, definition.project_id)
+            prompt = session.get(models.Prompt, prompt_id) if prompt_id else None
+            prompt_text = prompt.text if prompt else str(response.get("prompt") or "") or None
+            response_metadata = {key: value for key, value in response.items() if key != "images"}
+            request_ids = [str(response["_request_id"])] if response.get("_request_id") else list(run.provider_job_ids or [])
             output_count = 0
             output_ids: list[str] = []
             for index, image in enumerate(images):
                 if not isinstance(image, dict) or not image.get("url"):
                     continue
-                entry = self._download(str(image["url"]), image.get("file_size"))
-                filename = Path(urlsplit(str(image["url"])).path).name or f"fal-output-{index}.png"
+                source_url = str(image["url"])
+                entry = self._download(source_url, image.get("file_size"))
+                if source_url.startswith("data:"):
+                    extension = mimetypes.guess_extension(source_url[5:].split(";", 1)[0]) or ".bin"
+                    filename = f"fal-output-{index}{extension}"
+                else:
+                    filename = Path(urlsplit(source_url).path).name or f"fal-output-{index}.png"
                 asset = models.Asset(
                     workspace_id=project.workspace_id,
                     project_id=project.id,
@@ -55,18 +68,26 @@ class SQLAlchemyEvalOutputSink:
                     name=filename,
                     mime_type=image.get("content_type") or mimetypes.guess_type(filename)[0],
                     sha256=entry.sha256,
-                    metadata_={"category": "eval_output", "provider": "fal"},
+                    metadata_={
+                        "category": "eval_output",
+                        "provider": "fal",
+                        "caption": prompt_text,
+                        "prompt": prompt_text,
+                        "prompt_id": prompt_id,
+                        "endpoint": definition.endpoint,
+                        "seed": response.get("seed"),
+                        "provider_request_ids": request_ids,
+                        "parameters": dict(run.parameters_snapshot or definition.parameters or {}),
+                    },
                 )
                 session.add(asset)
                 session.flush()
-                session.add(
-                    models.AssetLocation(
-                        asset_id=asset.id,
-                        provider="local",
-                        uri=str(entry.path),
-                        size=entry.size,
-                        hydration_state="hydrated",
-                    )
+                StorageRepository(session, project.workspace_id).attach_verified_local_location(
+                    asset_id=asset.id,
+                    uri=str(entry.path),
+                    size=entry.size,
+                    sha256=entry.sha256,
+                    mime_type=asset.mime_type or "application/octet-stream",
                 )
                 width, height = image.get("width"), image.get("height")
                 if width or height:
@@ -76,7 +97,15 @@ class SQLAlchemyEvalOutputSink:
                     prompt_id=prompt_id,
                     asset_id=asset.id,
                     seed=response.get("seed"),
-                    provider_metadata={key: value for key, value in image.items() if key not in {"url"}},
+                    provider_metadata={
+                        **{key: value for key, value in image.items() if key != "url"},
+                        "source_url": None if source_url.startswith("data:") else source_url,
+                        "source_kind": "inline_data" if source_url.startswith("data:") else "url",
+                        "prompt": prompt_text,
+                        "endpoint": definition.endpoint,
+                        "request_ids": request_ids,
+                        "response": response_metadata,
+                    },
                 )
                 session.add(output)
                 session.flush()
@@ -96,6 +125,7 @@ class SQLAlchemyEvalOutputSink:
                 output_ids.append(output.id)
             session.commit()
             return {"outputs": output_count, "output_ids": output_ids}
+
     def submission_intent(
         self,
         eval_run_id: str,
@@ -243,6 +273,20 @@ class SQLAlchemyEvalOutputSink:
     def _download(self, url: str, expected_size: int | None):
         from titles_api.storage.fal_artifacts import MAX_ARTIFACT_BYTES
 
+        if url.startswith("data:"):
+            header, separator, encoded = url.partition(",")
+            if not separator or ";base64" not in header.lower():
+                raise ValueError("FAL inline artifact must use base64 encoding")
+            try:
+                body = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError("FAL inline artifact is invalid base64") from exc
+            if len(body) > MAX_ARTIFACT_BYTES:
+                raise ValueError("FAL inline artifact exceeds the configured byte limit")
+            if expected_size is not None and expected_size != len(body):
+                raise ValueError(f"FAL artifact size mismatch: expected {expected_size}, received {len(body)}")
+            return self.cache.hydrate(len(body), lambda stream: stream.write(body))
+
         response = self.artifact_transport.request(
             "GET",
             url,
@@ -259,6 +303,43 @@ class SQLAlchemyEvalOutputSink:
             if expected_size != length:
                 raise ValueError(f"FAL artifact size mismatch: expected {expected_size}, received {length}")
         return self.cache.hydrate(length, lambda stream: stream.write(response.body))
+
+
+def backfill_eval_local_locations(session: Session) -> dict[str, int]:
+    """Repair legacy FAL output locations after verifying their local bytes."""
+    repaired = missing = skipped = 0
+    rows = session.execute(
+        select(models.AssetLocation, models.Asset, models.Project)
+        .join(models.Asset, models.Asset.id == models.AssetLocation.asset_id)
+        .join(models.Project, models.Project.id == models.Asset.project_id)
+        .join(models.EvalOutput, models.EvalOutput.asset_id == models.Asset.id)
+        .where(models.AssetLocation.provider == "local")
+    ).all()
+    for location, asset, project in rows:
+        if location.verification_state == "available" and asset.content_blob_id:
+            skipped += 1
+            continue
+        path = Path(location.uri)
+        if not path.is_file():
+            missing += 1
+            continue
+        digest_builder = hashlib.sha256()
+        size = 0
+        with path.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                digest_builder.update(chunk)
+                size += len(chunk)
+        digest = digest_builder.hexdigest()
+        StorageRepository(session, project.workspace_id).attach_verified_local_location(
+            asset_id=asset.id,
+            uri=location.uri,
+            size=size,
+            sha256=digest,
+            mime_type=asset.mime_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+        )
+        repaired += 1
+    session.flush()
+    return {"repaired": repaired, "missing": missing, "skipped": skipped}
 
 
 def _required(session: Session, model, object_id: str):

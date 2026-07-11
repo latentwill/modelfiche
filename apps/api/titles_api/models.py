@@ -229,6 +229,18 @@ class TrainingStage(UUIDMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(240))
     config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
+class TrainingMetric(UUIDMixin, Base):
+    __tablename__ = "training_metrics"
+    __table_args__ = (
+        UniqueConstraint("run_id", "step", "name"),
+        Index("ix_training_metrics_run_name_step", "run_id", "name", "step"),
+    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    step: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(120))
+    value: Mapped[float] = mapped_column(Float)
+    wall_time: Mapped[float | None] = mapped_column(Float)
+    source_key: Mapped[str | None] = mapped_column(String(1024))
 
 class Checkpoint(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "checkpoints"

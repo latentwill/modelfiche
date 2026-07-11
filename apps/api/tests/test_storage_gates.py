@@ -18,7 +18,7 @@ def store() -> StorageGateStore:
 def evidence(run_lease: str = "lease-1", digest: str = "schema-a") -> GateEvidence:
     return GateEvidence(
         run_lease_id=run_lease,
-        alembic_head="0003_flexible_image_storage",
+        alembic_head="0006_source_capability_timestamps",
         marker=1,
         binding_digest="binding-a",
         contract_version=1,

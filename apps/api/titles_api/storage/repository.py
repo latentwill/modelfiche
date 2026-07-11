@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import re
 from secrets import token_hex
 from typing import Any, Literal
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -96,6 +96,94 @@ class StorageRepository:
         self.session.add(blob)
         self.session.flush()
         return blob
+    def attach_verified_remote_location(
+        self,
+        *,
+        asset_id: str,
+        source_id: str,
+        object_key: str,
+        etag: str | None,
+        size: int,
+        sha256: str,
+        mime_type: str,
+        modified_at: datetime | None = None,
+    ) -> models.AssetLocation:
+        asset = self.get_asset_revision(asset_id)
+        source = self._source(source_id)
+        blob = self.get_or_create_content_blob(sha256=sha256, size=size, mime_type=mime_type)
+        location = self.session.scalar(
+            select(models.AssetLocation).where(
+                models.AssetLocation.asset_id == asset.id,
+                models.AssetLocation.source_id == source.id,
+                models.AssetLocation.object_key == object_key,
+            )
+        )
+        if location is None:
+            location = models.AssetLocation(asset_id=asset.id, provider="s3")
+            self.session.add(location)
+        location.workspace_id = self.workspace_id
+        location.provider = "s3"
+        location.uri = f"s3://{source.id}/{object_key}"
+        location.bucket = source.bucket
+        location.object_key = object_key
+        location.etag = etag
+        location.source_id = source.id
+        location.source_revision_fingerprint = source.identity_fingerprint
+        location.size = size
+        location.verified_size = size
+        location.verified_sha256 = blob.sha256
+        location.verification_state = "available"
+        location.modified_at = modified_at
+        location.last_verified_at = datetime.now(timezone.utc)
+        location.hydration_state = "remote"
+        self.session.flush()
+        asset.sha256 = blob.sha256
+        asset.content_blob_id = blob.id
+        if asset.preferred_location_id is None:
+            asset.preferred_location_id = location.id
+        if asset.origin_location_id is None:
+            asset.origin_location_id = location.id
+        self.session.flush()
+        return location
+    def attach_verified_local_location(
+        self,
+        *,
+        asset_id: str,
+        uri: str,
+        size: int,
+        sha256: str,
+        mime_type: str,
+    ) -> models.AssetLocation:
+        asset = self.get_asset_revision(asset_id)
+        blob = self.get_or_create_content_blob(sha256=sha256, size=size, mime_type=mime_type)
+        location = self.session.scalar(
+            select(models.AssetLocation).where(
+                models.AssetLocation.asset_id == asset.id,
+                models.AssetLocation.provider == "local",
+                models.AssetLocation.uri == uri,
+            )
+        )
+        if location is None:
+            location = models.AssetLocation(asset_id=asset.id, provider="local", uri=uri)
+            self.session.add(location)
+        location.workspace_id = self.workspace_id
+        location.size = size
+        location.verified_size = size
+        location.verified_sha256 = blob.sha256
+        location.verification_state = "available"
+        location.last_verified_at = datetime.now(timezone.utc)
+        location.hydration_state = "hydrated"
+        self.session.flush()
+        asset.sha256 = blob.sha256
+        asset.content_blob_id = blob.id
+        if asset.preferred_location_id is None:
+            asset.preferred_location_id = location.id
+        if asset.origin_location_id is None:
+            asset.origin_location_id = location.id
+        self.session.flush()
+        return location
+
+
 
     def reconcile_policy(
         self,
@@ -515,7 +603,10 @@ class StorageRepository:
             self.session.scalars(
                 select(models.AssetLocation).where(
                     models.AssetLocation.asset_id == asset.id,
-                    models.AssetLocation.workspace_id == self.workspace_id,
+                    or_(
+                        models.AssetLocation.workspace_id == self.workspace_id,
+                        (models.AssetLocation.provider == "local") & models.AssetLocation.workspace_id.is_(None),
+                    ),
                     models.AssetLocation.verification_state == "available",
                     models.AssetLocation.verified_sha256 == blob.sha256,
                 )

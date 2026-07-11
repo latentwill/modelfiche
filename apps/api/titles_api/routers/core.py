@@ -98,10 +98,12 @@ def archive_profile(profile_id: str, db: DB, x_profile_id: Annotated[str | None,
 
 
 @router.get("/projects", response_model=list[schemas.ProjectOut])
-def projects(db: DB, state: str | None = None):
+def projects(db: DB, state: str | None = None, include_archived: bool = False):
     query = select(models.Project).order_by(models.Project.updated_at.desc())
     if state:
         query = query.where(models.Project.state == state)
+    elif not include_archived:
+        query = query.where(models.Project.state != "archived")
     return db.scalars(query).all()
 
 
@@ -151,10 +153,17 @@ def gallery(
     q: str | None = None,
     decision: str | None = None,
     rating: int | None = Query(None, ge=1, le=5),
-    limit: int = Query(100, ge=1, le=500),
+    include_dataset_assets: bool = False,
+    limit: int = Query(100, ge=1, le=2000),
     offset: int = Query(0, ge=0),
 ):
     query = select(models.Asset).options(selectinload(models.Asset.locations)).order_by(models.Asset.created_at.desc())
+    if not include_dataset_assets:
+        dataset_asset_ids = select(models.DatasetItem.asset_id)
+        query = query.where(
+            models.Asset.id.not_in(dataset_asset_ids),
+            func.coalesce(models.Asset.metadata_["category"].as_string(), "") != "dataset_image",
+        )
     if project_id:
         query = query.where(models.Asset.project_id == project_id)
     if kind:

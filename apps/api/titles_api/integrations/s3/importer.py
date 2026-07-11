@@ -64,15 +64,19 @@ class ImportResult:
 
 
 _SMALL_SOURCE_NAMES = {
+    "aitk_db.db",
     "captions.jsonl",
-    "run_manifest.json",
-    "run_state.json",
     "config.json",
     "config.yaml",
     "config.yml",
+    "checksums.sha256",
+    "loss_log.db",
+    "run_manifest.json",
+    "run_state.json",
     "train.yaml",
     "train.yml",
-    "checksums.sha256",
+    "train.log",
+    "training.log",
 }
 
 
@@ -100,6 +104,13 @@ class S3Importer:
                     missing += 1
                     continue
                 if change.kind == ChangeKind.UNCHANGED:
+                    assert change.remote is not None
+                    category = classify_object(change.remote, detection.kind)
+                    self.sink.upsert_remote_object(context.source_id, change.remote, category=category)
+                    if _should_read_small(change.remote, detection.kind):
+                        body = self.browser.read_small(change.remote.key)
+                        self.sink.save_source_snapshot(context.source_id, change.remote.key, body)
+                        sources += 1
                     unchanged += 1
                     continue
                 assert change.remote is not None

@@ -117,10 +117,12 @@ function VelaNavLink({ href, active, icon, children }: { href: string; active: b
 
 function ProjectTree({ project, section, activeId, activeProjectId }: { project: Row; section: string; activeId: string; activeProjectId: string }) {
   const projectId = idOf(project);
-  const datasets = useResource<unknown>(`/api/datasets${query({ project_id: projectId })}`);
-  const models = useResource<unknown>(`/api/models${query({ project_id: projectId })}`);
-  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: projectId })}`);
   const [expanded, setExpanded] = useState((section === "project" && activeId === projectId) || activeProjectId === projectId);
+  // A collapsed project must stay cheap. Eagerly loading three collections for
+  // every project made route navigation contend with dozens of sidebar calls.
+  const datasets = useResource<unknown>(expanded ? `/api/datasets${query({ project_id: projectId })}` : null);
+  const models = useResource<unknown>(expanded ? `/api/models${query({ project_id: projectId })}` : null);
+  const evals = useResource<unknown>(expanded ? `/api/eval-runs${query({ project_id: projectId })}` : null);
   return <div className={`vela-project-nav ${project.state === "archived" ? "is-archived" : ""}`}>
     <div className="vela-project-nav-root"><a className="vela-nav-item" aria-current={section === "project" && activeId === projectId ? "page" : undefined} href={`#/project/${projectId}`}><span className="vela-nav-icon"><Folder size={15} /></span><span className="vela-nav-text">{str(project.title ?? project.name)}</span></a><button type="button" className="vela-icon-button" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${str(project.title)}`} aria-expanded={expanded}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button></div>
     {expanded && <div className="vela-project-tree">

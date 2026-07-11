@@ -1,4 +1,32 @@
 from fastapi.testclient import TestClient
+from titles_api import app as app_module, models
+
+
+def test_run_metrics_endpoint_returns_sorted_loss_points(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Metrics"}).json()
+    run = client.post("/api/runs", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "run"}).json()
+    with app_module.SessionLocal() as session:
+        session.add_all([
+            models.TrainingMetric(run_id=run["id"], step=2, name="loss", value=0.5),
+            models.TrainingMetric(run_id=run["id"], step=1, name="loss", value=1.0),
+            models.TrainingMetric(run_id=run["id"], step=1, name="learning_rate", value=0.001),
+        ])
+        session.commit()
+
+    response = client.get(f"/api/runs/{run['id']}/metrics", params={"name": "loss"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "run_id": run["id"],
+        "metric_name": "loss",
+        "points": [
+            {"step": 1, "value": 1.0, "wall_time": None},
+            {"step": 2, "value": 0.5, "wall_time": None},
+        ],
+        "final_value": 0.5,
+        "source_key": None,
+    }
 
 
 def test_project_dataset_draft_and_profile_attribution(client: TestClient):
@@ -16,3 +44,16 @@ def test_project_dataset_draft_and_profile_attribution(client: TestClient):
     assert published["version_number"] == 2
     events = client.get("/api/activity", params={"project_id": project["id"]}).json()
     assert any(event["profile_id"] == profile["id"] for event in events)
+
+
+def test_projects_hide_archived_records_unless_explicitly_requested(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    active = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Active"}).json()
+    archived = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Smoke"}).json()
+    client.patch(f"/api/projects/{archived['id']}", headers={"X-Profile-ID": profile["id"]}, json={"state": "archived"})
+
+    default_ids = {row["id"] for row in client.get("/api/projects").json()}
+    all_ids = {row["id"] for row in client.get("/api/projects", params={"include_archived": True}).json()}
+    assert active["id"] in default_ids
+    assert archived["id"] not in default_ids
+    assert {active["id"], archived["id"]} <= all_ids

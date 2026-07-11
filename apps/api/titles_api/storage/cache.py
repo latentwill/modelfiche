@@ -98,11 +98,26 @@ class ThumbnailCache:
 
     def acquire(self, key: str) -> Path:
         with self._lock:
-            entry = self._entry(key)
+            try:
+                entry = self._entry(key)
+            except KeyError:
+                entry = self._discover(key)
             self._order += 1
             entry = replace(entry, leases=entry.leases + 1, delivered_order=self._order)
             self._entries[key] = entry
             return entry.path
+
+    def _discover(self, key: str) -> _Entry:
+        """Recover a completed deterministic entry after a process/cache restart."""
+        self._validate_key(key)
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        path = self.objects / digest[:2] / f"{digest}.webp"
+        if not path.is_file():
+            raise KeyError(key)
+        self._order += 1
+        entry = _Entry(key=key, path=path, size=path.stat().st_size, created_order=self._order, delivered_order=self._order)
+        self._entries[key] = entry
+        return entry
 
     def release(self, key: str) -> None:
         with self._lock:

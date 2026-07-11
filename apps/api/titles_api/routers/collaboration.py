@@ -370,11 +370,18 @@ def eval_run(run_id: str, db: DB):
     output_rows = []
     for output in outputs:
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
+        asset = db.get(models.Asset, output.asset_id)
+        image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == output.asset_id))
         output_rows.append(
             {
                 **dump(output),
                 "asset_revision_id": output.asset_id,
                 "prompt": prompt.text if prompt else None,
+                "filename": asset.name if asset else None,
+                "mime_type": asset.mime_type if asset else None,
+                "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
+                "width": image.width if image else None,
+                "height": image.height if image else None,
             }
         )
     return {**dump(run), "name": definition.name, "endpoint_adapter": definition.endpoint, "model_version_id": definition.model_version_id, "prompt_set_id": definition.prompt_set_id, "parameters": run.parameters_snapshot, "progress": latest_job.progress if latest_job else (1 if run.status == "succeeded" else 0), "job_id": latest_job.id if latest_job else None, "outputs": output_rows}
@@ -405,11 +412,18 @@ def eval_outputs(run_id: str, db: DB):
     rows = []
     for output in db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run_id).order_by(models.EvalOutput.created_at)).all():
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
+        asset = db.get(models.Asset, output.asset_id)
+        image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == output.asset_id))
         rows.append(
             {
                 **dump(output),
                 "asset_revision_id": output.asset_id,
                 "prompt": prompt.text if prompt else None,
+                "filename": asset.name if asset else None,
+                "mime_type": asset.mime_type if asset else None,
+                "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
+                "width": image.width if image else None,
+                "height": image.height if image else None,
             }
         )
     return rows
