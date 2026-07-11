@@ -28,7 +28,7 @@ The plan is based on:
 Observed remote structure:
 
 ```text
-s3://latentwillbackup/title-lora/
+s3://titlesxyz/title-lora/
   datasets/
     vcribb/
       ideogram-v4-captions-v002/
