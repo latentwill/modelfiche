@@ -51,6 +51,10 @@ def apply_frozen_schema(bind: Any, name: str) -> None:
     raw.executescript(frozen_schema_sql(name))
 
 
+def _canonical_sql(sql: str | None) -> str | None:
+    return None if sql is None else " ".join(sql.split())
+
+
 def schema_manifest(connection: sqlite3.Connection, *, include_alembic: bool = False) -> dict[str, Any]:
     rows = connection.execute(
         "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
@@ -95,10 +99,11 @@ def schema_manifest(connection: sqlite3.Connection, *, include_alembic: bool = F
                     "origin": index[3],
                     "partial": index[4],
                     "columns": [column[2] for column in connection.execute(f"PRAGMA index_info({_quote_identifier(index_name)})")],
-                    "sql": index_sql[0] if index_sql else None,
+                    "sql": _canonical_sql(index_sql[0] if index_sql else None),
                 }
             )
-        tables.append({"name": name, "sql": sql, "columns": columns, "foreign_keys": foreign_keys, "indexes": indexes})
+        indexes.sort(key=lambda index: index["name"])
+        tables.append({"name": name, "sql": _canonical_sql(sql), "columns": columns, "foreign_keys": foreign_keys, "indexes": indexes})
     return {"tables": tables}
 
 

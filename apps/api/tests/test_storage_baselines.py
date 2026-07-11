@@ -79,11 +79,24 @@ def test_frozen_schema_sql_is_deterministic_and_excludes_0002_source_columns() -
     assert "credential_env_prefix" in frozen_schema_sql("0002")
 
 
-def _upgrade_to_head(database_path: Path) -> None:
+def _upgrade_to_revision(database_path: Path, revision: str) -> None:
     config = Config(str(Path(__file__).parents[3] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
-    command.upgrade(config, "head")
+    command.upgrade(config, revision)
+
+
+def _upgrade_to_head(database_path: Path) -> None:
+    _upgrade_to_revision(database_path, "head")
+
+
+def test_classify_database_accepts_database_produced_by_0002_migration(tmp_path: Path) -> None:
+    database_path = tmp_path / "migrated-0002.sqlite3"
+    _create_baseline(database_path, "0001", version="0001_initial")
+
+    _upgrade_to_revision(database_path, "0002_generic_s3_sources")
+
+    assert classify_database(database_path) is BaselineState.STAMPED_0002
 
 
 def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: Path) -> None:
