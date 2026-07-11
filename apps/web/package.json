@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
-    "audit:contracts": "node scripts/audit-contract.mjs"
+    "audit:contracts": "node scripts/audit-contract.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@types/react": "latest",
@@ -18,5 +19,11 @@
     "react-dom": "latest",
     "typescript": "latest",
     "vite": "latest"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.9"
   }
 }

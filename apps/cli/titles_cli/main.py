@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import signal
 import subprocess
+import sqlite3
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -825,6 +828,63 @@ def prompt_version(ctx: typer.Context, prompt_set: str, file: Path = typer.Optio
     call(ctx, lambda client: client.post(f"/api/prompt-sets/{prompt_set}/versions", {"prompts": read_json(file)}))
 
 
+FAL_BILLING_ACKNOWLEDGEMENT = "I understand FAL may bill this run even if checkpoint fetch fails"
+
+
+def fal_eval_projection(client: TitlesClient, *, model_version: str, prompt_set: str, endpoint: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    version = client.get(f"/api/model-versions/{model_version}")
+    project_id = str(version.get("project_id") or "")
+    checkpoint_revision_id = str(version.get("checkpoint_revision_id") or "")
+    if not project_id or not checkpoint_revision_id:
+        raise ApiError("Model version has no immutable checkpoint revision", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
+    prompt_set_row = client.get(f"/api/prompt-sets/{prompt_set}")
+    prompts = [
+        {"prompt_id": str(item.get("id") or f"prompt-{index}"), "prompt": str(item.get("text") or item.get("prompt") or "")}
+        for index, item in enumerate(prompt_set_row.get("prompts", []))
+    ]
+    prompts = [item for item in prompts if item["prompt"]]
+    if not prompts:
+        raise ApiError("Prompt set is empty", status_code=422, code="PROMPT_SET_EMPTY")
+    client.post(
+        "/api/eval-definitions",
+        {
+            "project_id": project_id,
+            "name": f"{version.get('name') or 'Model'} / {prompt_set_row.get('name') or 'Prompt set'}",
+            "endpoint": endpoint,
+            "model_version_id": model_version,
+            "prompt_set_id": prompt_set,
+            "parameters": parameters,
+        },
+    )
+    body = {
+        "kind": "eval",
+        "mode": "single" if len(prompts) == 1 else "prompt_batch",
+        "project_id": project_id,
+        "model_version_id": model_version,
+        "checkpoint_revision_id": checkpoint_revision_id,
+        "prompts": prompts,
+        "parameters": {**parameters, "endpoint_id": endpoint},
+        "client_request_id": str(uuid.uuid4()),
+    }
+    return client.post("/api/fal-admissions", body)
+
+
+def fal_grid_projection(client: TitlesClient, *, grid_id: str) -> dict[str, Any]:
+    grid = client.get(f"/api/grids/{grid_id}")
+    body = {
+        "kind": "grid",
+        "project_id": str(grid.get("project_id") or ""),
+        "model_version_id": str(grid.get("model_version_id") or ""),
+        "checkpoint_revision_id": str(grid.get("checkpoint_revision_id") or ""),
+        "grid_definition_id": grid_id,
+        "parameters": {**(grid.get("parameters") or {}), "endpoint_id": str(grid.get("endpoint_adapter") or "")},
+        "client_request_id": str(uuid.uuid4()),
+    }
+    if not all(body[key] for key in ("project_id", "model_version_id", "checkpoint_revision_id")) or not body["parameters"].get("endpoint_id"):
+        raise ApiError("Grid has no immutable model checkpoint revision or endpoint", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
+    return client.post("/api/fal-admissions", body)
+
+
 eval_app = typer.Typer(no_args_is_help=True)
 app.add_typer(eval_app, name="eval")
 
@@ -847,7 +907,7 @@ def eval_preview(
     endpoint: str = typer.Option(...),
     param: list[str] = typer.Option([], "--param"),
 ) -> None:
-    call(ctx, lambda client: client.post("/api/eval-runs/preview", {"model_version_id": model_version, "prompt_set_id": prompt_set, "endpoint": endpoint, "parameters": parse_params(param)}))
+    call(ctx, lambda client: fal_eval_projection(client, model_version=model_version, prompt_set=prompt_set, endpoint=endpoint, parameters=parse_params(param)))
 
 
 @eval_app.command("create")
@@ -860,9 +920,26 @@ def eval_create(
     dry_run: bool = False,
     wait: bool = False,
 ) -> None:
-    result = call(ctx, lambda client: client.post("/api/eval-runs", {"model_version_id": model_version, "prompt_set_id": prompt_set, "endpoint": endpoint, "parameters": parse_params(param), "dry_run": dry_run}))
-    if wait and isinstance(result, dict) and (result.get("job_id") or result.get("id")):
-        wait_for_job(ctx, result.get("job_id") or result["id"])
+    def operation(client: TitlesClient):
+        parameters = parse_params(param)
+        projection = fal_eval_projection(client, model_version=model_version, prompt_set=prompt_set, endpoint=endpoint, parameters=parameters)
+        if dry_run or projection.get("kind") != "projection":
+            return projection
+        admission = projection.get("admission") or {}
+        if admission.get("state") != "ready":
+            return projection
+        accepted = client.post(
+            f"/api/fal-admissions/{admission['id']}/admit",
+            {"expected_version": admission["version"], "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT},
+        )
+        if accepted.get("eval_run_id"):
+            run = client.get(f"/api/eval-runs/{accepted['eval_run_id']}")
+            accepted["job_id"] = run.get("job_id")
+        return accepted
+
+    result = call(ctx, operation)
+    if wait and isinstance(result, dict) and result.get("job_id"):
+        wait_for_job(ctx, result["job_id"])
 
 
 @eval_app.command("show")
@@ -911,9 +988,25 @@ def grid_show(ctx: typer.Context, grid: str) -> None:
 
 @grid_app.command("run")
 def grid_run(ctx: typer.Context, grid: str, dry_run: bool = False, wait: bool = False) -> None:
-    result = call(ctx, lambda client: client.post(f"/api/grids/{grid}/runs", {"dry_run": dry_run}))
-    if wait and isinstance(result, dict) and (result.get("job_id") or result.get("id")):
-        wait_for_job(ctx, result.get("job_id") or result["id"])
+    def operation(client: TitlesClient):
+        projection = fal_grid_projection(client, grid_id=grid)
+        if dry_run or projection.get("kind") != "projection":
+            return projection
+        admission = projection.get("admission") or {}
+        if admission.get("state") != "ready":
+            return projection
+        accepted = client.post(
+            f"/api/fal-admissions/{admission['id']}/admit",
+            {"expected_version": admission["version"], "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT},
+        )
+        if accepted.get("eval_run_id"):
+            run = client.get(f"/api/eval-runs/{accepted['eval_run_id']}")
+            accepted["job_id"] = run.get("job_id")
+        return accepted
+
+    result = call(ctx, operation)
+    if wait and isinstance(result, dict) and result.get("job_id"):
+        wait_for_job(ctx, result["job_id"])
 
 
 @grid_app.command("cells")
@@ -1074,6 +1167,111 @@ def connection_test(ctx: typer.Context, provider: str) -> None:
     call(ctx, lambda client: client.post(f"/api/connections/{provider}/test"))
 
 
+storage_app = typer.Typer(no_args_is_help=True)
+app.add_typer(storage_app, name="storage")
+
+
+def storage_database_path(value: Path | None) -> Path:
+    if value is not None:
+        return value.expanduser().resolve()
+    return (project_root() / "var" / "titles-dam.sqlite3").resolve()
+
+
+@storage_app.command("verify-contract")
+def storage_verify_contract(
+    ctx: typer.Context,
+    database: Path | None = typer.Option(None, "--database"),
+    run_lease_id: str | None = typer.Option(None, "--run-lease-id", envvar="TITLES_RUN_LEASE_ID"),
+) -> None:
+    if not run_lease_id:
+        raise typer.BadParameter("--run-lease-id or TITLES_RUN_LEASE_ID is required")
+    from titles_api.storage.gates import GateEvidence, StorageGateStore
+
+    path = storage_database_path(database)
+    with sqlite3.connect(path) as db:
+        db.row_factory = sqlite3.Row
+        version = db.execute("SELECT version_num FROM alembic_version").fetchone()
+        marker = db.execute(
+            "SELECT marker,binding_digest FROM storage_cutover_marker WHERE id=1"
+        ).fetchone()
+        if version is None or marker is None or int(marker["marker"]) != 1:
+            raise typer.BadParameter("database head/marker is not ready for verification")
+        payload = f"{version['version_num']}:{marker['marker']}:{marker['binding_digest']}:1"
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        projection = StorageGateStore(db).verify_storage_contract(
+            GateEvidence(
+                run_lease_id=run_lease_id,
+                alembic_head=str(version["version_num"]),
+                marker=int(marker["marker"]),
+                binding_digest=str(marker["binding_digest"]),
+                contract_version=1,
+                evidence_digest=digest,
+            ),
+            expected_run_lease_id=run_lease_id,
+        )
+    emit(
+        {
+            "name": projection.name,
+            "state": projection.state.value,
+            "version": projection.version,
+            "verification_receipt_id": projection.verification_receipt_id,
+        },
+        json_output=rt(ctx).json_output,
+    )
+
+
+@storage_app.command("recover-cutover")
+def storage_recover_cutover(
+    ctx: typer.Context,
+    backup_id: str = typer.Argument(...),
+    kind: str = typer.Option(..., "--kind", help="raw or sanitized"),
+    database: Path | None = typer.Option(None, "--database"),
+    confirm: str | None = typer.Option(None, "--confirm"),
+) -> None:
+    from titles_api.storage.backup import EnvelopeStore, FileKeyStore
+    from titles_api.storage.cutover import RestoreEligibility, restore_raw, restore_sanitized
+
+    if kind not in {"raw", "sanitized"}:
+        raise typer.BadParameter("--kind must be raw or sanitized")
+    root_path = project_root() / "var" / "cutover"
+    store = EnvelopeStore(root_path / "backups", FileKeyStore(root_path / "keys"))
+    path = storage_database_path(database)
+    if kind == "raw":
+        receipt = restore_raw(envelope_store=store, backup_id=backup_id, database_path=path)
+    else:
+        with sqlite3.connect(path) as db:
+            gates = {
+                str(name): str(state)
+                for name, state in db.execute("SELECT name,state FROM storage_feature_gates")
+            }
+            marker = db.execute("SELECT effect_epoch FROM storage_cutover_marker WHERE id=1").fetchone()
+            if marker is None:
+                raise typer.BadParameter("cutover marker is missing")
+            effect_rows = 0
+            table_names = {
+                str(row[0])
+                for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            for table in ("publication_receipts", "fal_submission_intents"):
+                if table in table_names:
+                    effect_rows += int(db.execute(f"SELECT count(*) FROM {table}").fetchone()[0])
+        receipt = restore_sanitized(
+            envelope_store=store,
+            backup_id=backup_id,
+            database_path=path,
+            eligibility=RestoreEligibility(
+                gate_states=gates,
+                effect_epoch=int(marker[0]),
+                effect_rows=effect_rows,
+            ),
+            confirmation=confirm or "",
+        )
+    emit(
+        {"backup_id": receipt.backup_id, "kind": receipt.kind, "sha256": receipt.sha256, "restored": str(path)},
+        json_output=rt(ctx).json_output,
+    )
+
+
 server_app = typer.Typer(no_args_is_help=True)
 app.add_typer(server_app, name="server")
 
@@ -1106,9 +1304,14 @@ def server_start(ctx: typer.Context) -> None:
     api_log = (var / "server.log").open("ab")
     worker_log = (var / "worker.log").open("ab")
     pythonpath = os.pathsep.join(str(root_path / "apps" / name) for name in ("api", "worker", "cli"))
-    env = {**os.environ, "PYTHONPATH": pythonpath}
+    env = {
+        **os.environ,
+        "PYTHONPATH": pythonpath,
+        "TITLES_RUN_LEASE_ID": str(uuid.uuid4()),
+        "TITLES_RUN_LOCK": str(var / "titles-dam.run.lock"),
+    }
     api_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "titles_api.app:app", "--host", "127.0.0.1", "--port", "8400"],
+        [sys.executable, "-m", "titles_api"],
         cwd=root_path,
         env=env,
         stdout=api_log,

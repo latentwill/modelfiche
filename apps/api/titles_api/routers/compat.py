@@ -59,7 +59,7 @@ def eval_endpoint_schema(endpoint_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/eval-runs/preview")
+@router.post("/eval-runs/preview", include_in_schema=False)
 def preview_eval_run(body: schemas.EvalRunCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     return create_eval_run(body.model_copy(update={"dry_run": True}), db, x_profile_id)
 
@@ -126,8 +126,8 @@ def grid(grid_id: str, db: DB):
     return grid_definition(grid_id, db)
 
 
-@router.post("/grids/{grid_id}/run", status_code=status.HTTP_202_ACCEPTED)
-@router.post("/grids/{grid_id}/runs", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/grids/{grid_id}/run", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
+@router.post("/grids/{grid_id}/runs", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
 def run_grid(grid_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     return enqueue_grid(grid_id, db, x_profile_id)
 

@@ -461,6 +461,11 @@
 .vela-theme .grid-board > button { width: var(--cell); height: var(--cell); padding: 2px; overflow: hidden; border-radius: var(--vela-radius-sm); }
 .vela-theme .grid-board > button.active { outline: 2px solid var(--vela-accent); outline-offset: -2px; }
 .vela-theme .grid-board > button img { width: 100%; height: 100%; object-fit: cover; }
+.vela-theme .grid-board > .grid-cell { width: var(--cell); min-height: var(--cell); display: grid; gap: 4px; }
+.vela-theme .grid-board > .grid-cell > button { width: var(--cell); height: var(--cell); padding: 2px; overflow: hidden; border-radius: var(--vela-radius-sm); }
+.vela-theme .grid-board > .grid-cell > button.active { outline: 2px solid var(--vela-accent); outline-offset: -2px; }
+.vela-theme .grid-board > .grid-cell > button img { width: 100%; height: 100%; object-fit: cover; }
+.vela-theme .grid-board > .grid-cell-detail { font: 10px var(--vela-font-mono); text-align: center; }
 .vela-theme .comments { display: grid; gap: 7px; margin-bottom: 12px; }
 .vela-theme .comments article { padding: 9px 0; border-bottom: 1px solid var(--vela-border); }
 .vela-theme .comments p { margin-top: 4px; white-space: pre-wrap; }

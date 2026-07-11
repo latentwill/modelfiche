@@ -38,6 +38,7 @@ def main() -> None:
         resolver = SQLAlchemyFalRequestResolver(SessionLocal)
         handlers["fal.eval"] = FalEvalHandler(client, sink, request_resolver=resolver)
         handlers["fal.eval_batch"] = FalEvalBatchHandler(SessionLocal, client, sink, resolver)
+        handlers["fal.eval_admission"] = handlers["fal.eval_batch"]
         handlers["fal.grid_batch"] = FalGridBatchHandler(SessionLocal, client, sink, resolver)
         handlers["fal_eval"] = handlers["fal.eval_batch"]
         handlers["fal.grid_cell"] = handlers["fal.eval"]

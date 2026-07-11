@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -17,6 +17,11 @@ def utcnow() -> datetime:
 
 class UUIDMixin:
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    def __init__(self, **kwargs: Any) -> None:
+        if kwargs.get("id") is None:
+            kwargs["id"] = str(uuid.uuid4())
+        super().__init__(**kwargs)
 
 
 class TimestampMixin:
@@ -71,6 +76,7 @@ class LocalPreference(UUIDMixin, TimestampMixin, Base):
 class Project(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "projects"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    workspace: Mapped[Workspace] = relationship("Workspace")
     title: Mapped[str] = mapped_column(String(240), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     state: Mapped[ProjectState] = mapped_column(Enum(ProjectState), default=ProjectState.active)
@@ -85,24 +91,42 @@ class Asset(UUIDMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(500))
     mime_type: Mapped[str | None] = mapped_column(String(200))
     sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    content_blob_id: Mapped[str | None] = mapped_column(ForeignKey("content_blobs.id", ondelete="SET NULL"), index=True)
+    preferred_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="SET NULL"), index=True)
+    origin_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="SET NULL"), index=True)
+    provenance_kind: Mapped[str] = mapped_column(String(32), default="legacy", index=True)
+    generated_artifact_receipt_id: Mapped[str | None] = mapped_column(ForeignKey("fal_artifact_receipts.id", ondelete="SET NULL"), index=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
-    locations: Mapped[list[AssetLocation]] = relationship(back_populates="asset", cascade="all, delete-orphan")
+    locations: Mapped[list[AssetLocation]] = relationship(back_populates="asset", cascade="all, delete-orphan", foreign_keys="AssetLocation.asset_id")
 
 
 class AssetLocation(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "asset_locations"
-    __table_args__ = (UniqueConstraint("provider", "bucket", "object_key", "etag"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "source_id", "object_key", "source_revision_fingerprint", name="uq_asset_location_source_revision"),
+    )
     asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     provider: Mapped[str] = mapped_column(String(32))
     uri: Mapped[str] = mapped_column(String(2048))
     bucket: Mapped[str | None] = mapped_column(String(255))
     object_key: Mapped[str | None] = mapped_column(String(1024))
     etag: Mapped[str | None] = mapped_column(String(255))
+    version_id: Mapped[str | None] = mapped_column(String(1024))
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    source_revision_fingerprint: Mapped[str | None] = mapped_column(String(96), index=True)
+    local_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    relative_path: Mapped[str | None] = mapped_column(String(2048))
     size: Mapped[int | None] = mapped_column(Integer)
+    verified_size: Mapped[int | None] = mapped_column(Integer)
+    verified_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    verification_state: Mapped[str] = mapped_column(String(32), default="unverified", index=True)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     hydration_state: Mapped[str] = mapped_column(String(32), default="remote")
+    repair_attribution: Mapped[str | None] = mapped_column(String(128))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    asset: Mapped[Asset] = relationship(back_populates="locations")
+    asset: Mapped[Asset] = relationship(back_populates="locations", foreign_keys=[asset_id])
 
 
 class ImageMetadata(UUIDMixin, Base):
@@ -192,6 +216,8 @@ class TrainingRun(UUIDMixin, TimestampMixin, Base):
     base_model: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
     source_prefix: Mapped[str | None] = mapped_column(String(1024))
+    origin_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    origin_source_fingerprint: Mapped[str | None] = mapped_column(String(96))
     raw_manifest: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     raw_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     normalized_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -211,6 +237,7 @@ class Checkpoint(UUIDMixin, TimestampMixin, Base):
     step: Mapped[int] = mapped_column(Integer, index=True)
     asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"))
     state: Mapped[str] = mapped_column(String(32), default="available")
+    current_revision_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
 
 
 class Sample(UUIDMixin, TimestampMixin, Base):
@@ -240,6 +267,7 @@ class ModelVersion(UUIDMixin, TimestampMixin, Base):
     base_model: Mapped[str | None] = mapped_column(String(500))
     notes: Mapped[str | None] = mapped_column(Text)
     lifecycle_state: Mapped[str] = mapped_column(String(32), default="candidate", index=True)
+    checkpoint_revision_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
     readiness: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
@@ -273,6 +301,7 @@ class EvalRun(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "eval_runs"
     definition_id: Mapped[str] = mapped_column(ForeignKey("eval_definitions.id", ondelete="CASCADE"), index=True)
     checkpoint_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoints.id", ondelete="SET NULL"), index=True)
+    checkpoint_revision_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
     provider_job_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     parameters_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -315,6 +344,8 @@ class ImportSource(UUIDMixin, TimestampMixin, Base):
     credential_env_prefix: Mapped[str] = mapped_column(String(40), default="S3")
     bucket: Mapped[str] = mapped_column(String(255))
     allowed_prefixes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    identity_fingerprint: Mapped[str | None] = mapped_column(String(96), index=True)
+    managed_prefix: Mapped[str] = mapped_column(String(1024), default="titles-dam/managed/")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -411,3 +442,324 @@ class ActivityEvent(UUIDMixin, Base):
     subject_id: Mapped[str] = mapped_column(String(36), index=True)
     details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ContentBlob(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "content_blobs"
+    __table_args__ = (
+        UniqueConstraint("sha256", name="uq_content_blob_sha256"),
+        CheckConstraint("size >= 0", name="ck_content_blob_nonnegative_size"),
+    )
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    size: Mapped[int] = mapped_column(Integer)
+    mime_type: Mapped[str] = mapped_column(String(200))
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LocalRoot(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "local_roots"
+    __table_args__ = (UniqueConstraint("workspace_id", "canonical_path", name="uq_local_root_workspace_path"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    canonical_path: Mapped[str] = mapped_column(String(2048))
+    fingerprint: Mapped[str] = mapped_column(String(512))
+    owner_uid: Mapped[int] = mapped_column(Integer)
+    mode: Mapped[int] = mapped_column(Integer)
+    availability: Mapped[str] = mapped_column(String(32), default="available", index=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SourceCapability(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "source_capabilities"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "capability",
+            "source_fingerprint",
+            "adapter_version",
+            "boot_id",
+            "credential_epoch",
+            name="uq_source_capability_epoch",
+        ),
+    )
+    source_id: Mapped[str] = mapped_column(ForeignKey("import_sources.id", ondelete="CASCADE"), index=True)
+    source_fingerprint: Mapped[str] = mapped_column(String(96))
+    adapter_version: Mapped[str] = mapped_column(String(64))
+    boot_id: Mapped[str] = mapped_column(String(64))
+    credential_epoch: Mapped[str] = mapped_column(String(96))
+    capability: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    redacted_detail: Mapped[str | None] = mapped_column(Text)
+
+
+class StoragePolicy(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_policies"
+    __table_args__ = (UniqueConstraint("workspace_id", name="uq_storage_policy_workspace"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    desired_provider: Mapped[str] = mapped_column(String(16), default="local")
+    resolved_provider: Mapped[str] = mapped_column(String(16), default="local")
+    write_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    selection_origin: Mapped[str] = mapped_column(String(16), default="automatic")
+    fal_local_fallback: Mapped[bool] = mapped_column(Boolean, default=True)
+    blocked_reason: Mapped[str | None] = mapped_column(String(128))
+
+
+class StoragePolicySnapshot(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_policy_snapshots"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    contract_version: Mapped[int] = mapped_column(Integer, default=1)
+    desired_provider: Mapped[str] = mapped_column(String(16))
+    resolved_provider: Mapped[str] = mapped_column(String(16))
+    origin_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    origin_source_fingerprint: Mapped[str | None] = mapped_column(String(96))
+    write_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    write_source_fingerprint: Mapped[str | None] = mapped_column(String(96))
+    write_managed_prefix: Mapped[str | None] = mapped_column(String(1024))
+    local_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    fal_local_fallback: Mapped[bool] = mapped_column(Boolean, default=True)
+    operation_id: Mapped[str] = mapped_column(String(128), index=True)
+    actor_profile_id: Mapped[str | None] = mapped_column(ForeignKey("user_profiles.id", ondelete="SET NULL"))
+
+
+class StorageMigration(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_migrations"
+    __table_args__ = (
+        Index(
+            "uq_storage_migration_active_workspace",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running', 'cancel_requested')"),
+        ),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    snapshot_id: Mapped[str] = mapped_column(ForeignKey("storage_policy_snapshots.id", ondelete="RESTRICT"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(48), default="queued", index=True)
+    scope_kind: Mapped[str] = mapped_column(String(32))
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"), index=True)
+    destination_provider: Mapped[str] = mapped_column(String(16))
+    destination_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    destination_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    reason_code: Mapped[str | None] = mapped_column(String(128))
+    predecessor_id: Mapped[str | None] = mapped_column(ForeignKey("storage_migrations.id", ondelete="SET NULL"), index=True)
+
+
+class StorageMigrationPreview(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_migration_previews"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    scope_kind: Mapped[str] = mapped_column(String(32))
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"), index=True)
+    destination_provider: Mapped[str] = mapped_column(String(16))
+    destination_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    destination_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    predecessor_id: Mapped[str | None] = mapped_column(ForeignKey("storage_migrations.id", ondelete="SET NULL"), index=True)
+    predecessor_version: Mapped[int | None] = mapped_column(Integer)
+    expected_owner_epoch: Mapped[int | None] = mapped_column(Integer)
+    frozen_fields: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    eligible_count: Mapped[int] = mapped_column(Integer, default=0)
+    excluded_count: Mapped[int] = mapped_column(Integer, default=0)
+    known_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    unknown_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    worst_case_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    readiness_state: Mapped[str] = mapped_column(String(32), default="ready")
+    disabled_reason: Mapped[str | None] = mapped_column(String(128))
+
+
+class StorageMigrationPreviewItem(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_migration_preview_items"
+    __table_args__ = (UniqueConstraint("preview_id", "ordinal", name="uq_storage_migration_preview_item_ordinal"),)
+    preview_id: Mapped[str] = mapped_column(ForeignKey("storage_migration_previews.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), index=True)
+    content_blob_id: Mapped[str | None] = mapped_column(ForeignKey("content_blobs.id", ondelete="RESTRICT"), index=True)
+    source_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="RESTRICT"), index=True)
+    selected_revision_fingerprint: Mapped[str | None] = mapped_column(String(96))
+    destination_provider: Mapped[str] = mapped_column(String(16))
+    destination_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    destination_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason_code: Mapped[str | None] = mapped_column(String(128))
+    known_size: Mapped[int | None] = mapped_column(Integer)
+
+
+class MigrationExecutionOwner(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "migration_execution_owners"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_migration_owner_workspace"),
+        UniqueConstraint("parent_id", name="uq_migration_owner_parent"),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    parent_id: Mapped[str] = mapped_column(ForeignKey("storage_migrations.id", ondelete="CASCADE"), index=True)
+    owner_epoch: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class StorageTransfer(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_transfers"
+    __table_args__ = (
+        Index(
+            "uq_storage_transfer_active_operation",
+            "logical_operation_id",
+            "asset_id",
+            "destination_provider",
+            unique=True,
+            sqlite_where=text("state IN ('pending', 'streaming', 'uploaded_unverified', 'verified')"),
+        ),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("storage_policy_snapshots.id", ondelete="RESTRICT"), index=True)
+    asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), index=True)
+    source_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="RESTRICT"), index=True)
+    destination_provider: Mapped[str] = mapped_column(String(16))
+    destination_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    destination_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    logical_operation_id: Mapped[str] = mapped_column(String(128), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    commit_fence: Mapped[str] = mapped_column(String(128), index=True)
+    expected_sha256: Mapped[str] = mapped_column(String(64))
+    expected_size: Mapped[int] = mapped_column(Integer)
+    migration_id: Mapped[str | None] = mapped_column(ForeignKey("storage_migrations.id", ondelete="SET NULL"), index=True)
+    migration_owner_epoch: Mapped[int | None] = mapped_column(Integer)
+
+
+class StorageReservation(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_reservations"
+    __table_args__ = (Index("ix_storage_reservation_transfer_state", "transfer_id", "state"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    transfer_id: Mapped[str | None] = mapped_column(ForeignKey("storage_transfers.id", ondelete="CASCADE"), index=True)
+    root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    reserved_bytes: Mapped[int] = mapped_column(Integer)
+    state: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PublicationAttempt(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "publication_attempts"
+    __table_args__ = (UniqueConstraint("transfer_id", "generation", name="uq_publication_attempt_transfer_generation"),)
+    transfer_id: Mapped[str] = mapped_column(ForeignKey("storage_transfers.id", ondelete="CASCADE"), index=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    nonce: Mapped[str] = mapped_column(String(128))
+    publication_fence: Mapped[str] = mapped_column(String(128), index=True)
+    final_locator: Mapped[str] = mapped_column(String(2048))
+    expected_sha256: Mapped[str] = mapped_column(String(64))
+    expected_size: Mapped[int] = mapped_column(Integer)
+    state: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+
+
+class PublicationReceipt(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "publication_receipts"
+    __table_args__ = (UniqueConstraint("attempt_id", name="uq_publication_receipt_attempt"),)
+    attempt_id: Mapped[str] = mapped_column(ForeignKey("publication_attempts.id", ondelete="CASCADE"), index=True)
+    provider_locator: Mapped[str] = mapped_column(String(2048))
+    version_id: Mapped[str | None] = mapped_column(String(1024))
+    etag: Mapped[str | None] = mapped_column(String(255))
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    publication_fence: Mapped[str] = mapped_column(String(128))
+    commit_fence: Mapped[str] = mapped_column(String(128))
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StorageMigrationItem(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "storage_migration_items"
+    __table_args__ = (UniqueConstraint("migration_id", "ordinal", name="uq_storage_migration_item_ordinal"),)
+    migration_id: Mapped[str] = mapped_column(ForeignKey("storage_migrations.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), index=True)
+    content_blob_id: Mapped[str | None] = mapped_column(ForeignKey("content_blobs.id", ondelete="RESTRICT"), index=True)
+    source_location_id: Mapped[str] = mapped_column(ForeignKey("asset_locations.id", ondelete="RESTRICT"), index=True)
+    destination_provider: Mapped[str] = mapped_column(String(16))
+    destination_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    destination_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason_code: Mapped[str | None] = mapped_column(String(128))
+    outcome: Mapped[str | None] = mapped_column(String(64), index=True)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CheckpointRevision(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "checkpoint_revisions"
+    __table_args__ = (UniqueConstraint("checkpoint_id", "ordinal", name="uq_checkpoint_revision_ordinal"),)
+    checkpoint_id: Mapped[str] = mapped_column(ForeignKey("checkpoints.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), index=True)
+    content_blob_id: Mapped[str | None] = mapped_column(ForeignKey("content_blobs.id", ondelete="RESTRICT"), index=True)
+    source_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="RESTRICT"), index=True)
+    supersedes_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
+
+
+class FalAdmission(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "fal_admissions"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    eval_run_id: Mapped[str | None] = mapped_column(ForeignKey("eval_runs.id", ondelete="SET NULL"), index=True)
+    snapshot_id: Mapped[str] = mapped_column(ForeignKey("storage_policy_snapshots.id", ondelete="RESTRICT"), index=True)
+    checkpoint_revision_id: Mapped[str] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="RESTRICT"), index=True)
+    staging_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    endpoint_id: Mapped[str] = mapped_column(String(240))
+    adapter_version: Mapped[str] = mapped_column(String(80), default="v1")
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(32), default="unsubmitted", index=True)
+    handoff_assurance: Mapped[str] = mapped_column(String(32))
+    billing_acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expected_artifact_count: Mapped[int] = mapped_column(Integer)
+    spool_root_id: Mapped[str] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
+    spool_grant_bytes: Mapped[int] = mapped_column(Integer)
+    permanent_reservation_bytes: Mapped[int] = mapped_column(Integer)
+    dispatch_fence: Mapped[str] = mapped_column(String(128))
+
+
+class FalSubject(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "fal_subjects"
+    __table_args__ = (
+        UniqueConstraint("admission_id", "ordinal", name="uq_fal_subject_ordinal"),
+        UniqueConstraint("admission_id", "subject_key", "generation", name="uq_fal_subject_key_generation"),
+    )
+    admission_id: Mapped[str] = mapped_column(ForeignKey("fal_admissions.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    subject_key: Mapped[str] = mapped_column(String(256))
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    expected_output_count: Mapped[int] = mapped_column(Integer)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+
+
+class FalSubmissionIntent(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "fal_submission_intents"
+    __table_args__ = (UniqueConstraint("subject_id", "generation", name="uq_fal_submission_intent_generation"),)
+    admission_id: Mapped[str] = mapped_column(ForeignKey("fal_admissions.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[str] = mapped_column(ForeignKey("fal_subjects.id", ondelete="CASCADE"), index=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    request_digest: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), default="planned", index=True)
+    provider_request_id: Mapped[str | None] = mapped_column(String(500), index=True)
+    submission_fence: Mapped[str] = mapped_column(String(128))
+
+
+class FalArtifactReceipt(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "fal_artifact_receipts"
+    __table_args__ = (UniqueConstraint("subject_id", "intent_id", "ordinal", name="uq_fal_artifact_receipt_ordinal"),)
+    subject_id: Mapped[str] = mapped_column(ForeignKey("fal_subjects.id", ondelete="CASCADE"), index=True)
+    intent_id: Mapped[str] = mapped_column(ForeignKey("fal_submission_intents.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    artifact_identity: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    metadata_digest: Mapped[str] = mapped_column(String(64))
+    canonical_list_digest: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), default="planned", index=True)
+    observed_size: Mapped[int | None] = mapped_column(Integer)
+    observed_sha256: Mapped[str | None] = mapped_column(String(64))
+    stage_fence: Mapped[str] = mapped_column(String(128))
+    transfer_id: Mapped[str | None] = mapped_column(ForeignKey("storage_transfers.id", ondelete="SET NULL"), index=True)
+    eval_output_id: Mapped[str | None] = mapped_column(ForeignKey("eval_outputs.id", ondelete="SET NULL"), index=True)
+
+

@@ -5,6 +5,7 @@ from datetime import timezone
 from typing import Any, BinaryIO
 
 from ..config import S3Settings
+from titles_api.storage.s3_client import create_source_s3_client
 from .models import BrowsePage, Inventory, ObjectInfo
 
 
@@ -36,24 +37,7 @@ class S3Browser:
 
     @classmethod
     def from_settings(cls, settings: S3Settings) -> "S3Browser":
-        import boto3
-        from botocore.config import Config
-
-        kwargs: dict[str, Any] = {
-            "service_name": "s3",
-            "config": Config(s3={"addressing_style": settings.addressing_style}),
-        }
-        if settings.endpoint_url:
-            kwargs["endpoint_url"] = settings.endpoint_url
-        if settings.region:
-            kwargs["region_name"] = settings.region
-        if settings.access_key_id:
-            kwargs["aws_access_key_id"] = settings.access_key_id
-        if settings.secret_access_key:
-            kwargs["aws_secret_access_key"] = settings.secret_access_key
-        if settings.session_token:
-            kwargs["aws_session_token"] = settings.session_token
-        return cls(boto3.client(**kwargs), settings)
+        return cls(create_source_s3_client(settings), settings)
 
     def require_allowed(self, prefix: str) -> str:
         normalized = normalize_prefix(prefix)
@@ -134,6 +118,12 @@ class S3Browser:
             request["IfMatch"] = etag
         response = self.client.get_object(**request)
         body = response["Body"]
+        response_etag = response.get("ETag")
+        if etag and response_etag and str(response_etag).strip('"') != etag.strip('"'):
+            close = getattr(body, "close", None)
+            if close:
+                close()
+            raise ValueError("S3 object ETag changed before its body was read")
         written = 0
         try:
             while chunk := body.read(1024 * 1024):

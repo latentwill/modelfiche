@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.13",
   "boto3>=1.35",
+  "cryptography>=44",
   "fastapi>=0.115",
   "Pillow>=10.4",
   "pydantic-settings>=2.5",

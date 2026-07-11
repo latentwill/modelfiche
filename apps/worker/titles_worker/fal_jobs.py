@@ -65,7 +65,25 @@ class FalEvalHandler:
                     request = self.request_resolver(payload)
                 if request is None:
                     raise ValueError("FAL job requires request or a configured request resolver")
-                submission = self.client.submit(str(payload["endpoint_id"]), dict(request))
+                intent = _submission_intent(
+                    self.sink,
+                    eval_run_id,
+                    prompt_id=str(payload["prompt_id"]) if payload.get("prompt_id") is not None else None,
+                    grid_cell_id=str(payload["grid_cell_id"]) if payload.get("grid_cell_id") is not None else None,
+                )
+                request_id = intent.get("provider_request_id") if intent else None
+                if request_id:
+                    resume = getattr(self.client, "resume_submission", None)
+                    if resume is None:
+                        raise RuntimeError("FAL submission requires reconciliation before polling")
+                    submission = resume(str(payload["endpoint_id"]), str(request_id))
+                else:
+                    submission = self.client.submit(str(payload["endpoint_id"]), dict(request))
+                    if intent:
+                        record = getattr(self.sink, "record_submission_intent", None)
+                        if record is None:
+                            raise RuntimeError("FAL submission intent cannot be recorded")
+                        record(str(intent["intent_id"]), submission.request_id)
                 context.checkpoint(
                     provider_request_id=submission.request_id,
                     provider_status_url=submission.status_url,
@@ -83,6 +101,13 @@ class FalEvalHandler:
                 if context.cancellation_requested():
                     if payload.get("provider_cancel_url"):
                         self.client.cancel(str(payload["provider_cancel_url"]))
+                    _finish_submission(
+                        self.sink,
+                        eval_run_id,
+                        prompt_id=str(payload["prompt_id"]) if payload.get("prompt_id") is not None else None,
+                        grid_cell_id=str(payload["grid_cell_id"]) if payload.get("grid_cell_id") is not None else None,
+                        state="canceled",
+                    )
                     self.sink.mark_canceled(eval_run_id)
                     return {"provider_request_id": payload["provider_request_id"], "canceled": True}
                 status = self.client.status(str(payload["provider_status_url"]))
@@ -99,10 +124,23 @@ class FalEvalHandler:
                                 int(payload["x_index"]),
                                 int(payload["y_index"]),
                             )
+                    _finish_submission(
+                        self.sink,
+                        eval_run_id,
+                        prompt_id=str(payload["prompt_id"]) if payload.get("prompt_id") is not None else None,
+                        grid_cell_id=str(payload["grid_cell_id"]) if payload.get("grid_cell_id") is not None else None,
+                    )
                     self.sink.mark_succeeded(eval_run_id)
                     return {"provider_request_id": payload["provider_request_id"], **ingested}
                 if provider_state in self.TERMINAL_FAILURE:
                     message = str(status.get("error") or f"FAL job ended with status {provider_state}")
+                    _finish_submission(
+                        self.sink,
+                        eval_run_id,
+                        prompt_id=str(payload["prompt_id"]) if payload.get("prompt_id") is not None else None,
+                        grid_cell_id=str(payload["grid_cell_id"]) if payload.get("grid_cell_id") is not None else None,
+                        state="failed",
+                    )
                     self.sink.mark_failed(eval_run_id, message)
                     raise RuntimeError(message)
                 time.sleep(self.poll_seconds)
@@ -152,8 +190,21 @@ class FalEvalBatchHandler:
             }
             try:
                 if not task.get("request_id"):
-                    request = self.request_resolver(request_payload)
-                    submission = self.client.submit(definition.endpoint, request)
+                    intent = _submission_intent(self.sink, eval_run_id, prompt_id=prompt.id)
+                    request_id = intent.get("provider_request_id") if intent else None
+                    if request_id:
+                        resume = getattr(self.client, "resume_submission", None)
+                        if resume is None:
+                            raise RuntimeError("FAL submission requires reconciliation before polling")
+                        submission = resume(definition.endpoint, str(request_id))
+                    else:
+                        request = self.request_resolver(request_payload)
+                        submission = self.client.submit(definition.endpoint, request)
+                        if intent:
+                            record = getattr(self.sink, "record_submission_intent", None)
+                            if record is None:
+                                raise RuntimeError("FAL submission intent cannot be recorded")
+                            record(str(intent["intent_id"]), submission.request_id)
                     task = {
                         "request_id": submission.request_id,
                         "status_url": submission.status_url,
@@ -174,8 +225,8 @@ class FalEvalBatchHandler:
                     state = str(status.get("status", "")).upper()
                     context.progress((completed + _progress(status)) / total)
                     if state == "COMPLETED":
-                        response = self.client.result(str(task["response_url"]))
                         self.sink.ingest_outputs(eval_run_id, prompt.id, response)
+                        _finish_submission(self.sink, eval_run_id, prompt_id=prompt.id)
                         task["state"] = "completed"
                         tasks[prompt.id] = task
                         context.checkpoint(provider_tasks=tasks)
@@ -412,6 +463,18 @@ def _axis_value(field: str, value: Any) -> Any:
     return value
 
 
+
+def _finish_submission(
+    sink: EvalOutputSink,
+    eval_run_id: str,
+    *,
+    prompt_id: str | None = None,
+    grid_cell_id: str | None = None,
+    state: str = "completed",
+) -> None:
+    finish = getattr(sink, "finish_submission_intent", None)
+    if finish is not None:
+        finish(eval_run_id, prompt_id=prompt_id, grid_cell_id=grid_cell_id, state=state)
 def _required(session: Session, model, object_id: str):
     value = session.get(model, object_id)
     if value is None:
@@ -426,3 +489,16 @@ def _progress(status: dict[str, Any]) -> float:
     if isinstance(position, int) and position >= 0:
         return max(0.05, min(0.5, 0.5 / (position + 1)))
     return 0.55 if str(status.get("status", "")).upper() == "IN_PROGRESS" else 0.1
+
+
+def _submission_intent(
+    sink: EvalOutputSink,
+    eval_run_id: str,
+    *,
+    prompt_id: str | None = None,
+    grid_cell_id: str | None = None,
+) -> dict[str, Any] | None:
+    lookup = getattr(sink, "submission_intent", None)
+    if lookup is None:
+        return None
+    return lookup(eval_run_id, prompt_id=prompt_id, grid_cell_id=grid_cell_id)

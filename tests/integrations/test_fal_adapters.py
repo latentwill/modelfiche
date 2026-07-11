@@ -1,8 +1,43 @@
 import pytest
 
+from titles_api.integrations.fal import adapters
 from titles_api.integrations.fal.adapters import LoraInput, ValidationError, get_adapter
 from titles_api.integrations.fal.orchestration import GridAxis, GridDefinition, GridPlanner
 
+
+def test_normalize_parameters_freezes_complete_ideogram_contract():
+    normalized = adapters.normalize_parameters(
+        {
+            "endpoint_id": "ideogram/v4/lora",
+            "image_size": {"width": 1024, "height": 1536},
+            "rendering_speed": "QUALITY",
+            "num_images": 3,
+            "lora_scale": 0.75,
+        }
+    )
+
+    assert normalized == {
+        "endpoint_id": "ideogram/v4/lora",
+        "image_size": {"width": 1024, "height": 1536},
+        "expansion_model": "Medium",
+        "rendering_speed": "QUALITY",
+        "acceleration": "none",
+        "num_images": 3,
+        "seed": None,
+        "lora_scale": 0.75,
+        "enable_safety_checker": True,
+        "output_format": "jpeg",
+    }
+
+
+def test_normalize_parameters_rejects_cross_endpoint_field():
+    with pytest.raises(ValidationError, match="unsupported fields"):
+        adapters.normalize_parameters(
+            {
+                "endpoint_id": "fal-ai/krea-2/turbo/lora",
+                "rendering_speed": "QUALITY",
+            }
+        )
 
 def test_ideogram_request_uses_verified_fields():
     request = get_adapter("ideogram/v4/lora").build_request(

@@ -26,15 +26,13 @@ def test_browser_accepts_only_configured_subtree():
         browser.browse("allowed/root-secret/")
 
 
-def test_standard_aws_s3_omits_endpoint_and_uses_credential_chain(monkeypatch):
+def test_standard_aws_source_requires_named_credentials_before_client_creation(monkeypatch):
     calls = []
     monkeypatch.setitem(sys.modules, "boto3", SimpleNamespace(client=lambda **kwargs: calls.append(kwargs) or FakeClient()))
     settings = S3Settings(None, "bucket", ("allowed/",), region="ap-northeast-1")
-    S3Browser.from_settings(settings)
-    assert calls[0]["region_name"] == "ap-northeast-1"
-    assert "endpoint_url" not in calls[0]
-    assert "aws_access_key_id" not in calls[0]
-
+    with pytest.raises(ValueError, match="S3_ACCESS_KEY and S3_SECRET_KEY"):
+        S3Browser.from_settings(settings)
+    assert calls == []
 
 def test_generic_s3_environment_precedes_legacy_mega(monkeypatch):
     monkeypatch.setenv("S3_BUCKET", "aws-bucket")
@@ -55,3 +53,26 @@ def test_legacy_mega_environment_remains_supported(monkeypatch):
     assert settings.bucket == "mega-bucket"
     assert settings.endpoint_url == "https://s3.g.s4.mega.io"
     assert settings.credential_env_prefix == "MEGA"
+
+
+class ChangedEtagBody:
+    def __init__(self):
+        self._chunks = [b"replacement", b""]
+
+    def read(self, _size):
+        return self._chunks.pop(0)
+
+    def close(self):
+        return None
+
+
+class ChangedEtagClient:
+    def get_object(self, **_kwargs):
+        return {"ETag": '"replacement"', "Body": ChangedEtagBody()}
+
+
+def test_download_rejects_a_response_that_does_not_match_the_requested_etag():
+    browser = S3Browser(ChangedEtagClient(), S3Settings("https://s3.invalid", "bucket", ("allowed/",)))
+
+    with pytest.raises(ValueError, match="ETag changed"):
+        browser.download("allowed/checkpoint", SimpleNamespace(write=lambda _chunk: None), etag="expected")

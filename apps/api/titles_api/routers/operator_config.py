@@ -24,7 +24,6 @@ DB = Annotated[Session, Depends(get_db)]
 DEFAULT_OPERATOR_SETTINGS = {
     "llm": {"provider": "openai", "model": "", "base_url": None},
     "fal": {"default_endpoint": "ideogram/v4/lora", "max_parallel_jobs": 4},
-    "storage": {"default_source_id": None, "signed_url_ttl": 3600},
 }
 
 
@@ -32,7 +31,6 @@ class OperatorSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     llm: dict[str, Any] | None = None
     fal: dict[str, Any] | None = None
-    storage: dict[str, Any] | None = None
 
 
 class TransferCreate(BaseModel):
@@ -88,9 +86,6 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
     concurrency = result["fal"].get("max_parallel_jobs")
     if not isinstance(concurrency, int) or not 1 <= concurrency <= 32:
         raise HTTPException(status_code=422, detail="fal.max_parallel_jobs must be between 1 and 32")
-    ttl = result["storage"].get("signed_url_ttl")
-    if not isinstance(ttl, int) or not 60 <= ttl <= 86400:
-        raise HTTPException(status_code=422, detail="storage.signed_url_ttl must be between 60 and 86400 seconds")
     llm_provider = str(result["llm"].get("provider") or "").lower()
     if llm_provider not in {"openai", "openai-compatible", "openai_compatible", "anthropic", "claude", "gemini", "google"}:
         raise HTTPException(status_code=422, detail="unsupported llm.provider")
@@ -125,9 +120,6 @@ def operator_settings(db: DB):
 def update_operator_settings(body: OperatorSettingsUpdate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     preference = _preference(db)
     values = _merge_settings(preference.value, body)
-    source_id = values["storage"].get("default_source_id")
-    if source_id and db.get(models.ImportSource, source_id) is None:
-        raise HTTPException(status_code=422, detail="storage.default_source_id does not identify an import source")
     preference.value = values
     record_activity(db, action="settings.updated", subject_type="workspace", subject_id=current_workspace(db).id, profile_id=active_profile(db, x_profile_id).id)
     db.commit()
@@ -152,11 +144,9 @@ def test_operator_configuration(provider: Literal["llm", "fal", "storage"], db: 
             adapter_ok = False
         key_present = bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"))
         return {"provider": provider, "ok": adapter_ok and key_present, "mode": "configuration_only", "endpoint": endpoint, "credential_present": key_present, "network_called": False}
-    source_id = values.get("storage", {}).get("default_source_id")
-    source = db.get(models.ImportSource, source_id) if source_id else db.scalar(select(models.ImportSource).where(models.ImportSource.is_active.is_(True)).order_by(models.ImportSource.created_at))
     settings = get_settings()
     local_ok = all(path.exists() and path.is_dir() for path in (settings.asset_root, settings.cache_root, settings.export_root))
-    return {"provider": provider, "ok": bool(source and local_ok), "mode": "configuration_only", "source_id": source.id if source else None, "local_paths_ok": local_ok, "network_called": False}
+    return {"provider": provider, "ok": local_ok, "mode": "configuration_only", "local_paths_ok": local_ok, "network_called": False}
 
 
 @router.post("/prompt-sets/generate", response_model=PromptSetGenerateResponse)

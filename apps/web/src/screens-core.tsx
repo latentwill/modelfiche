@@ -55,7 +55,6 @@ export function ProjectScreen({ id }: { id: string }) {
 export function ImportScreen({ initialProject = "" }: { initialProject?: string }) {
   const sourcesResource = useResource<unknown>("/api/import-sources");
   const projectsResource = useResource<unknown>("/api/projects");
-  const settingsResource = useResource<Row>("/api/operator-settings");
   const [sourceId, setSourceId] = useState("");
   const [projectId, setProjectId] = useState(initialProject);
   const [prefix, setPrefix] = useState("");
@@ -73,15 +72,6 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
     ...(Array.isArray(browseRecord.prefixes) ? browseRecord.prefixes.map(value => ({ name: String(value).replace(/\/$/, "").split("/").pop() || String(value), prefix: value, kind: "prefix" })) : []),
     ...rows(browseData),
   ];
-  useEffect(() => {
-    if (sourceId || !sources.length) return;
-    const configured = str((settingsResource.data?.storage as Row | undefined)?.default_source_id, "");
-    const selected = sources.find(source => idOf(source) === configured) ?? sources.find(source => source.is_active !== false);
-    if (!selected) return;
-    setSourceId(idOf(selected));
-    const firstPrefix = Array.isArray(selected.allowed_prefixes) ? selected.allowed_prefixes[0] : "";
-    if (firstPrefix) setPrefix(String(firstPrefix));
-  }, [settingsResource.data, sourceId, sources]);
 
   async function browse(nextCursor = "") {
     if (!sourceId) return;
@@ -112,7 +102,7 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
   const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
 
   return <Page title="Import from storage" subtitle="Browse an allowed S3 prefix, inspect its structure, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
-    <Notice error={error || sourcesResource.error || projectsResource.error || settingsResource.error} />
+    <Notice error={error || sourcesResource.error || projectsResource.error} />
     <Panel title="Source">
       <div className="form-grid">
         <Field label="Project"><SelectRecords name="project" records={rows(projectsResource.data)} labelKey="title" required value={projectId} onChange={setProjectId} /></Field>
@@ -179,7 +169,6 @@ export function SettingsScreen() {
   const health = useResource<Row>("/api/system/doctor");
   const settings = useResource<Row>("/api/operator-settings");
   const endpoints = useResource<unknown>("/api/eval-endpoints");
-  const sources = useResource<unknown>("/api/import-sources");
   const profilesResource = useResource<unknown>("/api/profiles");
   const profiles = rows(profilesResource.data);
   const [selectedProfileId, setSelectedProfileId] = useState("");
@@ -189,8 +178,8 @@ export function SettingsScreen() {
   const [message, setMessage] = useState("");
   const [testError, setTestError] = useState("");
   const [testing, setTesting] = useState("");
-  const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const storage = (settings.data?.storage ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row; const paths = (settings.data?.paths ?? {}) as Row;
-  const test = async (provider: "llm" | "fal" | "storage") => {
+  const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row;
+  const test = async (provider: "llm" | "fal") => {
     setMessage(""); setTestError(""); setTesting(provider);
     try {
       const result = await api<Row>(`/api/operator-settings/test/${provider}`, jsonBody({}));
@@ -201,10 +190,9 @@ export function SettingsScreen() {
   return <Page title="Settings" subtitle="Local operator identity, provider defaults, and storage connections." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
     <Notice error={testError || settings.error || health.error} loading={settings.loading || health.loading} />
     <Panel title="Account"><div className="form-grid"><Field label="Active comment profile"><ProfileSelect /></Field><Field label="Workspace" hint="Single local workspace in this release."><input readOnly value="Titles XYZ" /></Field></div></Panel>
-    {settings.data && <Form submit="Save provider settings" onSubmit={async form => { setMessage(""); await api("/api/operator-settings", patchBody({ llm: { provider: form.get("llm_provider"), model: form.get("llm_model"), base_url: String(form.get("llm_base_url") ?? "").trim() || null }, fal: { default_endpoint: form.get("fal_endpoint"), max_parallel_jobs: Number(fal.max_parallel_jobs ?? 4) }, storage: { default_source_id: String(form.get("storage_source") ?? "").trim() || null, signed_url_ttl: Number(form.get("signed_url_ttl")) } })); setMessage("Provider settings saved."); await settings.reload(); }}>
+    {settings.data && <Form submit="Save provider settings" onSubmit={async form => { setMessage(""); await api("/api/operator-settings", patchBody({ llm: { provider: form.get("llm_provider"), model: form.get("llm_model"), base_url: String(form.get("llm_base_url") ?? "").trim() || null }, fal: { default_endpoint: form.get("fal_endpoint"), max_parallel_jobs: Number(fal.max_parallel_jobs ?? 4) } })); setMessage("Provider settings saved."); await settings.reload(); }}>
       <Panel title="LLM"><div className="integration-heading"><Status value={credentials.llm_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("llm")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Check model settings and environment credentials without contacting the provider."}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Checking..." : "Check LLM"}</button></div><div className="form-grid"><Field label="Provider"><select name="llm_provider" defaultValue={str(llm.provider, "openai")}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option><option value="openai-compatible">OpenAI-compatible</option></select></Field><Field label="Model"><input name="llm_model" defaultValue={str(llm.model, "")} placeholder="gpt-5-mini" /></Field><Field label="OpenAI-compatible base URL" hint="Only required for compatible providers."><input name="llm_base_url" type="url" defaultValue={str(llm.base_url, "")} placeholder="https://api.example.com/v1" /></Field></div><p className="muted">API keys remain in environment variables and are never returned to the browser.</p></Panel>
       <Panel title="FAL"><div className="integration-heading"><Status value={credentials.fal_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("fal")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Validate the selected adapter and environment credential without submitting a generation."}><PlugZap size={15} aria-hidden="true" />{testing === "fal" ? "Checking..." : "Check FAL"}</button></div><Notice error={endpoints.error} loading={endpoints.loading} /><div className="form-grid"><Field label="Default endpoint"><select key={`${str(fal.default_endpoint, "ideogram/v4/lora")}:${rows(endpoints.data).length}`} name="fal_endpoint" defaultValue={str(fal.default_endpoint, "ideogram/v4/lora")} disabled={endpoints.loading}>{rows(endpoints.data).map(endpoint => { const endpointId = str(endpoint.endpoint_id ?? endpoint.id); return <option value={endpointId} key={endpointId}>{str(endpoint.name ?? endpoint.endpoint_id)}</option>; })}</select></Field></div></Panel>
-      <Panel title="Storage"><div className="integration-heading"><Status value={credentials.storage_credentials_stored === false ? "environment credentials" : "configured"} /><button type="button" onClick={() => void test("storage")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Check that a source and local storage directories are configured."}><PlugZap size={15} aria-hidden="true" />{testing === "storage" ? "Checking..." : "Check storage"}</button></div><Notice error={sources.error} loading={sources.loading} /><div className="form-grid"><Field label="Default S3 source"><select key={`${str(storage.default_source_id, "")}:${rows(sources.data).length}`} name="storage_source" defaultValue={str(storage.default_source_id, "")} disabled={sources.loading}><option value="">First active source</option>{rows(sources.data).map(source => <option value={idOf(source)} key={idOf(source)}>{str(source.name)}</option>)}</select></Field><Field label="Signed URL TTL" hint="Seconds; 60 to 86,400."><input name="signed_url_ttl" type="number" min="60" max="86400" defaultValue={str(storage.signed_url_ttl, "3600")} /></Field><Field label="Asset directory"><input readOnly value={str(paths.asset_root)} /></Field><Field label="Export directory"><input readOnly value={str(paths.export_root)} /></Field></div></Panel>
     </Form>}
     {message && <div className="vela-notice" role="status"><strong>Settings</strong><span>{message}</span></div>}
     <S3SourcesPanel />

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -107,6 +107,11 @@ class AssetOut(ORMModel):
     metadata_: dict[str, Any]
     locations: list[AssetLocationOut] = []
     created_at: datetime
+
+    @computed_field
+    @property
+    def asset_revision_id(self) -> str:
+        return self.id
 
 
 class DatasetCreate(BaseModel):

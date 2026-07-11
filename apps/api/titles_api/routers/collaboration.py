@@ -312,8 +312,10 @@ def eval_definition(definition_id: str, db: DB):
     return dump(get_or_404(db, models.EvalDefinition, definition_id))
 
 
-@router.post("/eval-runs", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/eval-runs", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
 def create_eval_run(body: schemas.EvalRunCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    if not body.dry_run:
+        raise HTTPException(status_code=409, detail={"code": "FAL_ADMISSION_REQUIRED", "message": "Create and admit a FAL admission before provider work."})
     if body.definition_id:
         definition = get_or_404(db, models.EvalDefinition, body.definition_id)
     else:
@@ -368,7 +370,13 @@ def eval_run(run_id: str, db: DB):
     output_rows = []
     for output in outputs:
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
-        output_rows.append({**dump(output), "prompt": prompt.text if prompt else None})
+        output_rows.append(
+            {
+                **dump(output),
+                "asset_revision_id": output.asset_id,
+                "prompt": prompt.text if prompt else None,
+            }
+        )
     return {**dump(run), "name": definition.name, "endpoint_adapter": definition.endpoint, "model_version_id": definition.model_version_id, "prompt_set_id": definition.prompt_set_id, "parameters": run.parameters_snapshot, "progress": latest_job.progress if latest_job else (1 if run.status == "succeeded" else 0), "job_id": latest_job.id if latest_job else None, "outputs": output_rows}
 
 
@@ -397,7 +405,13 @@ def eval_outputs(run_id: str, db: DB):
     rows = []
     for output in db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run_id).order_by(models.EvalOutput.created_at)).all():
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
-        rows.append({**dump(output), "prompt": prompt.text if prompt else None})
+        rows.append(
+            {
+                **dump(output),
+                "asset_revision_id": output.asset_id,
+                "prompt": prompt.text if prompt else None,
+            }
+        )
     return rows
 
 
@@ -449,16 +463,18 @@ def grid_definition(grid_id: str, db: DB):
         cell_rows.append({
             **dump(cell),
             "asset_id": output.asset_id if output else None,
+            "asset_revision_id": output.asset_id if output else None,
             "seed": output.seed if output else None,
             "x_value": x_values[cell.x_index] if cell.x_index < len(x_values) else None,
             "y_value": y_values[cell.y_index] if cell.y_index < len(y_values) else None,
         })
     definition = db.get(models.EvalDefinition, grid.eval_definition_id)
-    return {**dump(grid), "endpoint_adapter": definition.endpoint if definition else None, "cells": cell_rows, "jobs": [dump(job) for job in jobs]}
+    return {**dump(grid), "endpoint_adapter": definition.endpoint if definition else None, "model_version_id": definition.model_version_id if definition else None, "prompt_set_id": definition.prompt_set_id if definition else None, "parameters": definition.parameters if definition else {}, "checkpoint_revision_id": (db.get(models.ModelVersion, definition.model_version_id).checkpoint_revision_id if definition and definition.model_version_id and db.get(models.ModelVersion, definition.model_version_id) else None), "cells": cell_rows, "jobs": [dump(job) for job in jobs]}
 
 
-@router.post("/grid-definitions/{grid_id}/runs", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/grid-definitions/{grid_id}/runs", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
 def enqueue_grid(grid_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    raise HTTPException(status_code=409, detail={"code": "FAL_ADMISSION_REQUIRED", "message": "Create and admit a FAL admission before provider work."})
     grid = get_or_404(db, models.GridDefinition, grid_id)
     actor = active_profile(db, x_profile_id)
     job = models.Job(workspace_id=current_workspace(db).id, kind="fal.grid_batch", profile_id=actor.id, payload={"grid_definition_id": grid.id})

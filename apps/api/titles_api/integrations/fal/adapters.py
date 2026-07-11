@@ -183,3 +183,28 @@ def get_adapter(endpoint_id: str) -> EndpointAdapter:
 
 def list_adapters() -> tuple[EndpointAdapter, ...]:
     return tuple(_ADAPTERS.values())
+
+
+def normalize_parameters(parameters: dict[str, Any], *, grid_cell: bool = False) -> dict[str, Any]:
+    """Validate and complete the closed, persisted FAL parameter contract."""
+    raw = dict(parameters)
+    endpoint_id = raw.pop("endpoint_id", None)
+    if not isinstance(endpoint_id, str):
+        raise ValidationError("endpoint_id is required")
+
+    lora_scale = raw.pop("lora_scale", 1.0)
+    if not isinstance(lora_scale, (int, float)) or isinstance(lora_scale, bool) or not 0 <= lora_scale <= 4:
+        raise ValidationError("lora_scale must be a number from 0 to 4")
+
+    adapter = get_adapter(endpoint_id)
+    request = adapter.build_request(
+        prompt="FAL admission parameter validation",
+        loras=[LoraInput("https://admission.invalid/checkpoint", float(lora_scale))],
+        parameters=raw,
+        grid_cell=grid_cell,
+    )
+    request.setdefault("seed", None)
+    request.pop("prompt")
+    request.pop("loras")
+    request.pop("sync_mode")
+    return {"endpoint_id": endpoint_id, **request, "lora_scale": float(lora_scale)}

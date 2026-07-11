@@ -174,6 +174,7 @@ def gallery(
         review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id).order_by(models.Review.created_at.desc()))
         result.append({
             "id": row.id,
+            "asset_revision_id": row.id,
             "project_id": row.project_id,
             "kind": row.kind.value if hasattr(row.kind, "value") else row.kind,
             "name": row.name,
@@ -190,7 +191,7 @@ def gallery(
     return result
 
 
-@router.post("/assets", response_model=schemas.AssetOut, status_code=status.HTTP_201_CREATED)
+@router.post("/assets", response_model=schemas.AssetOut, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def create_asset(body: schemas.AssetCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     data = body.model_dump(exclude={"location", "metadata"})
     asset = models.Asset(workspace_id=current_workspace(db).id, metadata_=body.metadata, **data)
@@ -212,17 +213,22 @@ def asset(asset_id: str, db: DB):
     return asset
 
 
-@router.get("/assets/{asset_id}/locations", response_model=list[schemas.AssetLocationOut])
+@router.get("/assets/{asset_id}/locations", response_model=list[schemas.AssetLocationOut], include_in_schema=False)
 def asset_locations(asset_id: str, db: DB):
     get_or_404(db, models.Asset, asset_id)
     return db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset_id)).all()
 
 
-@router.get("/assets/{asset_id}/metadata")
+@router.get("/assets/{asset_id}/metadata", include_in_schema=False)
 def asset_metadata(asset_id: str, db: DB):
     asset = get_or_404(db, models.Asset, asset_id)
     image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset_id))
-    return {"asset_id": asset.id, "metadata": asset.metadata_, "image": None if image is None else {column.name: getattr(image, column.key) for column in image.__table__.columns}}
+    return {
+        "asset_id": asset.id,
+        "asset_revision_id": asset.id,
+        "metadata": asset.metadata_,
+        "image": None if image is None else {column.name: getattr(image, column.key) for column in image.__table__.columns},
+    }
 
 
 @router.get("/assets/{asset_id}/context")
@@ -234,6 +240,7 @@ def asset_context(asset_id: str, db: DB):
     profile_ids = {row.profile_id for row in [*reviews, *comments]}
     profiles = {row.id: row.display_name for row in db.scalars(select(models.UserProfile).where(models.UserProfile.id.in_(profile_ids))).all()} if profile_ids else {}
     return {
+        "asset_revision_id": asset.id,
         "asset": schemas.AssetOut.model_validate(asset).model_dump(mode="json"),
         "metadata": asset.metadata_,
         "image": None if image is None else {column.name: getattr(image, column.key) for column in image.__table__.columns},
@@ -257,13 +264,13 @@ def _local_asset_path(db: Session, asset_id: str) -> tuple[models.Asset, Path]:
     return asset, path
 
 
-@router.get("/assets/{asset_id}/content")
+@router.get("/assets/{asset_id}/content", include_in_schema=False)
 def asset_content(asset_id: str, db: DB):
     asset, path = _local_asset_path(db, asset_id)
     return FileResponse(path, media_type=asset.mime_type or "application/octet-stream")
 
 
-@router.get("/assets/{asset_id}/thumbnail")
+@router.get("/assets/{asset_id}/thumbnail", include_in_schema=False)
 def asset_thumbnail(asset_id: str, db: DB, size: int = Query(512)):
     asset, source = _local_asset_path(db, asset_id)
     if asset.kind != models.AssetKind.image:

@@ -11,7 +11,8 @@ import {
   Star,
   X,
 } from "lucide-react";
-import { api, assetUrl, idOf, jsonBody, listOf, query, str } from "./api";
+import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
 
@@ -216,6 +217,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
   const [modelVersionId, setModelVersionId] = useState("");
   const [selectedPromptSet, setSelectedPromptSet] = useState("");
   const [message, setMessage] = useState("");
+  const [billingAck, setBillingAck] = useState(false);
   const endpointRows = rows(endpoints.data);
   useEffect(() => { if (!endpoint && endpointRows.length) { const preferred = str((operatorSettings.data?.fal as Row | undefined)?.default_endpoint, ""); setEndpoint(endpointRows.some(row => str(row.endpoint_id ?? row.id) === preferred) ? preferred : str(endpointRows[0].endpoint_id ?? endpointRows[0].id)); } }, [endpoint, endpointRows, operatorSettings.data]);
   const selectedEndpoint = endpointRows.find(row => idOf(row) === endpoint || row.endpoint_id === endpoint) ?? endpointRows[0];
@@ -223,6 +225,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
   const endpointSchema = useResource<Row>(endpointId ? `/api/eval-endpoints/${endpointId}/schema` : null);
   const activeSchema = endpointSchema.data ?? selectedEndpoint;
   const selectedModel = rows(models.data).find(row => idOf(row) === modelVersionId);
+  const selectedPromptSetResource = useResource<Row>(selectedPromptSet ? `/api/prompt-sets/${selectedPromptSet}` : null);
   const latestEval = rows(evals.data)[0];
 
   return (
@@ -256,16 +259,23 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
           submit="Generate selected"
           onSubmit={async form => {
             if (!endpointId) throw new Error("Select an endpoint.");
+            if (!modelVersionId || !selectedPromptSet) throw new Error("Select a model version and prompt set.");
+            if (!billingAck) throw new Error("A billing acknowledgement is required.");
             if (selectedEndpoint?.configured === false) throw new Error("FAL is not configured for this local server.");
+            const checkpointRevisionId = str(selectedModel?.checkpoint_revision_id, "");
+            const project = str(selectedModel?.project_id ?? projectId, "");
+            if (!checkpointRevisionId || !project) throw new Error("The selected model version has no immutable checkpoint revision.");
+            const prompts = rows(selectedPromptSetResource.data).map((prompt, index) => ({ prompt_id: str(prompt.id, `prompt-${index}`), prompt: str(prompt.text, "") })).filter(prompt => prompt.prompt);
+            if (!prompts.length) throw new Error("The selected prompt set is empty.");
             const parameters = parametersFromForm(form, activeSchema);
             parameters.lora_scale = Number(form.get("lora_scale") ?? 1);
-            const created = await api<Row>("/api/eval-runs", jsonBody({
-              model_version_id: modelVersionId,
-              prompt_set_id: selectedPromptSet,
-              endpoint_adapter: endpointId,
-              parameters,
-            }));
-            setMessage(`Eval ${str(created.id)} queued.`);
+            const definition = await api<Row>("/api/eval-definitions", jsonBody({ project_id: project, name: `${str(selectedModel?.name, "Model")} / ${str(selectedPromptSetResource.data?.name, "Prompt set")}`, endpoint: endpointId, model_version_id: modelVersionId, prompt_set_id: selectedPromptSet, parameters }));
+            const projection = await api<Row>("/api/fal-admissions", jsonBody({ kind: "eval", mode: prompts.length === 1 ? "single" : "prompt_batch", project_id: project, model_version_id: modelVersionId, checkpoint_revision_id: checkpointRevisionId, prompts, parameters, client_request_id: crypto.randomUUID() }));
+            if (projection.kind !== "projection" || !projection.admission) throw new Error(str(projection.detail, "FAL admission is not ready."));
+            const admission = projection.admission as Row;
+            if (str(admission.state) !== "ready") throw new Error(`FAL admission is ${str(admission.state)}; review storage and checkpoint readiness.`);
+            const accepted = await api<Row>(`/api/fal-admissions/${str(admission.id)}/admit`, jsonBody({ expected_version: Number(admission.version), billing_acknowledgement: "I understand FAL may bill this run even if checkpoint fetch fails" }));
+            setMessage(`${str(accepted.eval_run_id, str(definition.id))} admitted; provider work is queued.`);
             await evals.reload();
           }}
         >
@@ -274,6 +284,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
             <Field label="Prompt set"><SelectRecords name="prompt_set_id" records={rows(promptSets.data)} value={selectedPromptSet} onChange={setSelectedPromptSet} required /></Field>
             <Field label="LoRA scale" hint="Applied to the selected checkpoint."><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
             <EndpointFields key={endpointId} schema={activeSchema} />
+            <label className="field"><span>Billing acknowledgement</span><span><input type="checkbox" checked={billingAck} onChange={event => setBillingAck(event.target.checked)} required /> I understand FAL may bill this run even if checkpoint fetch fails.</span></label>
           </div>
         </Form>
         {message && <div className="vela-notice" role="status"><strong>Eval queued</strong><span>{message}</span></div>}
@@ -281,7 +292,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
       <PromptSetBuilder
         projects={rows(projects.data)}
         resource={promptSets}
-        selected={useResource<Row>(selectedPromptSet ? `/api/prompt-sets/${selectedPromptSet}` : null)}
+        selected={selectedPromptSetResource}
         selectedId={selectedPromptSet}
         onSelect={setSelectedPromptSet}
         initialProject={projectId}
@@ -402,7 +413,7 @@ export function EvalScreen({ id }: { id: string }) {
               <GroupComment subjectType="eval_run" subjectId={id} prefix={`Prompt ${promptId}`} />
               {promptOutputs.map(output => (
                 <article className="comparison-image" key={idOf(output)}>
-                  <a href={`#/image/${str(output.asset_id)}`}><img loading="lazy" src={assetUrl(output.asset_id)} alt={promptCopy(output) || "Eval output"} /></a>
+                  <a href={`#/image/${str(output.asset_revision_id ?? output.asset_id)}`}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={promptCopy(output) || "Eval output"} /></a>
                   <RatingControl output={output} />
                   <small>Seed {str(output.seed)}</small>
                 </article>
@@ -586,6 +597,28 @@ export function GridScreen({ id }: { id: string }) {
   const latestJob = jobs[0];
   const [zoom, setZoom] = useState(82);
   const [selectedCell, setSelectedCell] = useState<Row | null>(null);
+  const [billingAck, setBillingAck] = useState(false);
+  async function admitGrid() {
+    if (!billingAck) throw new Error("A billing acknowledgement is required.");
+    const projectId = str(resource.data?.project_id, "");
+    const modelVersionId = str(resource.data?.model_version_id, "");
+    const checkpointRevisionId = str(resource.data?.checkpoint_revision_id, "");
+    if (!projectId || !modelVersionId || !checkpointRevisionId) throw new Error("Grid has no immutable model checkpoint revision.");
+    const projection = await api<Row>("/api/fal-admissions", jsonBody({
+      kind: "grid",
+      project_id: projectId,
+      model_version_id: modelVersionId,
+      checkpoint_revision_id: checkpointRevisionId,
+      grid_definition_id: id,
+      parameters: resource.data?.parameters ?? {},
+      client_request_id: crypto.randomUUID(),
+    }));
+    if (projection.kind !== "projection" || !projection.admission) throw new Error(str(projection.detail, "FAL admission is not ready."));
+    const admission = projection.admission as Row;
+    if (str(admission.state) !== "ready") throw new Error(`FAL admission is ${str(admission.state)}; review storage and checkpoint readiness.`);
+    await api(`/api/fal-admissions/${str(admission.id)}/admit`, jsonBody({ expected_version: Number(admission.version), billing_acknowledgement: "I understand FAL may bill this run even if checkpoint fetch fails" }));
+    await resource.reload();
+  }
   const xValues = unique(cells.map(cell => str(cell.x_value, cell.x_index as string)));
   const yValues = unique(cells.map(cell => str(cell.y_value, cell.y_index as string)));
   const runDisabledReason = resource.loading
@@ -602,8 +635,8 @@ export function GridScreen({ id }: { id: string }) {
         <div><strong>{str(resource.data?.name, "Grid viewer")}</strong><span>{str(resource.data?.endpoint_adapter, "Endpoint")} · {cells.length} composed images</span></div>
         <div className="viewer-actions">
           <a className="vela-button" href="#/grids"><ArrowLeft size={15} /> Grid generator</a>
-          <AsyncAction label="Run grid" workingLabel="Queuing..." successLabel="Queued" icon={<Play size={15} />} disabled={Boolean(runDisabledReason)} disabledReason={runDisabledReason} onRun={async () => { await api(`/api/grids/${id}/run`, jsonBody({})); await resource.reload(); }} />
           <a className="vela-button" href="#/grids">Close</a>
+          <label className="fal-ack"><input type="checkbox" checked={billingAck} onChange={event => setBillingAck(event.target.checked)} /> I understand FAL may bill this run if checkpoint fetch fails</label><AsyncAction label="Run grid" workingLabel="Admitting..." successLabel="Admitted" icon={<Play size={15} />} disabled={Boolean(runDisabledReason)} disabledReason={runDisabledReason} onRun={admitGrid} />
         </div>
       </header>
       <main className="vela-main">
@@ -622,22 +655,25 @@ export function GridScreen({ id }: { id: string }) {
                 <strong key={`${y}-label`}>{y}</strong>,
                 ...xValues.map(x => {
                   const cell = cells.find(item => str(item.x_value, item.x_index as string) === x && str(item.y_value, item.y_index as string) === y);
+                  const cellAssetId = typeof cell?.asset_revision_id === "string" ? cell.asset_revision_id : typeof cell?.asset_id === "string" ? cell.asset_id : "";
                   return (
-                    <button
-                      className={idOf(selectedCell ?? {}) === idOf(cell ?? {}) ? "active" : ""}
-                      key={`${x}-${y}`}
-                      type="button"
-                      aria-label={`${x}, ${y}${cell?.asset_id ? "" : ", pending"}`}
-                      aria-pressed={idOf(selectedCell ?? {}) === idOf(cell ?? {})}
-                      disabled={!cell}
-                      onClick={() => cell && setSelectedCell(cell)}
-                    >{cell?.asset_id ? <img loading="lazy" src={assetUrl(cell.asset_id)} alt={`${x}, ${y}`} /> : <span>Pending</span>}</button>
+                    <div className="grid-cell" key={`${x}-${y}`}>
+                      <button
+                        className={idOf(selectedCell ?? {}) === idOf(cell ?? {}) ? "active" : ""}
+                        type="button"
+                        aria-label={`${x}, ${y}${cellAssetId ? "" : ", pending"}`}
+                        aria-pressed={idOf(selectedCell ?? {}) === idOf(cell ?? {})}
+                        disabled={!cell}
+                        onClick={() => cell && setSelectedCell(cell)}
+                      >{cellAssetId ? <AssetImage assetRevisionId={cellAssetId} loading="lazy" alt={`${x}, ${y}`} /> : <span>Pending</span>}</button>
+                      {cellAssetId && <a className="grid-cell-detail" href={`#/image/${cellAssetId}`}>Details</a>}
+                    </div>
                   );
                 }),
               ])}
             </div>
           )}
-          {Boolean(selectedCell?.asset_id) && <a className="vela-button" href={`#/image/${str(selectedCell?.asset_id)}`}><ExternalLink size={15} /> Open selected image</a>}
+          {Boolean(selectedCell?.asset_revision_id ?? selectedCell?.asset_id) && <a className="vela-button" href={`#/image/${str(selectedCell?.asset_revision_id ?? selectedCell?.asset_id)}`}><ExternalLink size={15} /> Open selected image</a>}
         </Panel>
       </main>
     </div>

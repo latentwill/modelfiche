@@ -160,7 +160,7 @@ function NotesPanel({ subjectType, subjectId }: { subjectType: string; subjectId
 
 function MetadataRows({ value }: { value: Row }) {
   if (value.counts && typeof value.counts === "object") return <dl className="vela-context-stats">{Object.entries(value.counts as Row).map(([key, item]) => <div className="vela-stat" key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{str(item)}</dd></div>)}</dl>;
-  if (value.llm && value.fal && value.storage) { const llm = value.llm as Row; const fal = value.fal as Row; const storage = value.storage as Row; return <dl className="vela-metadata-list"><Metadata label="LLM" value={`${str(llm.provider)} / ${str(llm.model, "not set")}`} /><Metadata label="FAL" value={str(fal.default_endpoint)} /><Metadata label="Parallel" value={str(fal.max_parallel_jobs)} /><Metadata label="Storage" value={str(storage.default_source_id, "first active")} /><Metadata label="URL TTL" value={`${str(storage.signed_url_ttl)} sec`} /></dl>; }
+  if (value.llm && value.fal) { const llm = value.llm as Row; const fal = value.fal as Row; return <dl className="vela-metadata-list"><Metadata label="LLM" value={`${str(llm.provider)} / ${str(llm.model, "not set")}`} /><Metadata label="FAL" value={str(fal.default_endpoint)} /><Metadata label="Parallel" value={str(fal.max_parallel_jobs)} /></dl>; }
   const keys = ["title", "name", "kind", "status", "state", "step", "base_model", "trainer", "lifecycle_state", "source_prefix", "created_at"];
   return <dl className="vela-metadata-list">{keys.filter(key => value[key] !== undefined && value[key] !== null).slice(0, 7).map(key => <Metadata key={key} label={key.replaceAll("_", " ")} value={Array.isArray(value[key]) ? value[key].map(String).join(", ") : str(value[key])} />)}</dl>;
 }

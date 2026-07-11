@@ -17,7 +17,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api, assetUrl, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Panel, SelectRecords, Status } from "./ui";
 
@@ -189,13 +190,13 @@ function CaptionItem({ item, draftId, selected, onSelect, onSaved }: { item: Row
   const [caption, setCaption] = useState(str(item.caption, ""));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const assetId = item.asset_id ?? item.id;
+  const assetId = item.asset_revision_id ?? item.asset_id ?? item.id;
   const filename = str(item.filename ?? item.name, "Dataset image");
   useEffect(() => setCaption(str(item.caption, "")), [item.caption]);
   return <article className={`caption-item ${selected ? "selected" : ""}`}>
     <div className="caption-image">
       <label><input type="checkbox" checked={selected} onChange={event => onSelect(event.target.checked)} aria-label={`Select ${filename}`} /></label>
-      <a href={`#/image/${String(assetId)}`} title={`Open ${filename} in the image reviewer`}><img src={assetUrl(assetId)} alt={filename} loading="lazy" /><span>Open image</span></a>
+      <a href={`#/image/${String(assetId)}`} title={`Open ${filename} in the image reviewer`}><AssetImage assetRevisionId={String(assetId)} alt={filename} loading="lazy" /><span>Open image</span></a>
     </div>
     <div>
       <div className="caption-heading"><strong>{filename}</strong><Status value={item.caption_format ?? "text"} /></div>
@@ -433,7 +434,7 @@ export function ModelScreen({ id }: { id: string }) {
 
     <Panel title="Eval runs">
       <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
-      {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => <a href={`#/eval/${idOf(evaluation)}`} key={idOf(evaluation)}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <img key={idOf(output)} src={assetUrl(output.asset_id)} alt="Eval output" />)}</div><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.prompt_set_name)} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a>)}</div>}
+      {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => <a href={`#/eval/${idOf(evaluation)}`} key={idOf(evaluation)}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={String(output.asset_revision_id ?? output.asset_id)} alt="Eval output" />)}</div><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.prompt_set_name)} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a>)}</div>}
     </Panel>
 
     <Panel title="Model versions">
@@ -489,8 +490,8 @@ export function AssetGrid({ assets }: { assets: Row[] }) {
     const step = asset.step ?? metadata.step;
     const seed = asset.seed ?? metadata.seed;
     const secondary = [step !== undefined && step !== null ? `Step ${step}` : "", seed !== undefined && seed !== null ? `Seed ${seed}` : ""].filter(Boolean).join(" · ") || str(asset.kind, "Image");
-    return <a className="asset-card" key={idOf(asset) || index} href={`#/image/${String(asset.asset_id ?? asset.id)}`} title={`Open ${name}`}>
-      <img src={assetUrl(asset.asset_id ?? asset.id)} alt={name} loading="lazy" />
+    return <a className="asset-card" key={idOf(asset) || index} href={`#/image/${String(asset.asset_revision_id ?? asset.asset_id ?? asset.id)}`} title={`Open ${name}`}>
+      <AssetImage assetRevisionId={String(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={name} loading="lazy" />
       <span>{name}</span><small>{secondary}</small>
     </a>;
   })}</div>;

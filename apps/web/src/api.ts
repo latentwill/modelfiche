@@ -49,9 +49,6 @@ export function patchBody(value: unknown): RequestInit {
   return { method: "PATCH", body: JSON.stringify(value) };
 }
 
-export function assetUrl(id: unknown, variant: "thumbnail" | "content" = "thumbnail") {
-  return `${API_BASE}/api/assets/${encodeURIComponent(String(id))}/${variant}`;
-}
 
 export function str(value: unknown, fallback = "-") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -59,7 +56,7 @@ export function str(value: unknown, fallback = "-") {
 }
 
 export function idOf(value: Record<string, unknown>) {
-  return str(value.id ?? value.asset_id ?? value.uuid, "");
+  return str(value.id ?? value.asset_revision_id ?? value.asset_id ?? value.uuid, "");
 }
 
 export function query(params: Record<string, unknown>) {

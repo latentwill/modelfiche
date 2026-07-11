@@ -197,6 +197,11 @@ pre { overflow: auto; background: #efeff1; padding: 10px; font-size: 0.72rem; wh
 .readiness-grid { display: grid; grid-template-columns: minmax(190px, .8fr) minmax(260px, 1.2fr); gap: 20px; align-items: start; }
 .grid-preview-tools { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; color: var(--muted); font: 9px var(--mono); text-transform: uppercase; }.grid-preview-tools label { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .grid-board { --cell: 82px; display: grid; gap: 3px; width: max-content; max-width: 100%; overflow: auto; align-items: stretch; }.grid-board > strong { display: grid; place-items: center; min-height: 30px; padding: 4px; font: 9px var(--mono); overflow: hidden; }.grid-board > button { width: var(--cell); height: var(--cell); padding: 2px; border-radius: 0; overflow: hidden; }.grid-board > button.active { outline: 2px solid var(--accent); outline-offset: -2px; }.grid-board > button img { width: 100%; height: 100%; object-fit: cover; }.grid-board > button span { font-size: .62rem; color: var(--muted); }
+.grid-board > .grid-cell { width: var(--cell); min-height: var(--cell); display: grid; gap: 3px; }
+.grid-board > .grid-cell > button { width: var(--cell); height: var(--cell); padding: 2px; border-radius: 0; overflow: hidden; }
+.grid-board > .grid-cell > button.active { outline: 2px solid var(--accent); outline-offset: -2px; }
+.grid-board > .grid-cell > button img { width: 100%; height: 100%; object-fit: cover; }
+.grid-board > .grid-cell-detail { font-size: .58rem; text-align: center; }
 
 @media (max-width: 1120px) {
   :root { --left: 210px; --right: 270px; }

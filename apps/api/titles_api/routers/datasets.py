@@ -80,7 +80,14 @@ def version_items(version_id: str, db: DB, included: bool | None = None, limit: 
     rows = []
     for item in db.scalars(query.offset(offset).limit(limit)).all():
         asset = db.get(models.Asset, item.asset_id)
-        rows.append({**_dump(item), "filename": asset.name if asset else None, "mime_type": asset.mime_type if asset else None})
+        rows.append(
+            {
+                **_dump(item),
+                "asset_revision_id": item.asset_id,
+                "filename": asset.name if asset else None,
+                "mime_type": asset.mime_type if asset else None,
+            }
+        )
     return rows
 
 
@@ -120,7 +127,14 @@ def draft(draft_id: str, db: DB):
     rows = []
     for item in items:
         asset = db.get(models.Asset, item.asset_id)
-        rows.append({**_dump(item), "filename": asset.name if asset else None, "mime_type": asset.mime_type if asset else None})
+        rows.append(
+            {
+                **_dump(item),
+                "asset_revision_id": item.asset_id,
+                "filename": asset.name if asset else None,
+                "mime_type": asset.mime_type if asset else None,
+            }
+        )
     return {**_dump(draft), "items": rows}
 
 

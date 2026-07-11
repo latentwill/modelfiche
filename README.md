@@ -53,6 +53,20 @@ Add `--endpoint-url https://s3.example.com --addressing-style path` for a
 custom provider. `titles s3 sources` returns the UUID required by browse and
 import commands.
 
+## Remote image serving
+
+MEGA S4 can be used as an S3-compatible origin for imported image assets. Titles
+stores the S3 object identity and serves images through the typed delivery
+descriptor; it does not need to download the original into `assets/` first.
+Direct browser delivery requires a current exact object version. If the object
+only supports conditional reads, Titles uses a bounded proxy and verifies the
+bytes before serving them. Thumbnails are derivative cache entries, not durable
+copies of the original.
+
+This remote-origin path applies to imported assets. FAL-generated outputs still
+use the worker's local publication path until an S3 write-ready output policy is
+selected and admitted.
+
 ## Run
 
 Start API and worker together:

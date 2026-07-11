@@ -39,11 +39,11 @@ class S3Settings:
             endpoint_url=endpoint.rstrip("/") if endpoint else None,
             bucket=bucket,
             allowed_prefixes=prefixes,
-            region=os.getenv(f"{selected}_REGION") or os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION"),
+            region=os.getenv(f"{selected}_REGION"),
             addressing_style=os.getenv(f"{selected}_ADDRESSING_STYLE", "auto"),
             credential_env_prefix=selected,
-            access_key_id=os.getenv(f"{selected}_ACCESS_KEY_ID") or os.getenv(f"{selected}_ACCESS_KEY"),
-            secret_access_key=os.getenv(f"{selected}_SECRET_ACCESS_KEY") or os.getenv(f"{selected}_SECRET_KEY"),
+            access_key_id=os.getenv(f"{selected}_ACCESS_KEY"),
+            secret_access_key=os.getenv(f"{selected}_SECRET_KEY"),
             session_token=os.getenv(f"{selected}_SESSION_TOKEN"),
         )
         if settings.addressing_style not in {"auto", "path", "virtual"}:
@@ -71,8 +71,8 @@ class S3Settings:
             region=region,
             addressing_style=addressing_style,
             credential_env_prefix=prefix,
-            access_key_id=os.getenv(f"{prefix}_ACCESS_KEY_ID") or os.getenv(f"{prefix}_ACCESS_KEY"),
-            secret_access_key=os.getenv(f"{prefix}_SECRET_ACCESS_KEY") or os.getenv(f"{prefix}_SECRET_KEY"),
+            access_key_id=os.getenv(f"{prefix}_ACCESS_KEY"),
+            secret_access_key=os.getenv(f"{prefix}_SECRET_KEY"),
             session_token=os.getenv(f"{prefix}_SESSION_TOKEN"),
         )
         if settings.addressing_style not in {"auto", "path", "virtual"}:

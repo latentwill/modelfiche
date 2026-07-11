@@ -60,6 +60,7 @@ def run(run_id: str, db: DB):
         version = db.scalar(select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id))
         checkpoint_rows.append({
             **dump(checkpoint),
+            "asset_revision_id": checkpoint.asset_id,
             "filename": asset.name if asset else None,
             "size": location.size if location else None,
             "hydration_state": location.hydration_state if location else None,
@@ -111,7 +112,7 @@ def create_checkpoint(run_id: str, body: schemas.CheckpointCreate, db: DB, x_pro
 @router.get("/runs/{run_id}/checkpoints")
 def checkpoints(run_id: str, db: DB):
     get_or_404(db, models.TrainingRun, run_id)
-    return [dump(c) for c in db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run_id).order_by(models.Checkpoint.step)).all()]
+    return [{**dump(c), "asset_revision_id": c.asset_id} for c in db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run_id).order_by(models.Checkpoint.step)).all()]
 
 
 @router.post("/runs/{run_id}/samples", status_code=status.HTTP_201_CREATED)
@@ -134,7 +135,15 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
     for sample in db.scalars(query.offset(offset).limit(limit)).all():
         asset = db.get(models.Asset, sample.asset_id)
         review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == sample.asset_id).order_by(models.Review.created_at.desc()))
-        rows.append({**dump(sample), "filename": asset.name if asset else None, "name": asset.name if asset else None, "mime_type": asset.mime_type if asset else None, "rating": review.rating if review else None, "decision": review.decision if review else None})
+        rows.append({
+            **dump(sample),
+            "asset_revision_id": sample.asset_id,
+            "filename": asset.name if asset else None,
+            "name": asset.name if asset else None,
+            "mime_type": asset.mime_type if asset else None,
+            "rating": review.rating if review else None,
+            "decision": review.decision if review else None,
+        })
     return rows
 
 
@@ -145,6 +154,7 @@ def checkpoint(checkpoint_id: str, db: DB):
     locations = db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == checkpoint.asset_id)).all()
     run = db.get(models.TrainingRun, checkpoint.run_id)
     asset_row = None if asset is None else {
+        "asset_revision_id": asset.id,
         "id": asset.id, "project_id": asset.project_id, "kind": asset.kind,
         "name": asset.name, "mime_type": asset.mime_type, "sha256": asset.sha256,
         "metadata": asset.metadata_, "created_at": asset.created_at, "updated_at": asset.updated_at,

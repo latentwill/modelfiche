@@ -65,6 +65,20 @@ def test_checkpoint_hydration_job_downloads_atomically(client: TestClient, monke
     assert client.get(f"/api/checkpoints/{checkpoint['id']}").json()["state"] == "hydrated"
 
 
+
+def test_run_samples_include_immutable_asset_revision_id(client: TestClient):
+    _profile, project = _project(client)
+    asset = client.post(
+        "/api/assets",
+        json={"project_id": project["id"], "kind": "image", "name": "sample.png"},
+    ).json()
+    run = client.post("/api/runs", json={"project_id": project["id"], "name": "Run"}).json()
+    client.post(f"/api/runs/{run['id']}/samples", json={"asset_id": asset["id"]})
+
+    sample = client.get(f"/api/runs/{run['id']}/samples").json()[0]
+
+    assert sample["asset_revision_id"] == asset["id"]
+
 @pytest.mark.parametrize("kind", ["dataset", "training_run"])
 def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: TestClient, monkeypatch, kind):
     _profile, project = _project(client)
@@ -127,6 +141,7 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         run = client.get("/api/runs", params={"project_id": project["id"]}).json()[0]
         sample = client.get(f"/api/runs/{run['id']}/samples").json()[0]
         asset_id = sample["asset_id"]
+        assert sample["asset_revision_id"] == sample["asset_id"]
     locations = client.get(f"/api/assets/{asset_id}/locations").json()
     assert any(location["provider"] == "local" and location["hydration_state"] == "hydrated" for location in locations)
     assert client.get(f"/api/assets/{asset_id}/content").content == image_body
@@ -197,14 +212,23 @@ def test_durable_export_history_manifest_and_download(client: TestClient):
     assert client.get(f"/api/transfers/{canceled['id']}").json()["state"] == "canceled"
 
 
-def test_operator_settings_are_nonsecret_and_tests_are_offline(client: TestClient, monkeypatch):
+def test_operator_settings_are_nonsecret_and_storage_policy_is_not_legacy_config(client: TestClient, monkeypatch):
     monkeypatch.setenv("FAL_KEY", "not-a-real-key")
-    source = client.post("/api/import-sources", json={"name": "AWS", "bucket": "bucket", "allowed_prefixes": ["training/"]}).json()
-    updated = client.patch("/api/operator-settings", json={
-        "llm": {"provider": "openai", "model": "gpt-example"},
-        "storage": {"default_source_id": source["id"], "signed_url_ttl": 900},
-    }).json()
-    assert "api_key" not in str(updated).lower()
+
+    updated = client.patch(
+        "/api/operator-settings",
+        json={"llm": {"provider": "openai", "model": "gpt-example"}},
+    )
+    assert updated.status_code == 200
+    assert "api_key" not in str(updated.json()).lower()
+    assert "storage" not in updated.json()
+
+    legacy_policy = client.patch(
+        "/api/operator-settings",
+        json={"storage": {"default_source_id": "legacy", "signed_url_ttl": 900}},
+    )
+    assert legacy_policy.status_code == 422
+
     fal = client.post("/api/operator-settings/test/fal").json()
     storage = client.post("/api/operator-settings/test/storage").json()
     assert fal["ok"] is True and fal["network_called"] is False

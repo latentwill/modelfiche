@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import mimetypes
-import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,12 +10,21 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from titles_api import models
 from titles_api.asset_cache import AssetCache
+from titles_api.storage.network import SafeHttpTransport
+
 
 
 class SQLAlchemyEvalOutputSink:
-    def __init__(self, session_factory: sessionmaker[Session], cache: AssetCache):
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        cache: AssetCache,
+        *,
+        artifact_transport: SafeHttpTransport | None = None,
+    ):
         self.session_factory = session_factory
         self.cache = cache
+        self.artifact_transport = artifact_transport or SafeHttpTransport()
 
     def provider_submitted(self, eval_run_id: str, request_id: str) -> None:
         with self.session_factory.begin() as session:
@@ -88,6 +96,102 @@ class SQLAlchemyEvalOutputSink:
                 output_ids.append(output.id)
             session.commit()
             return {"outputs": output_count, "output_ids": output_ids}
+    def submission_intent(
+        self,
+        eval_run_id: str,
+        *,
+        prompt_id: str | None = None,
+        grid_cell_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the pre-materialized intent for one admitted subject."""
+        with self.session_factory() as session:
+            admission_id = session.scalar(
+                select(models.FalAdmission.id).where(models.FalAdmission.eval_run_id == eval_run_id).limit(1)
+            )
+            if admission_id is None:
+                return None
+            subjects = list(
+                session.scalars(
+                    select(models.FalSubject)
+                    .where(models.FalSubject.admission_id == admission_id)
+                    .order_by(models.FalSubject.ordinal, models.FalSubject.id)
+                )
+            )
+            for subject in subjects:
+                definition = dict(subject.definition or {})
+                if prompt_id is not None and str(definition.get("prompt_id")) != str(prompt_id):
+                    continue
+                if grid_cell_id is not None and str(definition.get("grid_cell_id")) != str(grid_cell_id):
+                    continue
+                if prompt_id is None and grid_cell_id is None:
+                    continue
+                intent = session.scalar(
+                    select(models.FalSubmissionIntent)
+                    .where(
+                        models.FalSubmissionIntent.subject_id == subject.id,
+                        models.FalSubmissionIntent.generation == subject.generation,
+                    )
+                    .limit(1)
+                )
+                if intent is None:
+                    return None
+                return {
+                    "intent_id": intent.id,
+                    "subject_id": subject.id,
+                    "generation": intent.generation,
+                    "state": intent.state,
+                    "provider_request_id": intent.provider_request_id,
+                    "submission_fence": intent.submission_fence,
+                }
+            return None
+
+    def record_submission_intent(self, intent_id: str, request_id: str) -> None:
+        with self.session_factory.begin() as session:
+            intent = _required(session, models.FalSubmissionIntent, intent_id)
+            if intent.provider_request_id not in {None, request_id}:
+                raise ValueError("FAL provider request identity changed")
+            if intent.state in {"completed", "failed", "ambiguous", "canceled"}:
+                if intent.provider_request_id == request_id:
+                    return
+                raise ValueError("FAL submission intent is terminal")
+            intent.provider_request_id = request_id
+            intent.state = "submitted"
+    def finish_submission_intent(
+        self,
+        eval_run_id: str,
+        *,
+        prompt_id: str | None = None,
+        grid_cell_id: str | None = None,
+        state: str = "completed",
+    ) -> None:
+        if state not in {"completed", "failed", "ambiguous", "canceled"}:
+            raise ValueError("FAL submission terminal state is invalid")
+        with self.session_factory.begin() as session:
+            admission_id = session.scalar(
+                select(models.FalAdmission.id).where(models.FalAdmission.eval_run_id == eval_run_id).limit(1)
+            )
+            if admission_id is None:
+                return
+            subjects = list(session.scalars(select(models.FalSubject).where(models.FalSubject.admission_id == admission_id)))
+            for subject in subjects:
+                definition = dict(subject.definition or {})
+                if prompt_id is not None and str(definition.get("prompt_id")) != str(prompt_id):
+                    continue
+                if grid_cell_id is not None and str(definition.get("grid_cell_id")) != str(grid_cell_id):
+                    continue
+                if prompt_id is None and grid_cell_id is None:
+                    continue
+                intent = session.scalar(
+                    select(models.FalSubmissionIntent)
+                    .where(
+                        models.FalSubmissionIntent.subject_id == subject.id,
+                        models.FalSubmissionIntent.generation == subject.generation,
+                    )
+                    .limit(1)
+                )
+                if intent is not None and intent.state not in {"completed", "failed", "ambiguous", "canceled"}:
+                    intent.state = state
+                return
 
     def mark_failed(self, eval_run_id: str, message: str) -> None:
         with self.session_factory.begin() as session:
@@ -137,18 +241,24 @@ class SQLAlchemyEvalOutputSink:
             return self.grid_cell_exists(grid_definition_id, x_index, y_index, session=owned)
 
     def _download(self, url: str, expected_size: int | None):
-        with urllib.request.urlopen(url, timeout=120) as response:
-            length = expected_size or int(response.headers.get("Content-Length") or 0)
-            if length <= 0:
-                data = response.read()
-                length = len(data)
-                return self.cache.hydrate(length, lambda stream: stream.write(data))
-            return self.cache.hydrate(length, lambda stream: _copy(response, stream))
+        from titles_api.storage.fal_artifacts import MAX_ARTIFACT_BYTES
 
-
-def _copy(source, target) -> None:
-    while chunk := source.read(1024 * 1024):
-        target.write(chunk)
+        response = self.artifact_transport.request(
+            "GET",
+            url,
+            max_bytes=MAX_ARTIFACT_BYTES,
+            max_error_bytes=64 * 1024,
+            allow_redirects=True,
+        )
+        if response.status_code >= 400:
+            raise ValueError(f"FAL artifact download failed with HTTP {response.status_code}")
+        length = len(response.body)
+        if expected_size is not None:
+            if not isinstance(expected_size, int) or isinstance(expected_size, bool) or expected_size < 0:
+                raise ValueError("FAL artifact size is invalid")
+            if expected_size != length:
+                raise ValueError(f"FAL artifact size mismatch: expected {expected_size}, received {length}")
+        return self.cache.hydrate(length, lambda stream: stream.write(response.body))
 
 
 def _required(session: Session, model, object_id: str):
