@@ -145,3 +145,11 @@ def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: P
             "lease_owner",
             "lease_expires_at",
         } <= reservation_columns
+        asset_location_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(asset_locations)")
+        }
+        assert {"verified_size"} <= asset_location_columns
+        asset_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(assets)")
+        }
+        assert {"generated_artifact_receipt_id"} <= asset_columns
