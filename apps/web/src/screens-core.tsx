@@ -6,6 +6,7 @@ import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Panel, ProfileSelect, SelectRecords, Status } from "./ui";
 import { generatorHref } from "./generation";
+import { LossGraph } from "./screens-assets";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -63,19 +64,47 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   </Page>;
 }
 
+export function latestTrainingRun(runs: Row[]) {
+  return [...runs].sort((left, right) => {
+    const timestamp = (run: Row) => {
+      const value = run.completed_at ?? run.started_at ?? run.created_at;
+      const parsed = Date.parse(str(value, ""));
+      return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+    };
+    return timestamp(right) - timestamp(left) || idOf(right).localeCompare(idOf(left));
+  })[0];
+}
+
 export function LatestTrainingRun({ projectId, runs, loading, error }: { projectId: string; runs: Row[]; loading: boolean; error?: string }) {
-  const latest = runs[0];
+  const latest = latestTrainingRun(runs);
   const state = str(latest?.status, "unknown").toLowerCase();
   const failed = /fail|error|cancel/.test(state);
   const completed = /complete|completed|success|succeeded|finished/.test(state);
   return <Panel title="Latest training run">
     <Notice error={error} loading={loading} />
     {!loading && !error && !latest && <div className="vela-empty"><span>No training runs yet</span><small>Imported or newly created runs will appear here.</small></div>}
-    {!loading && !error && latest && <div className="comparison-stack"><a href={`#/run/${idOf(latest)}`}><strong>{str(latest.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : latest.status} /><span>Started <time dateTime={str(latest.created_at, "")}>{formatCanonicalTimestamp(latest.created_at)}</time> · {str(latest.checkpoint_count, "0")} checkpoints · {str(latest.sample_count, "0")} samples</span></a></div>}
-    {failed && <div className="vela-notice vela-notice-error" role="alert"><strong>Training run failed</strong><span>Open the run to inspect its recorded status and logs.</span></div>}
-    {completed && Boolean(latest?.result_model_id) && <a className="vela-text-button" href={`#/model/${str(latest.result_model_id)}`}>Open result model: {str(latest.result_model_name)}</a>}
+    {!loading && !error && latest && <LatestTrainingRunDetails run={latest} failed={failed} completed={completed} />}
     <a className="vela-text-button" href={`#/runs?project=${projectId}`}>View all runs</a>
   </Panel>;
+}
+
+function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed: boolean; completed: boolean }) {
+  const runId = idOf(run);
+  const samples = useResource<unknown>(`/api/runs/${runId}/samples`);
+  const metrics = useResource<Record<string, unknown>>(`/api/runs/${runId}/metrics?name=loss`);
+  const config = useResource<Record<string, unknown>>(`/api/runs/${runId}/config`);
+  const sampleRows = rows(samples.data).slice(0, 4);
+  const timestamp = run.completed_at ?? run.started_at ?? run.created_at;
+  const normalized = (config.data?.normalized ?? {}) as Row;
+  return <div className="latest-training-run">
+    <div className="comparison-stack"><a href={`#/run/${runId}`}><strong>{str(run.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : run.status} /><span>{completed ? "Completed" : "Started"} <time dateTime={str(timestamp, "")}>{formatCanonicalTimestamp(timestamp)}</time></span><span>{str(run.dataset_version_name ?? run.dataset_name, "Dataset not linked")} · {str(run.base_model, "Base model not recorded")}</span></a></div>
+    <dl className="details latest-run-details"><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Steps</dt><dd>{str(normalized.steps ?? normalized.max_train_steps, "Not recorded")}</dd><dt>Learning rate</dt><dd>{str(normalized.learning_rate, "Not recorded")}</dd></dl>
+    <Notice error={samples.error || metrics.error || config.error} loading={samples.loading || metrics.loading || config.loading} />
+    {!!sampleRows.length && <div className="latest-run-samples" aria-label="Latest training samples">{sampleRows.map(sample => <AssetImage key={idOf(sample)} assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id ?? sample.id)} alt={str(sample.prompt, "Training sample")} />)}</div>}
+    <div className="latest-run-loss"><LossGraph points={metrics.data?.points} /></div>
+    {failed && <div className="vela-notice vela-notice-error" role="alert"><strong>Training run failed</strong><span>Open the run to inspect its recorded status and logs.</span></div>}
+    {completed && Boolean(run.result_model_id) && <a className="vela-text-button" href={`#/model/${str(run.result_model_id)}`}>Open result model: {str(run.result_model_name)}</a>}
+  </div>;
 }
 
 export function formatCanonicalTimestamp(value: unknown) {

@@ -380,6 +380,8 @@
 .vela-status::before { content: "•"; color: currentColor; font-size: 12px; line-height: 1; }
 .vela-status[data-state="success"] { border-color: color-mix(in oklch, var(--vela-success) 38%, var(--vela-border)); background: color-mix(in oklch, var(--vela-success) 10%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-success) 78%, var(--vela-fg)); }
 .vela-status[data-state="success"]::before { content: "✓"; }
+.vela-status[data-state="completed"] { border-color: color-mix(in oklch, var(--vela-success) 54%, var(--vela-border)); background: color-mix(in oklch, var(--vela-success) 5%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-success) 82%, var(--vela-fg)); }
+.vela-status[data-state="completed"]::before { content: "✓"; }
 .vela-status[data-state="warning"] { border-color: color-mix(in oklch, var(--vela-warning) 42%, var(--vela-border)); background: color-mix(in oklch, var(--vela-warning) 11%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-warning) 72%, var(--vela-fg)); }
 .vela-status[data-state="warning"]::before { content: "!"; }
 .vela-status[data-state="danger"] { border-color: color-mix(in oklch, var(--vela-danger) 38%, var(--vela-border)); background: color-mix(in oklch, var(--vela-danger) 9%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-danger) 78%, var(--vela-fg)); }
@@ -487,6 +489,13 @@
 .vela-theme .training-run { border-top: 1px solid var(--vela-border); }
 .vela-theme .training-run summary { padding: 11px 4px; cursor: pointer; }
 .vela-theme .training-run-body { padding: 12px; border-radius: var(--vela-radius-md); background: var(--vela-surface-soft); }
+.vela-theme .latest-training-run { display: grid; gap: 12px; }
+.vela-theme .latest-run-details { grid-template-columns: max-content minmax(0, 1fr); }
+.vela-theme .latest-run-samples { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.vela-theme .latest-run-samples img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--vela-radius-sm); background: var(--vela-surface-soft); }
+.vela-theme .latest-run-loss { max-block-size: 150px; overflow: hidden; }
+.vela-theme .latest-run-loss :is(.loss-graph, .loss-graph-empty) { min-height: 140px; }
+.vela-theme .latest-run-loss .loss-graph-svg { height: 140px; }
 
 .vela-theme .caption-list { display: grid; gap: 10px; }
 .vela-theme .caption-item { display: grid; grid-template-columns: 154px minmax(0, 1fr); gap: 13px; padding: 10px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-md); }

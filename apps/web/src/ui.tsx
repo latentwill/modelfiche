@@ -64,5 +64,5 @@ export function SelectRecords(props: { name: string; records: Record<string, unk
   return <select name={props.name} required={props.required} value={props.value} onChange={event => props.onChange?.(event.target.value)}><option value="">Select...</option>{props.records.map((row, index) => <option key={String(row[valueKey] ?? index)} value={String(row[valueKey] ?? "")}>{str(row[labelKey] ?? row[valueKey])}</option>)}</select>;
 }
 
-export function Status({ value }: { value: unknown }) { const text = str(value, "unknown"); return <span className="vela-status" data-state={statusTone(text)}>{text}</span>; }
-function statusTone(value: string) { const state = value.toLowerCase(); if (/success|approved|complete|healthy|active|ready|present/.test(state)) return "success"; if (/fail|error|reject|missing|cancel/.test(state)) return "danger"; if (/queue|pending|running|draft|hold|attention|unknown/.test(state)) return "warning"; return "neutral"; }
+export function Status({ value }: { value: unknown }) { const text = str(value, "unknown"); return <span className="vela-status" data-state={statusTone(text)} aria-label={`Status: ${text}`}>{text}</span>; }
+function statusTone(value: string) { const state = value.toLowerCase(); if (/complete|completed|finished/.test(state)) return "completed"; if (/success|approved|healthy|active|ready|present/.test(state)) return "success"; if (/fail|error|reject|missing|cancel/.test(state)) return "danger"; if (/queue|pending|running|draft|hold|attention|unknown/.test(state)) return "warning"; return "neutral"; }

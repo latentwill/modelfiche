@@ -1,7 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { formatCanonicalTimestamp, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER } from "./screens-core";
+import { formatCanonicalTimestamp, latestTrainingRun, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER } from "./screens-core";
 
 afterEach(cleanup);
 
@@ -15,6 +15,14 @@ describe("project packet timestamp", () => {
 
   it("does not invent a time when the API value is absent", () => {
     expect(formatCanonicalTimestamp(null)).toBe("Timestamp unavailable");
+  });
+
+  it("selects latest deterministically from canonical run timestamps", () => {
+    expect(latestTrainingRun([
+      { id: "older", created_at: "2026-07-10T00:00:00Z" },
+      { id: "latest", started_at: "2026-07-12T00:00:00Z" },
+      { id: "middle", completed_at: "2026-07-11T00:00:00Z" },
+    ])?.id).toBe("latest");
   });
 
   it("distinguishes empty, failed, and completed result states", () => {
