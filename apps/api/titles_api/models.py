@@ -725,7 +725,7 @@ class StorageMigrationItem(UUIDMixin, TimestampMixin, Base):
     generation: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class CheckpointRevision(UUIDMixin, TimestampMixin, Base):
+class CheckpointRevision(UUIDMixin, Base):
     __tablename__ = "checkpoint_revisions"
     __table_args__ = (UniqueConstraint("checkpoint_id", "ordinal", name="uq_checkpoint_revision_ordinal"),)
     checkpoint_id: Mapped[str] = mapped_column(ForeignKey("checkpoints.id", ondelete="CASCADE"), index=True)
@@ -734,6 +734,7 @@ class CheckpointRevision(UUIDMixin, TimestampMixin, Base):
     content_blob_id: Mapped[str | None] = mapped_column(ForeignKey("content_blobs.id", ondelete="RESTRICT"), index=True)
     source_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="RESTRICT"), index=True)
     supersedes_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class FalAdmission(UUIDMixin, TimestampMixin, Base):

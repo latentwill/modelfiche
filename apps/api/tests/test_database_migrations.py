@@ -69,6 +69,9 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             "0008_checkpoint_revisions",
         )
+    engine = build_engine(database_url)
+    with sessionmaker(bind=engine)() as session:
+        assert session.scalar(select(models.CheckpointRevision)) is None
 
 
 def test_runtime_initialization_migrates_but_does_not_seed_before_cutover_marker(
