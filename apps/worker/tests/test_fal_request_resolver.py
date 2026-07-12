@@ -35,9 +35,10 @@ def test_explicit_model_version_fal_url_precedes_missing_handoff_and_s3():
         "checkpoint_id": checkpoint_id,
         "endpoint_id": "fal-ai/krea-2/turbo/lora",
         "prompt": "portrait",
-        "parameters": {"lora_scale": 1.0},
+        "parameters": {"endpoint_id": "fal-ai/krea-2/turbo/lora", "lora_scale": 1.0},
     })
     assert request["loras"][0]["path"] == "https://v3b.fal.media/files/model.safetensors"
+    assert "endpoint_id" not in request
 
 
 def test_explicit_model_version_fal_url_must_be_public_https():

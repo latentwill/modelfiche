@@ -40,6 +40,7 @@ class SQLAlchemyFalRequestResolver:
             path = self._fal_handoff_url(session, checkpoint, payload)
         adapter = get_adapter(str(payload["endpoint_id"]))
         parameters = dict(payload.get("parameters") or {})
+        parameters.pop("endpoint_id", None)
         scale = float(parameters.pop("lora_scale", payload.get("lora_scale", 1.0)))
         return adapter.build_request(
             prompt=str(payload["prompt"]),

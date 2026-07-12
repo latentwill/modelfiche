@@ -225,6 +225,7 @@ class FalEvalBatchHandler:
                     state = str(status.get("status", "")).upper()
                     context.progress((completed + _progress(status)) / total)
                     if state == "COMPLETED":
+                        response = self.client.result(str(task["response_url"]))
                         self.sink.ingest_outputs(eval_run_id, prompt.id, response)
                         _finish_submission(self.sink, eval_run_id, prompt_id=prompt.id)
                         task["state"] = "completed"
