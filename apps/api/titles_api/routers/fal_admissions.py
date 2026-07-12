@@ -393,6 +393,7 @@ def admit_fal_admission(admission_id: str, body: FalAdmitRequestV1, db: DB, x_pr
     db.flush()
     for subject in subjects:
         db.add(models.FalSubmissionIntent(
+            admission_id=admission.id,
             subject_id=subject.id,
             generation=subject.generation,
             request_digest=sha256(f"{admission.id}:{subject.id}:{subject.generation}".encode()).hexdigest(),
