@@ -11,7 +11,7 @@ Status legend: `completed`, `pending`, `blocked`. Initialized by MAP-01 on 2026-
 | Project | **PROJECT-01 — completed; PROJECT-02 — completed; PROJECT-03 — completed; PROJECT-04 — completed; PROJECT-05 — completed; PROJECT-06 — completed; PROJECT-07 — completed**; PROJECT-08 (`QA2-01`) — pending |
 | Model | **MODEL-01 — completed; MODEL-02 — completed; MODEL-03 — completed; MODEL-04 — completed; MODEL-05 — completed; MODEL-06 — completed; MODEL-07 — completed; MODEL-08 — completed; MODEL-09 — completed** |
 | Shell | SHELL-01 (`QA2-03`) — pending; SHELL-02 (`QA2-04`) — pending; SHELL-03 (`QA2-12`) — pending |
-| Generator | GEN-01 — pending; GEN-02 — pending; GEN-03 — pending; GEN-04 — pending; GEN-05 (`QA2-02`) — pending; GEN-06 — pending; GEN-07 (`QA2-05`) — pending |
+| Generator | **GEN-01 — completed; GEN-02 — completed; GEN-03 — completed; GEN-04 — completed; GEN-05 (`QA2-02`) — completed; GEN-06 — completed**; GEN-07 (`QA2-05`) — pending |
 | Gallery | GALLERY-01 — pending; GALLERY-02 — pending; GALLERY-03 — pending; GALLERY-04 — pending; GALLERY-05 — pending; GALLERY-06 — pending; GALLERY-07 — pending; GALLERY-08 — pending; GALLERY-09 — pending; GALLERY-10 — pending |
 | Eval | EVAL-01 — pending; EVAL-02 — pending; EVAL-03 — pending; EVAL-04 — pending; EVAL-05 — pending; EVAL-06 — pending; EVAL-07 — pending; EVAL-08 — pending; EVAL-09 — pending; EVAL-10 — pending; EVAL-11 — pending; EVAL-12 (`QA2-06`) — pending; EVAL-13 (`QA2-07B`) — pending |
 | Grid | GRID-01 — pending; GRID-02 — pending; GRID-03 — pending; GRID-04 — pending; GRID-05 — pending; GRID-06 — pending; GRID-07 — pending; GRID-08 — pending; GRID-09 (`QA2-07A`) — pending; GRID-10 — pending; GRID-11 (`QA2-08`) — pending; GRID-12 (`QA2-09`) — pending; GRID-13 (`QA2-10`) — pending |
@@ -76,3 +76,14 @@ QA2 requirements are implemented only through these canonical ledger tasks; ther
 | `QA2-10` | `GRID-13` | Validating, duplicate-safe primary Grid Generate action targeting GEN-07. |
 | `QA2-11` | `UI-03` | Accessible, coherent metadata and semantic status capsules. |
 | `QA2-12` | `SHELL-03` | Human-readable activity labels with raw keys only in technical details. |
+
+## GEN-01–06 completion record
+
+- Added normalized workflow, context, model/checkpoint, parameter, provider status/result, canonical generated-asset metadata, and future queue-envelope contracts shared by Image, Eval, and Grid.
+- Added a reusable single/multi `ModelCheckpointPicker`; selections are constrained by Project or Model scope and unavailable registrations explain their missing revision/provider/endpoint evidence.
+- FAL is isolated behind a provider adapter that derives its model URL and endpoint from `ModelVersion.readiness`, translates only supported normalized parameters, compiles the exact request, normalizes status/result, and routes through the existing admission/worker/ingestion path. Future providers such as ComfyUI extend the provider adapter/compile boundary without changing workflow definitions.
+- Added prompt-set-optional persistence in migration `0009_inline_generation_prompts`: Eval definitions may use deterministic ordered inline prompts or a legacy PromptSet. Direct Image requests create no PromptSet rows. Worker planning prefers inline prompts, retains legacy compatibility, and tracks retry completion by stable logical inline prompt ID.
+- Added scoped `+ Image`, `Eval`, and `Grid` actions to Project and Model pages. Added `#/generate` with preserved project/model/version context and eligible-image prefill; opening or prefilling never submits automatically.
+- Added provider-neutral `POST /api/generation-requests/compile` with registration-derived provider/endpoint validation, cross-project/revision/model guards, exact inline-prompt persistence, identical replay idempotency, and conflicting replay rejection. Explicit form submission remains required before FAL admission.
+- Verification: independent 22-test backend/migration/worker run passed; independent 9-test frontend generator/project run passed; frontend TypeScript project build passed. Agent broader focused runs passed 26 API/migration/baseline tests, 3 worker regressions, and 11 frontend tests. No live FAL admission or generation was submitted.
+- Preserved pending regression: `test_gallery_context_uses_full_filtered_order_not_visible_page` remains under later Gallery triage and was not changed in this packet.
