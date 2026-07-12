@@ -33,7 +33,7 @@ The root HTML files (`project.html`, `gallery.html`, `eval-viewer.html`, `grid-l
 | --- | --- | --- |
 | `#/dashboard[?create=project]` | `DashboardScreen`, `screens-wireframe.tsx` | projects/runs dashboard; inline `ProjectCreatePanel` |
 | `#/projects` | `ProjectsScreen`, `screens-core.tsx` | list/create projects |
-| `#/project/:id` | `ProjectScreen`, `screens-core.tsx` | project settings and project-scoped image panels |
+| `#/project/:id[?edit=1]` | `ProjectScreen`, `screens-core.tsx` | project overview, relationship-backed image panels, latest training-run state/result-model link, and query-gated project editor |
 | `#/import[?project=:id]` | `ImportScreen`, `screens-core.tsx` | select S3 source/project, browse/detect prefix, enqueue import; or import a browser-selected local folder with sidecars/progress |
 | `#/jobs/:id[?job=1]` | `JobScreen`, `screens-core.tsx` | import job by default; general durable job with `job=1` |
 | `#/datasets[?project=:id]` | `DatasetsScreen`, `screens-assets.tsx` | dataset list |
@@ -57,7 +57,7 @@ The root HTML files (`project.html`, `gallery.html`, `eval-viewer.html`, `grid-l
 
 ### Shell and shared frontend building blocks
 
-- `WorkbenchShell`, `Topbar`, `Sidebar`, `ProjectTree`, `NavBranch`, `ContextInspector`, `NotesPanel` (`shell.tsx`) are shared by every non-focus route. The top bar shows the first workspace; it does not switch/create workspaces.
+- `WorkbenchShell`, `Topbar`, `Sidebar`, `ProjectTree`, `NavBranch`, `ContextInspector`, `NotesPanel` (`shell.tsx`) are shared by every non-focus route. The top bar shows the first workspace with real project/entity breadcrumb names; it does not switch/create workspaces. The project-title pencil opens the query-gated project editor.
 - `Page`, `Panel`, `Notice`, `Field`, `Form`, `Pagination`, `DataTable`, `SelectRecords`, `Status`, and `ProfileSelect` (`ui.tsx`) are shared selectors/cards/forms/status controls.
 - `AssetGrid` is the common image-card collection used in gallery, run/model/project panels. `AssetImage` (`asset-image.tsx`) is the only runtime image URL resolver and should remain the image primitive.
 - Generator controls are currently local to `screens-evals.tsx`: `EndpointFields`/`EndpointField`, `AxisValuesField`, `GridPreview`, and form parsers near `parametersFromForm`. Eval and grid share API schemas but not a single generator component.
@@ -71,7 +71,7 @@ All routes below are under `/api` unless shown otherwise. `integrations.py` decl
 | Area | Endpoints |
 | --- | --- |
 | System | `GET /health` and `/api/health`; `GET /system/version`, `/system/capabilities`, `/system/enums`, `/system/doctor` |
-| Workspace/profile/project | `GET /workspaces`; `GET/POST /profiles`; `GET /profiles/active`; `GET/PATCH /profiles/{id}`; `PUT /profiles/{id}/active`; `POST /profiles/{id}/archive`; `GET/POST /projects`; `GET/PATCH /projects/{id}` |
+| Workspace/profile/project | `GET /workspaces`; `PATCH /workspaces/{id}`; `GET/POST /profiles`; `GET /profiles/active`; `GET/PATCH /profiles/{id}`; `PUT /profiles/{id}/active`; `POST /profiles/{id}/archive`; `GET/POST /projects`; `GET/PATCH /projects/{id}` |
 | Assets/gallery | `GET/POST /assets`; `GET/DELETE /assets/{id}`; `GET /assets/{id}/locations|metadata|context|content|thumbnail`; `GET /gallery`; `GET /gallery/context` |
 | Typed delivery | `POST /assets/{revision}/delivery`; `/delivery/alternate`; `/delivery/diagnose`; `GET /asset-deliveries/{capability}` |
 | Datasets | `GET/POST /datasets`; `GET /datasets/{id}` (includes explicit linked training runs/empty reason); `GET /datasets/{id}/versions`; `GET /dataset-versions/{id}` and `/items` (includes origin/availability); `POST /datasets/{id}/drafts`; `GET/DELETE /dataset-drafts/{id}`; `PATCH .../items/{id}`; `POST .../operations[/preview]`; `POST .../publish` |

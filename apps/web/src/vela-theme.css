@@ -162,7 +162,7 @@
   background: var(--vela-surface);
 }
 .vela-create-wrap { position: relative; }
-.vela-create-button { width: 42px; min-height: 42px; padding: 0; border: 0; border-radius: 50%; background: var(--vela-accent); color: var(--vela-surface); font-size: 22px; font-weight: 700; }
+.vela-create-button { width: 42px; min-height: 42px; padding: 0; border: 0; border-radius: 50%; background: var(--vela-accent); color: #fff; font-size: 22px; font-weight: 700; }
 .vela-create-menu { position: absolute; right: 0; top: 49px; z-index: 30; width: 170px; display: grid; padding: 6px; border: 1px solid var(--vela-border); border-radius: 10px; background: var(--vela-surface); box-shadow: 0 6px 8px color-mix(in oklch, var(--vela-fg) 11%, transparent); }
 .vela-create-menu button { padding: 9px; border: 0; border-radius: 7px; background: transparent; text-align: left; font: 700 11px var(--vela-font-display); }
 .vela-create-menu button:hover { background: var(--vela-surface-soft); }

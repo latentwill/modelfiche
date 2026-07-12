@@ -26,7 +26,19 @@ def profile_for(db: Session, profile_id: str | None) -> models.UserProfile:
 
 @router.get("/workspaces", response_model=list[schemas.WorkspaceOut])
 def workspaces(db: DB):
-    return db.scalars(select(models.Workspace).order_by(models.Workspace.name)).all()
+    return db.scalars(select(models.Workspace).order_by(models.Workspace.created_at, models.Workspace.id)).all()
+
+
+@router.patch("/workspaces/{workspace_id}", response_model=schemas.WorkspaceOut)
+def update_workspace(workspace_id: str, body: schemas.WorkspaceUpdate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    workspace = get_or_404(db, models.Workspace, workspace_id)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="workspace name cannot be blank")
+    workspace.name = name
+    record_activity(db, action="workspace.updated", subject_type="workspace", subject_id=workspace.id, profile_id=profile_for(db, x_profile_id).id)
+    db.commit()
+    return workspace
 
 
 @router.get("/profiles", response_model=list[schemas.ProfileOut])
@@ -179,7 +191,13 @@ def _gallery_query(
         )
     if project_id:
         query = query.where(models.Asset.project_id == project_id)
-    if category:
+    if category == "sample":
+        query = query.where(models.Asset.id.in_(select(models.Sample.asset_id)))
+    elif category == "eval_output":
+        query = query.where(models.Asset.id.in_(select(models.EvalOutput.asset_id)))
+    elif category == "dataset_image":
+        query = query.where(models.Asset.id.in_(select(models.DatasetItem.asset_id)))
+    elif category:
         query = query.where(models.Asset.metadata_["category"].as_string() == category)
     if provider:
         query = query.where(models.Asset.metadata_["provider"].as_string() == provider)

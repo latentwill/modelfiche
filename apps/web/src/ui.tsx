@@ -18,14 +18,14 @@ export function Notice({ error, loading, empty }: { error?: string; loading?: bo
   return null;
 }
 
-export function ProfileSelect({ compact = false }: { compact?: boolean }) {
+export function ProfileSelect({ compact = false, workspaceName = "" }: { compact?: boolean; workspaceName?: string }) {
   const resource = useResource<unknown>("/api/profiles");
   const serverActive = useResource<Record<string, unknown>>("/api/profiles/active");
   const profiles = listOf<Record<string, unknown>>(resource.data).filter(profile => profile.is_active !== false);
   const [active, setActive] = useState(() => localStorage.getItem("titles.activeProfileId") ?? "");
   const [error, setError] = useState("");
   useEffect(() => { if (!active && serverActive.data?.id) setActive(idOf(serverActive.data)); }, [active, serverActive.data]);
-  return <div className={`vela-profile-select ${compact ? "is-compact" : ""}`} title={error || "Active comment profile"}><UserRound size={16} aria-hidden="true" /><label className={compact ? "sr-only" : ""} htmlFor="active-profile">Active profile</label><select id="active-profile" aria-label="Active profile" value={active} onChange={async event => { const profileId = event.target.value; const previous = active; setActive(profileId); setError(""); try { if (profileId) { await api(`/api/profiles/${profileId}/active`, { method: "PUT" }); localStorage.setItem("titles.activeProfileId", profileId); } else { localStorage.removeItem("titles.activeProfileId"); } location.reload(); } catch (reason) { setActive(previous); setError(reason instanceof Error ? reason.message : String(reason)); } }}><option value="">Profile</option>{profiles.map(profile => <option key={idOf(profile)} value={idOf(profile)}>{str(profile.display_name ?? profile.name)}</option>)}</select>{error && <span className="sr-only" role="alert">{error}</span>}</div>;
+  return <div className={`vela-profile-select ${compact ? "is-compact" : ""}`} title={error || `Active comment profile${workspaceName ? ` in ${workspaceName}` : ""}`}><UserRound size={16} aria-hidden="true" /><label className={compact ? "sr-only" : ""} htmlFor="active-profile">Active profile{workspaceName ? ` in ${workspaceName}` : ""}</label><select id="active-profile" aria-label={`Active profile${workspaceName ? ` in ${workspaceName}` : ""}`} value={active} onChange={async event => { const profileId = event.target.value; const previous = active; setActive(profileId); setError(""); try { if (profileId) { await api(`/api/profiles/${profileId}/active`, { method: "PUT" }); localStorage.setItem("titles.activeProfileId", profileId); } else { localStorage.removeItem("titles.activeProfileId"); } location.reload(); } catch (reason) { setActive(previous); setError(reason instanceof Error ? reason.message : String(reason)); } }}><option value="">{workspaceName ? `${workspaceName} profile` : "Profile"}</option>{profiles.map(profile => <option key={idOf(profile)} value={idOf(profile)}>{str(profile.display_name ?? profile.name)}</option>)}</select>{error && <span className="sr-only" role="alert">{error}</span>}</div>;
 }
 
 export function Field(props: { label: string; children: ReactNode; hint?: string }) {

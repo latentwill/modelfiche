@@ -18,7 +18,7 @@ def dump(row) -> dict[str, Any]:
 
 @router.get("/runs")
 def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(None, alias="status")):
-    query = select(models.TrainingRun).order_by(models.TrainingRun.updated_at.desc())
+    query = select(models.TrainingRun).order_by(models.TrainingRun.created_at.desc(), models.TrainingRun.id.desc())
     if project_id:
         query = query.where(models.TrainingRun.project_id == project_id)
     if run_status:
@@ -26,11 +26,23 @@ def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(N
     rows = []
     for row in db.scalars(query).all():
         project = db.get(models.Project, row.project_id)
+        result = db.execute(
+            select(models.Model, models.ModelVersion)
+            .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
+            .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
+            .where(models.Checkpoint.run_id == row.id)
+            .order_by(models.Checkpoint.step.desc(), models.ModelVersion.created_at.desc(), models.ModelVersion.id.desc())
+        ).first()
+        result_model, result_version = result if result else (None, None)
         rows.append({
             **dump(row),
             "project_name": project.title if project else None,
             "checkpoint_count": int(db.scalar(select(func.count()).select_from(models.Checkpoint).where(models.Checkpoint.run_id == row.id)) or 0),
             "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == row.id)) or 0),
+            "result_model_id": result_model.id if result_model else None,
+            "result_model_name": result_model.name if result_model else None,
+            "result_model_version_id": result_version.id if result_version else None,
+            "result_model_version_name": result_version.name if result_version else None,
         })
     return rows
 

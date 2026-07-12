@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -42,10 +43,19 @@ export function WorkbenchShell({ section, id, params, children }: { section: str
   const projectId = projectForRoute(section, id, params);
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") { setMobileNavOpen(false); setMobileInspectorOpen(false); } }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, []);
   useEffect(() => { setMobileNavOpen(false); setMobileInspectorOpen(false); }, [section, id]);
+  useEffect(() => {
+    const update = (event: Event) => {
+      const workspace = (event as CustomEvent<Row>).detail;
+      if (!workspace?.id) return;
+      workspaces.setData(rows(workspaces.data).map(item => idOf(item) === idOf(workspace) ? workspace : item));
+    };
+    window.addEventListener("titles:workspace-updated", update);
+    return () => window.removeEventListener("titles:workspace-updated", update);
+  }, [workspaces.data, workspaces.setData]);
   return <div className="vela-shell" data-nav-collapsed={leftCollapsed} data-inspector-collapsed={rightCollapsed}>
     <Sidebar section={section} id={id} activeProjectId={projectId} projects={rows(projects.data)} collapsed={leftCollapsed} mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onCollapse={() => setLeftCollapsed(!leftCollapsed)} />
     <div className="vela-workspace">
-      <Topbar section={section} workspaces={rows(workspaces.data)} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
+      <Topbar section={section} id={id} projectId={projectId} workspaces={rows(workspaces.data)} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
       <div className="vela-route-stage">{children}</div>
     </div>
     <ContextInspector section={section} id={id} projectId={projectId} collapsed={rightCollapsed} mobileOpen={mobileInspectorOpen} onMobileClose={() => setMobileInspectorOpen(false)} onCollapse={() => setRightCollapsed(!rightCollapsed)} />
@@ -53,12 +63,18 @@ export function WorkbenchShell({ section, id, params, children }: { section: str
   </div>;
 }
 
-function Topbar({ section, workspaces, onOpenNavigation, onOpenInspector }: { section: string; workspaces: Row[]; onOpenNavigation: () => void; onOpenInspector: () => void }) {
+function Topbar({ section, id, projectId, workspaces, onOpenNavigation, onOpenInspector }: { section: string; id: string; projectId: string; workspaces: Row[]; onOpenNavigation: () => void; onOpenInspector: () => void }) {
   const [createOpen, setCreateOpen] = useState(false);
   const workspace = str(workspaces[0]?.name, "Titles XYZ");
+  const entity = useResource<Row>(entityPath(section, id));
+  const inferredProjectId = section === "project" ? id : projectId || str(entity.data?.project_id, "");
+  const project = useResource<Row>(inferredProjectId && section !== "project" ? `/api/projects/${inferredProjectId}` : null);
+  const projectName = section === "project" ? str(entity.data?.title ?? entity.data?.name, "") : str(project.data?.title ?? project.data?.name, "");
+  const entityName = section !== "project" ? str(entity.data?.title ?? entity.data?.name, "") : "";
+  const fallback = !projectName && !entityName ? routeLabel(section) : "";
   return <header className="vela-topbar">
     <button className="vela-icon-button vela-responsive-nav" type="button" aria-label="Open navigation" onClick={onOpenNavigation}><Menu size={18} /></button>
-    <div className="vela-breadcrumbs">Workspaces&nbsp; / &nbsp;<strong>{workspace}</strong>&nbsp; / &nbsp;{routeLabel(section)}</div>
+    <div className="vela-breadcrumbs"><strong>{workspace}</strong>{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}{section === "project" && id && <a className="vela-icon-button" href={`#/project/${id}?edit=1`} aria-label={`Edit ${projectName || "project"}`} title="Edit project"><Pencil size={13} /></a>}</div>
     <GlobalSearch />
     <div className="vela-create-wrap" onKeyDown={event => { if (event.key === "Escape") setCreateOpen(false); }}>
       <button className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} /></button>
@@ -71,7 +87,7 @@ function Topbar({ section, workspaces, onOpenNavigation, onOpenInspector }: { se
         <CreateLink href="#/transfers?mode=import" icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Import</CreateLink>
       </div>}
     </div>
-    <ProfileSelect compact />
+    <ProfileSelect compact workspaceName={workspace} />
     <button className="vela-icon-button vela-responsive-inspector" type="button" aria-label="Open metadata and notes" onClick={onOpenInspector}><PanelRightOpen size={18} /></button>
   </header>;
 }

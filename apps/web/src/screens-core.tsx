@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, FolderSearch, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Trash2, Upload } from "lucide-react";
+import { Archive, FolderSearch, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Trash2, Upload, X } from "lucide-react";
 import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -28,7 +28,7 @@ export function ProjectsScreen() {
   </Page>;
 }
 
-export function ProjectScreen({ id }: { id: string }) {
+export function ProjectScreen({ id, editing = false }: { id: string; editing?: boolean }) {
   const project = useResource<Row>(`/api/projects/${id}`);
   const activity = useResource<unknown>(`/api/activity${query({ project_id: id })}`);
   const runs = useResource<unknown>(`/api/runs${query({ project_id: id })}`);
@@ -51,14 +51,33 @@ export function ProjectScreen({ id }: { id: string }) {
       <ProjectImagePanel title="Eval outputs" assets={rows(evalImages.data)} loading={evalImages.loading} error={evalImages.error} href={projectGalleryHref(id, "eval_output")} returnTarget={`project/${id}`} />
     </div>
     <div className="project-compare-grid">
-      <Panel title="Training runs"><Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !runRows.length} /><div className="comparison-stack">{runRows.slice(0, 4).map(run => <a href={`#/run/${idOf(run)}`} key={idOf(run)}><strong>{str(run.name, "Run")}</strong><Status value={run.status} /><span>{str(run.checkpoint_count, "0")} checkpoints</span></a>)}</div><a className="vela-text-button" href={`#/runs?project=${id}`}>View all runs</a></Panel>
+      <LatestTrainingRun projectId={id} runs={runRows} loading={runs.loading} error={runs.error} />
       <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} empty={!datasets.loading && !datasetRows.length} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div><a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
       <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
     </div>
-    <Panel title="Run / artifact comparison"><DataTable rows={runRows} columns={[["name", "Run"], ["dataset_version_name", "Dataset"], ["model_version_name", "Model (.safetensors)"], ["latest_eval_name", "Eval batch"], ["sample_count", "Output set"]]} onRow={row => { location.hash = `run/${idOf(row)}`; }} /></Panel>
     <div className="dashboard-lower"><Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["status", "Status"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel><Panel title="Project activity"><Notice error={activity.error} loading={activity.loading} empty={!rows(activity.data).length} /><DataTable rows={rows(activity.data).slice(0, 8)} columns={[["action", "Event"], ["profile_name", "Profile"], ["created_at", "Time"]]} /></Panel></div>
-    {project.data && <Panel title="Project settings"><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { await api(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); setProjectMessage("Project updated."); await project.reload(); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel>}
+    {project.data && editing && <Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { await api(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); setProjectMessage("Project updated."); await project.reload(); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel>}
   </Page>;
+}
+
+export function LatestTrainingRun({ projectId, runs, loading, error }: { projectId: string; runs: Row[]; loading: boolean; error?: string }) {
+  const latest = runs[0];
+  const state = str(latest?.status, "unknown").toLowerCase();
+  const failed = /fail|error|cancel/.test(state);
+  const completed = /complete|completed|success|succeeded|finished/.test(state);
+  return <Panel title="Latest training run">
+    <Notice error={error} loading={loading} />
+    {!loading && !error && !latest && <div className="vela-empty"><span>No training runs yet</span><small>Imported or newly created runs will appear here.</small></div>}
+    {!loading && !error && latest && <div className="comparison-stack"><a href={`#/run/${idOf(latest)}`}><strong>{str(latest.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : latest.status} /><span>Started <time dateTime={str(latest.created_at, "")}>{formatCanonicalTimestamp(latest.created_at)}</time> · {str(latest.checkpoint_count, "0")} checkpoints · {str(latest.sample_count, "0")} samples</span></a></div>}
+    {failed && <div className="vela-notice vela-notice-error" role="alert"><strong>Training run failed</strong><span>Open the run to inspect its recorded status and logs.</span></div>}
+    {completed && Boolean(latest?.result_model_id) && <a className="vela-text-button" href={`#/model/${str(latest.result_model_id)}`}>Open result model: {str(latest.result_model_name)}</a>}
+    <a className="vela-text-button" href={`#/runs?project=${projectId}`}>View all runs</a>
+  </Panel>;
+}
+
+export function formatCanonicalTimestamp(value: unknown) {
+  const date = new Date(str(value, ""));
+  return Number.isNaN(date.valueOf()) ? "Timestamp unavailable" : date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
 }
 
 function projectGalleryHref(projectId: string, category: string, extra: Record<string, unknown> = {}) {
@@ -214,9 +233,11 @@ export function JobScreen({ id, general = false }: { id: string; general?: boole
 export function SettingsScreen() {
   const health = useResource<Row>("/api/system/doctor");
   const settings = useResource<Row>("/api/operator-settings");
+  const workspaces = useResource<unknown>("/api/workspaces");
   const endpoints = useResource<unknown>("/api/eval-endpoints");
   const profilesResource = useResource<unknown>("/api/profiles");
   const profiles = rows(profilesResource.data);
+  const workspace = rows(workspaces.data)[0];
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const selectedProfile = profiles.find(profile => idOf(profile) === selectedProfileId);
   const [profileBusy, setProfileBusy] = useState(false);
@@ -234,8 +255,8 @@ export function SettingsScreen() {
     finally { setTesting(""); }
   };
   return <Page title="Settings" subtitle="Local operator identity, provider defaults, and storage connections." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
-    <Notice error={testError || settings.error || health.error} loading={settings.loading || health.loading} />
-    <Panel title="Account"><div className="form-grid"><Field label="Active comment profile"><ProfileSelect /></Field><Field label="Workspace" hint="Single local workspace in this release."><input readOnly value="Titles XYZ" /></Field></div></Panel>
+    <Notice error={testError || settings.error || health.error || workspaces.error} loading={settings.loading || health.loading || workspaces.loading} />
+    <Panel title="Account"><div className="form-grid"><Field label="Active comment profile"><ProfileSelect workspaceName={str(workspace?.name, "Workspace")} /></Field>{workspace && <Form submit="Rename workspace" onSubmit={async form => { const updated = await api<Row>(`/api/workspaces/${idOf(workspace)}`, patchBody({ name: form.get("workspace_name") })); setMessage("Workspace renamed."); workspaces.setData([updated]); window.dispatchEvent(new CustomEvent("titles:workspace-updated", { detail: updated })); }}><Field label="Workspace" hint="Single local workspace in this release."><input name="workspace_name" defaultValue={str(workspace.name)} required /></Field></Form>}</div></Panel>
     {settings.data && <Form submit="Save provider settings" onSubmit={async form => { setMessage(""); await api("/api/operator-settings", patchBody({ llm: { provider: form.get("llm_provider"), model: form.get("llm_model"), base_url: String(form.get("llm_base_url") ?? "").trim() || null }, fal: { default_endpoint: form.get("fal_endpoint"), max_parallel_jobs: Number(fal.max_parallel_jobs ?? 4) } })); setMessage("Provider settings saved."); await settings.reload(); }}>
       <Panel title="LLM"><div className="integration-heading"><Status value={credentials.llm_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("llm")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Check model settings and environment credentials without contacting the provider."}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Checking..." : "Check LLM"}</button></div><div className="form-grid"><Field label="Provider"><select name="llm_provider" defaultValue={str(llm.provider, "openai")}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option><option value="openai-compatible">OpenAI-compatible</option></select></Field><Field label="Model"><input name="llm_model" defaultValue={str(llm.model, "")} placeholder="gpt-5-mini" /></Field><Field label="OpenAI-compatible base URL" hint="Only required for compatible providers."><input name="llm_base_url" type="url" defaultValue={str(llm.base_url, "")} placeholder="https://api.example.com/v1" /></Field></div><p className="muted">API keys remain in environment variables and are never returned to the browser.</p></Panel>
       <Panel title="FAL"><div className="integration-heading"><Status value={credentials.fal_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("fal")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Validate the selected adapter and environment credential without submitting a generation."}><PlugZap size={15} aria-hidden="true" />{testing === "fal" ? "Checking..." : "Check FAL"}</button></div><Notice error={endpoints.error} loading={endpoints.loading} /><div className="form-grid"><Field label="Default endpoint"><select key={`${str(fal.default_endpoint, "ideogram/v4/lora")}:${rows(endpoints.data).length}`} name="fal_endpoint" defaultValue={str(fal.default_endpoint, "ideogram/v4/lora")} disabled={endpoints.loading}>{rows(endpoints.data).map(endpoint => { const endpointId = str(endpoint.endpoint_id ?? endpoint.id); return <option value={endpointId} key={endpointId}>{str(endpoint.name ?? endpoint.endpoint_id)}</option>; })}</select></Field></div></Panel>

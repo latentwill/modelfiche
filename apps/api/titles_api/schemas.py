@@ -16,6 +16,10 @@ class WorkspaceOut(ORMModel):
     created_at: datetime
 
 
+class WorkspaceUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class ProfileCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     email: str | None = None
