@@ -40,8 +40,14 @@ class S3Browser:
         return cls(create_source_s3_client(settings), settings)
 
     def require_allowed(self, prefix: str) -> str:
-        return normalize_prefix(prefix)
-
+        safe = normalize_prefix(prefix)
+        configured = tuple(normalize_prefix(value) for value in self.settings.allowed_prefixes)
+        if configured and not any(
+            safe.rstrip("/") == root.rstrip("/") or safe.startswith(root.rstrip("/") + "/")
+            for root in configured
+        ):
+            raise PrefixAccessError("prefix is outside configured allowed prefixes")
+        return safe
     def browse(self, prefix: str, *, cursor: str | None = None, page_size: int = 200) -> BrowsePage:
         safe = self.require_allowed(prefix)
         params: dict[str, Any] = {
