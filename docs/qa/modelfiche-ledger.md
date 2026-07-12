@@ -15,7 +15,7 @@ Status legend: `completed`, `pending`, `blocked`. Initialized by MAP-01 on 2026-
 | Gallery | **GALLERY-01 — completed; GALLERY-02 — completed; GALLERY-03 — completed; GALLERY-04 — completed; GALLERY-05 — completed; GALLERY-06 — completed; GALLERY-07 — completed; GALLERY-08 — completed; GALLERY-09 — completed; GALLERY-10 — completed; GALLERY-R01 — completed** |
 | Eval | **EVAL-01 — completed; EVAL-02 — completed; EVAL-03 — completed; EVAL-04 — completed; EVAL-05 — completed; EVAL-06 — completed; EVAL-07 — completed; EVAL-08 — completed; EVAL-09 — completed; EVAL-10 — completed; EVAL-11 — completed; EVAL-12 (`QA2-06`) — completed; EVAL-13 (`QA2-07B`) — completed** |
 | Grid | **GRID-01 — completed; GRID-02 — completed; GRID-03 — completed; GRID-04 — completed; GRID-05 — completed; GRID-06 — completed; GRID-07 — completed; GRID-08 — completed; GRID-09 (`QA2-07A`) — completed; GRID-10 — completed; GRID-11 (`QA2-08`) — completed; GRID-12 (`QA2-09`) — completed; GRID-13 (`QA2-10`) — completed** |
-| UI | UI-01 — pending; UI-02 — pending; UI-03 (`QA2-11`) — pending |
+| UI | **UI-01 — completed; UI-02 — completed; UI-03 (`QA2-11`) — completed** |
 | Regression | QA regression — pending |
 
 ## MAP-01 completion record
@@ -130,3 +130,10 @@ QA2 requirements are implemented only through these canonical ledger tasks; ther
 - Generate performs actionable validation, suppresses duplicate clicks, reuses idempotency IDs after partial failure, compiles each cell through the shared provider adapter, and enqueues one visible Grid parent with ordered cell children. Parent selected-model IDs remain unique while children may reuse checkpoints. Mixed registered FAL endpoints are supported without manual endpoint selection.
 - Queue-backed Grid results reload from the persisted request snapshot and ingested child outputs. Historical `GridDefinition` direct routes fall back to a read-only legacy viewer and expose no run/admission/billing action.
 - Verification: independent queue/compile API suite passed 12 tests; worker suite passed 6 tests; full frontend suite passed 33 tests across 9 files; frontend TypeScript typecheck passed. Regressions cover multiple prompts with two seeds, duplicate labels, checkpoint-axis dimensions, Z ordering/conflicts, mixed endpoints, repeated child models, idempotent replay, reload placement, and historical direct routes. No live provider request or billed generation was submitted.
+
+## UI-01–03 completion record
+
+- `UI-01` establishes one shared page-flow rhythm for Project, Model, Training Run, Gallery, lightbox, Eval, Grid, Imports, and Settings. Page headers, panels, workflow grids, prompt rows, captions, comments, and comparison surfaces now use the Vela spacing scale without changing route or feature behavior.
+- `UI-02` gives native dropdowns and checkpoint multi-selects one accessible visual treatment: explicit affordances, hover and keyboard-focus states, larger multi-select rows, selected-option contrast, and visible disabled options. Existing native select semantics and keyboard behavior remain intact.
+- `UI-03` (`QA2-11`) unifies status, metadata, caption-version, and training-run capsules. Semantic states pair contrast-safe borders/backgrounds with non-color `✓`, `!`, `×`, or neutral dot cues; metadata lists use consistent alignment and readable wrapping.
+- Verification: focused frontend suite passed 24 tests across 6 files; frontend TypeScript typecheck passed; live browser smoke on Settings verified rendered vertical rhythm, dropdown semantics, and semantic status capsules. No API, schema, migration, queue, provider, or feature behavior changed. No live FAL admission, provider request, or billed generation was submitted.

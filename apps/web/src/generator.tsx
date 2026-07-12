@@ -10,7 +10,7 @@ const rows = (value: unknown) => listOf<Row>(value);
 
 export function ModelCheckpointPicker({ models, selected, onChange, multiple = true }: { models: GenerationModel[]; selected: string[]; onChange: (ids: string[]) => void; multiple?: boolean }) {
   return <Field label={multiple ? "Models / checkpoints" : "Model / checkpoint"} hint="Only checkpoints in the selected context are shown. Unavailable provider registrations cannot be selected.">
-    <select aria-label="Models and checkpoints" multiple={multiple} size={multiple ? Math.min(8, Math.max(3, models.length)) : undefined} value={multiple ? selected : selected[0] ?? ""} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
+    <select className={multiple ? "vela-multi-select" : undefined} aria-label="Models and checkpoints" multiple={multiple} size={multiple ? Math.min(8, Math.max(3, models.length)) : undefined} value={multiple ? selected : selected[0] ?? ""} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
       {!multiple && <option value="">Select...</option>}
       {models.map(model => <option key={model.id} value={model.id} disabled={!model.available}>{model.name} · {model.checkpointLabel} · {model.available ? `${model.provider?.toUpperCase()} / ${model.endpoint}` : model.unavailableReason}</option>)}
     </select>

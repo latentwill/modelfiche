@@ -167,7 +167,7 @@
 .vela-create-menu button { padding: 9px; border: 0; border-radius: 7px; background: transparent; text-align: left; font: 700 11px var(--vela-font-display); }
 .vela-create-menu button:hover { background: var(--vela-surface-soft); }
 
-.vela-main { padding: 24px; }
+.vela-main { display: grid; align-content: start; gap: var(--vela-space-4); padding: 24px; }
 .vela-hero { min-height: 126px; display: grid; grid-template-columns: 1fr 160px; align-items: center; gap: 24px; padding: 24px 28px; overflow: hidden; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface); }
 .vela-hero h1 { font: 700 28px/1.05 var(--vela-font-display); letter-spacing: 0; text-transform: uppercase; }
 .vela-hero p { max-width: 65ch; margin-top: 12px; color: var(--vela-muted); }
@@ -289,7 +289,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--vela-space-6);
-  margin-bottom: var(--vela-space-5);
+  margin-bottom: 0;
   padding: 22px 26px;
   overflow: hidden;
   border: 1px solid var(--vela-border);
@@ -299,7 +299,7 @@
 .vela-page-header h1 { font: 700 27px/1.05 var(--vela-font-display); letter-spacing: 0; text-transform: uppercase; }
 .vela-page-header p { max-width: 68ch; margin-top: 10px; color: var(--vela-muted); }
 .vela-page-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--vela-space-2); flex-wrap: wrap; }
-.vela-main > .vela-panel + .vela-panel, .vela-main > .panel + .panel { margin-top: var(--vela-space-4); }
+.vela-main > .vela-panel + .vela-panel, .vela-main > .panel + .panel { margin-top: 0; }
 
 .vela-theme .vela-button,
 .vela-theme .button,
@@ -360,10 +360,26 @@
 .vela-table tr.is-clickable { cursor: pointer; }
 .vela-table tr.is-clickable:hover, .vela-table tr.is-clickable:focus-visible { background: var(--vela-accent-soft); }
 .vela-code { max-height: 420px; overflow: auto; margin: 0; padding: 13px; border-radius: var(--vela-radius-md); background: var(--vela-surface-soft); color: var(--vela-fg); font: 11px/1.55 var(--vela-font-mono); }
-.vela-status { display: inline-flex; align-items: center; width: fit-content; padding: 4px 7px; border-radius: 99px; background: var(--vela-surface-soft); color: var(--vela-muted); font: 700 10px var(--vela-font-mono); text-transform: uppercase; }
-.vela-status[data-state="success"] { background: color-mix(in oklch, var(--vela-success) 12%, var(--vela-surface)); color: var(--vela-success); }
-.vela-status[data-state="warning"] { background: color-mix(in oklch, var(--vela-warning) 12%, var(--vela-surface)); color: var(--vela-warning); }
-.vela-status[data-state="danger"] { background: color-mix(in oklch, var(--vela-danger) 10%, var(--vela-surface)); color: var(--vela-danger); }
+.vela-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid var(--vela-border);
+  border-radius: 99px;
+  background: var(--vela-surface-soft);
+  color: var(--vela-fg);
+  font: 700 10px var(--vela-font-mono);
+  text-transform: uppercase;
+}
+.vela-status::before { content: "•"; color: currentColor; font-size: 12px; line-height: 1; }
+.vela-status[data-state="success"] { border-color: color-mix(in oklch, var(--vela-success) 38%, var(--vela-border)); background: color-mix(in oklch, var(--vela-success) 10%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-success) 78%, var(--vela-fg)); }
+.vela-status[data-state="success"]::before { content: "✓"; }
+.vela-status[data-state="warning"] { border-color: color-mix(in oklch, var(--vela-warning) 42%, var(--vela-border)); background: color-mix(in oklch, var(--vela-warning) 11%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-warning) 72%, var(--vela-fg)); }
+.vela-status[data-state="warning"]::before { content: "!"; }
+.vela-status[data-state="danger"] { border-color: color-mix(in oklch, var(--vela-danger) 38%, var(--vela-border)); background: color-mix(in oklch, var(--vela-danger) 9%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-danger) 78%, var(--vela-fg)); }
+.vela-status[data-state="danger"]::before { content: "×"; }
 
 .vela-global-search { position: relative; width: min(390px, 34vw); margin-left: auto; }
 .vela-global-search > svg { position: absolute; z-index: 2; top: 13px; left: 13px; color: var(--vela-muted); pointer-events: none; }
@@ -373,6 +389,27 @@
 .vela-search-results a:not(:has(> img)) { grid-template-columns: 1fr; }
 .vela-create-menu a { display: flex; align-items: center; gap: 8px; padding: 9px; border-radius: 7px; font: 700 11px var(--vela-font-display); text-transform: uppercase; }.vela-create-menu a:hover { background: var(--vela-surface-soft); }
 .vela-profile-select { display: flex; align-items: center; gap: 7px; }.vela-profile-select select { min-width: 150px; }.vela-profile-select.is-compact { position: relative; width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--vela-border); border-radius: 50%; background: var(--vela-surface); overflow: hidden; }.vela-profile-select.is-compact select { position: absolute; inset: 0; min-width: 0; opacity: 0; cursor: pointer; }
+.vela-theme select {
+  appearance: none;
+  padding-inline-end: 34px !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--vela-muted) 50%),
+    linear-gradient(135deg, var(--vela-muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.vela-theme select:hover { border-color: color-mix(in oklch, var(--vela-accent) 45%, var(--vela-border)); }
+.vela-theme select:focus-visible,
+.vela-theme :is(.vela-create-menu, .vela-search-results) :is(a, button):focus-visible { outline: 3px solid var(--vela-accent-soft); outline-offset: 1px; border-color: var(--vela-accent); }
+.vela-theme select[multiple],
+.vela-theme .vela-multi-select { min-height: 112px; padding: 5px !important; background-image: none; }
+.vela-theme select[multiple] option,
+.vela-theme .vela-multi-select option { min-height: 34px; padding: 8px 10px; border-radius: var(--vela-radius-sm); }
+.vela-theme select[multiple] option:checked,
+.vela-theme .vela-multi-select option:checked { background: var(--vela-accent) linear-gradient(var(--vela-accent), var(--vela-accent)); color: var(--vela-surface); }
+.vela-theme select[multiple] option:disabled,
+.vela-theme .vela-multi-select option:disabled { color: var(--vela-muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
 .vela-project-nav.is-archived { opacity: .62; }
@@ -386,6 +423,20 @@
 .vela-metadata-list { display: grid; margin: 13px 0 0; }
 .vela-metadata-list > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; padding: 8px 0; border-top: 1px solid var(--vela-border); }
 .vela-metadata-list dt { color: var(--vela-muted); font: 10px var(--vela-font-mono); text-transform: uppercase; }.vela-metadata-list dd { margin: 0; overflow-wrap: anywhere; font-size: 11px; font-weight: 650; }
+.vela-theme :is(.vela-meta, .caption-version-state, .vela-run-tag) {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 7px;
+  border: 1px solid var(--vela-border);
+  border-radius: 99px;
+  background: var(--vela-surface-soft);
+  color: var(--vela-fg);
+  font: 700 10px/1.3 var(--vela-font-mono);
+}
+.vela-theme .vela-metadata-list > div:first-child { border-top: 0; }
+.vela-theme .vela-metadata-list dt { align-self: center; }
+.vela-theme .vela-metadata-list dd { line-height: 1.45; }
 .vela-context-stats { margin: 13px 0 0; }.vela-context-stats .vela-stat { display: grid; gap: 2px; }.vela-context-stats dt { color: var(--vela-muted); font-size: 10px; text-transform: uppercase; }.vela-context-stats dd { margin: 0; color: var(--vela-accent); font-weight: 700; }
 .vela-notes-card textarea { width: 100%; margin-top: 8px; }.vela-note-tools { display: flex; gap: 5px; }.vela-note-tools button { min-height: 30px !important; padding: 4px 9px !important; }.vela-note-history { display: grid; gap: 5px; margin-top: 10px; }.vela-note-history button { height: auto; display: grid !important; justify-items: start !important; text-align: left; font-size: 11px; }.vela-note-history button span { color: var(--vela-muted); font-size: 9px; }
 
@@ -482,6 +533,9 @@
 .vela-theme .comments { display: grid; gap: 7px; margin-bottom: 12px; }
 .vela-theme .comments article { padding: 9px 0; border-bottom: 1px solid var(--vela-border); }
 .vela-theme .comments p { margin-top: 4px; white-space: pre-wrap; }
+.vela-theme :is(.dashboard-lower, .project-compare-grid, .grid-axis-layout, .grid-subgrids) { row-gap: var(--vela-space-4); }
+.vela-theme :is(.caption-list, .prompt-rows, .comments, .eval-run-strip) { gap: var(--vela-space-3); }
+.vela-theme .comparison-viewer .vela-main { gap: var(--vela-space-4); }
 
 @media (max-width: 1180px) {
   .vela-page-header { min-height: 100px; }
