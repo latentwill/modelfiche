@@ -98,7 +98,10 @@ def detect_prefix(
             warnings.append(
                 f"manifest reports {declared[name]} {name}; observed inventory contains {observed[name]}"
             )
-    dataset_score = min(1.0, 0.45 * ("captions.jsonl" in names) + 0.35 * bool(paired) + 0.1 * len(dataset_signals))
+    image_only_dataset = bool(image_stems) and not (manifest_objects or checkpoints or sample_images or config_objects)
+    if image_only_dataset and not paired:
+        dataset_signals.append(f"{len(image_stems)} dataset image(s) without captions")
+    dataset_score = min(1.0, 0.45 * ("captions.jsonl" in names) + 0.35 * bool(paired) + 0.4 * image_only_dataset + 0.1 * len(dataset_signals))
     run_score = min(1.0, 0.35 * bool(manifest_objects) + 0.3 * bool(checkpoints) + 0.2 * bool(sample_images) + 0.1 * bool(config_objects))
     if run_score >= dataset_score and run_score >= 0.35:
         kind, confidence, signals = PrefixKind.TRAINING_RUN, run_score, run_signals

@@ -17,6 +17,18 @@ def test_dataset_detection_pairs_images_and_captions():
     assert result.observed["caption_pairs"] == 1
 
 
+def test_dataset_detection_accepts_image_only_source_without_run_signals():
+    prefix = "title-lora/datasets/no-captions/"
+    inventory = Inventory(prefix, [obj(prefix + "one.png"), obj(prefix + "two.jpg")])
+
+    result = detect_prefix(inventory)
+
+    assert result.kind == PrefixKind.DATASET
+    assert result.observed["images"] == 2
+    assert result.observed["caption_pairs"] == 0
+    assert result.signals == ("2 dataset image(s) without captions",)
+
+
 def test_run_detection_warns_when_manifest_inventory_is_stale():
     prefix = "title-lora/projects/p/runs/r/"
     inventory = Inventory(
