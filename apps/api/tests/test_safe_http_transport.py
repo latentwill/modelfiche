@@ -91,8 +91,13 @@ def test_fal_client_rejects_cross_origin_lifecycle_url_before_request():
     assert exchange.calls == []
 
 
-def test_fal_submit_ignores_provider_lifecycle_urls_and_builds_canonical_ones():
-    body = json.dumps({"request_id": "req_123", "status_url": "https://attacker.test/steal"}).encode()
+def test_fal_submit_accepts_only_matching_canonical_provider_lifecycle_urls():
+    body = json.dumps({
+        "request_id": "req_123",
+        "status_url": "https://queue.fal.run/fal-ai/canonical/requests/req_123/status",
+        "response_url": "https://queue.fal.run/fal-ai/canonical/requests/req_123",
+        "cancel_url": "https://queue.fal.run/fal-ai/canonical/requests/req_123/cancel",
+    }).encode()
     exchange = ScriptedExchange([HttpResponse(200, {}, body)])
     settings = FalSettings("secret", "https://queue.fal.run")
     client = FalQueueClient(
@@ -103,9 +108,24 @@ def test_fal_submit_ignores_provider_lifecycle_urls_and_builds_canonical_ones():
         ),
     )
     submission = client.submit("fal-ai/model", {"prompt": "x"})
-    assert submission.status_url == "https://queue.fal.run/fal-ai/model/requests/req_123/status"
-    assert submission.response_url == "https://queue.fal.run/fal-ai/model/requests/req_123"
+    assert submission.status_url == "https://queue.fal.run/fal-ai/canonical/requests/req_123/status"
+    assert submission.response_url == "https://queue.fal.run/fal-ai/canonical/requests/req_123"
     assert exchange.calls[0][2]["Authorization"] == "Key secret"
+
+
+def test_fal_submit_rejects_cross_origin_provider_lifecycle_urls():
+    body = json.dumps({"request_id": "req_123", "status_url": "https://attacker.test/steal"}).encode()
+    exchange = ScriptedExchange([HttpResponse(200, {}, body)])
+    settings = FalSettings("secret", "https://queue.fal.run")
+    client = FalQueueClient(
+        settings,
+        transport=FalApiTransport(
+            settings,
+            transport=SafeHttpTransport(resolver=resolver_for("93.184.216.34"), exchange=exchange),
+        ),
+    )
+    with pytest.raises(FalProviderError, match="canonical API origin"):
+        client.submit("fal-ai/model", {"prompt": "x"})
 
 
 def test_strict_json_rejects_duplicate_keys_and_shape_bounds():

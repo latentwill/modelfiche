@@ -90,6 +90,25 @@ class FalApiTransport:
             raise FalProviderError("FAL lifecycle URL is outside the canonical API origin")
         return url
 
+    def require_lifecycle_url(self, url: Any, request_id: str, operation: str) -> str:
+        if not isinstance(url, str):
+            raise FalProviderError(f"FAL response did not contain a valid {operation}_url")
+        canonical = self.require_canonical_url(url)
+        parsed = urlsplit(canonical)
+        marker = f"/requests/{self._request_id(request_id)}"
+        if marker not in parsed.path:
+            raise FalProviderError("FAL lifecycle URL does not match the submitted request")
+        endpoint, suffix = parsed.path.split(marker, 1)
+        self._endpoint_id(endpoint.lstrip("/"))
+        allowed = {
+            "status": {"/status"},
+            "response": {"", "/response"},
+            "cancel": {"/cancel"},
+        }
+        if operation not in allowed or suffix not in allowed[operation]:
+            raise FalProviderError("FAL lifecycle URL has an invalid operation path")
+        return canonical
+
     def request(self, method: str, url: str, payload: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
         canonical = self.require_canonical_url(url)
         content: bytes | None = None
@@ -141,9 +160,9 @@ class FalQueueClient:
         self._transport._request_id(request_id)
         return Submission(
             request_id=request_id,
-            status_url=self._transport.lifecycle_url(endpoint_id, request_id, "status"),
-            response_url=self._transport.lifecycle_url(endpoint_id, request_id, "result"),
-            cancel_url=self._transport.lifecycle_url(endpoint_id, request_id, "cancel"),
+            status_url=self._transport.require_lifecycle_url(result.get("status_url"), request_id, "status"),
+            response_url=self._transport.require_lifecycle_url(result.get("response_url"), request_id, "response"),
+            cancel_url=self._transport.require_lifecycle_url(result.get("cancel_url"), request_id, "cancel"),
         )
     def resume_submission(self, endpoint_id: str, request_id: str) -> Submission:
         """Rebuild canonical lifecycle URLs for a previously persisted request."""
