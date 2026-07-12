@@ -4,7 +4,8 @@ from pathlib import Path
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -176,13 +177,19 @@ def _gallery_query(
     category: str | None = None,
     provider: str | None = None,
     include_dataset_assets: bool = False,
+    sort: str = "origin_time_desc",
 ):
     eval_time = select(models.EvalOutput.generated_at).where(models.EvalOutput.asset_id == models.Asset.id).order_by(models.EvalOutput.generated_at.desc()).limit(1).scalar_subquery()
     sample_time = select(models.Sample.modified_at).where(models.Sample.asset_id == models.Asset.id).order_by(models.Sample.modified_at.desc()).limit(1).scalar_subquery()
-    is_eval = select(models.EvalOutput.id).where(models.EvalOutput.asset_id == models.Asset.id).exists()
-    is_sample = select(models.Sample.id).where(models.Sample.asset_id == models.Asset.id).exists()
+    is_eval = or_(select(models.EvalOutput.id).where(models.EvalOutput.asset_id == models.Asset.id).exists(), models.Asset.metadata_["category"].as_string() == "eval_output")
+    is_sample = or_(select(models.Sample.id).where(models.Sample.asset_id == models.Asset.id).exists(), models.Asset.metadata_["category"].as_string() == "sample")
+    # Canonical origin timestamps are intentionally not substituted: imported
+    # EVAL/SAMPLE rows without their origin time sort last with an ID tie-break.
     canonical_time = case((is_eval, eval_time), (is_sample, sample_time), else_=models.Asset.created_at)
-    query = select(models.Asset).order_by(canonical_time.desc().nulls_last(), models.Asset.id)
+    order = canonical_time.asc().nulls_last() if sort == "origin_time_asc" else canonical_time.desc().nulls_last()
+    # created_at is only a deterministic tie-break inside the missing-time group;
+    # it is never exposed or labelled as generated_at/modified_at.
+    query = select(models.Asset).order_by(order, models.Asset.created_at.desc(), models.Asset.id)
     if not include_dataset_assets and not dataset_id:
         dataset_asset_ids = select(models.DatasetItem.asset_id)
         query = query.where(
@@ -192,9 +199,11 @@ def _gallery_query(
     if project_id:
         query = query.where(models.Asset.project_id == project_id)
     if category == "sample":
-        query = query.where(models.Asset.id.in_(select(models.Sample.asset_id)))
+        query = query.where(or_(models.Asset.id.in_(select(models.Sample.asset_id)), models.Asset.metadata_["category"].as_string() == "sample"))
     elif category == "eval_output":
-        query = query.where(models.Asset.id.in_(select(models.EvalOutput.asset_id)))
+        # Historical imports predate relational EvalOutput rows. Gallery keeps them
+        # navigable by their canonical origin tag; Eval pages remain run-owned.
+        query = query.where(or_(models.Asset.id.in_(select(models.EvalOutput.asset_id)), models.Asset.metadata_["category"].as_string() == "eval_output"))
     elif category == "dataset_image":
         query = query.where(models.Asset.id.in_(select(models.DatasetItem.asset_id)))
     elif category:
@@ -300,8 +309,9 @@ def gallery_context(
     category: str | None = None,
     provider: str | None = None,
     include_dataset_assets: bool = False,
+    sort: str = Query("origin_time_desc", pattern="^origin_time_(asc|desc)$"),
 ):
-    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets)
+    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets, sort)
     ordered_ids = db.scalars(query.with_only_columns(models.Asset.id)).all()
     try:
         selected_index = ordered_ids.index(asset_id)
@@ -341,8 +351,9 @@ def gallery(
     paginated: bool = False,
     limit: int = Query(50, ge=1, le=250),
     offset: int = Query(0, ge=0),
+    sort: str = Query("origin_time_desc", pattern="^origin_time_(asc|desc)$"),
 ):
-    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets)
+    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets, sort)
     total = int(db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0)
     rows = db.scalars(query.options(selectinload(models.Asset.locations)).offset(offset).limit(limit)).all()
     result = _gallery_rows(db, rows)
@@ -352,6 +363,8 @@ def gallery(
 def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
     """Project the richest reliable provenance available for a gallery image."""
     metadata = dict(asset.metadata_ or {})
+    if "origin_type" not in metadata:
+        metadata["origin_type"] = {"eval_output": "EVAL", "sample": "SAMPLE", "dataset_image": "DATASET"}.get(str(metadata.get("category", "")), "ASSET")
     normalized_fal = normalize_fal_image_metadata(metadata)
     for key, value in normalized_fal.items():
         metadata.setdefault(key, value)
@@ -378,14 +391,14 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         }.items() if value is not None})
         if run and sample.checkpoint_id:
             model_rows = db.execute(
-                select(models.Model.id, models.Model.name)
+                select(models.Model.id, models.Model.name, models.ModelVersion.id, models.ModelVersion.name)
                 .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
                 .where(models.ModelVersion.checkpoint_id == sample.checkpoint_id)
                 .distinct()
             ).all()
             if model_rows:
-                metadata["model_id"], metadata["model_name"] = model_rows[0]
-                metadata["models"] = [{"id": model_id, "name": name} for model_id, name in model_rows]
+                metadata["model_id"], metadata["model_name"], metadata["model_version_id"], metadata["model_version_name"] = model_rows[0]
+                metadata["models"] = [{"id": model_id, "name": name, "model_version_id": version_id, "model_version_name": version_name} for model_id, name, version_id, version_name in model_rows]
             if run.dataset_version_id:
                 version = db.get(models.DatasetVersion, run.dataset_version_id)
                 dataset = db.get(models.Dataset, version.dataset_id) if version else None
@@ -538,10 +551,44 @@ def asset_thumbnail(asset_id: str, db: DB, size: int = Query(512)):
 
 
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_asset(asset_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+def delete_asset(asset_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None, report: bool = False, delete_content: bool = False):
     asset = get_or_404(db, models.Asset, asset_id)
     project_id = asset.project_id
+    if db.scalar(select(models.DatasetItem.id).where(models.DatasetItem.asset_id == asset_id).limit(1)):
+        raise HTTPException(status_code=409, detail="Dataset source images cannot be deleted from Gallery; remove them through dataset versioning.")
+    if db.scalar(select(models.Checkpoint.id).where(models.Checkpoint.asset_id == asset_id).limit(1)):
+        raise HTTPException(status_code=409, detail="Model checkpoint artifacts cannot be deleted from Gallery.")
+    locations = [{"provider": item.provider, "uri": item.uri} for item in asset.locations]
+    db.query(models.Sample).filter(models.Sample.asset_id == asset_id).delete(synchronize_session=False)
+    db.query(models.EvalOutput).filter(models.EvalOutput.asset_id == asset_id).delete(synchronize_session=False)
+    db.query(models.Review).filter(models.Review.subject_type == "asset", models.Review.subject_id == asset_id).delete(synchronize_session=False)
+    db.query(models.Comment).filter(models.Comment.subject_type == "asset", models.Comment.subject_id == asset_id).delete(synchronize_session=False)
+    db.query(models.Note).filter(models.Note.subject_type == "asset", models.Note.subject_id == asset_id).delete(synchronize_session=False)
     db.delete(asset)
     record_activity(db, action="asset.deleted", subject_type="asset", subject_id=asset_id, profile_id=profile_for(db, x_profile_id).id, project_id=project_id)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Asset metadata is still referenced and could not be deleted safely.") from exc
+    storage = []
+    for location in locations:
+        if not delete_content:
+            storage.append({**location, "status": "retained", "detail": "Content deletion was not requested."})
+            continue
+        if location["provider"] != "local":
+            storage.append({**location, "status": "retained", "detail": "Remote object deletion is not supported by Gallery; metadata was removed."})
+            continue
+        try:
+            path = Path(location["uri"]).expanduser().resolve()
+            roots = (get_settings().asset_root.resolve(), get_settings().cache_root.resolve())
+            if not any(path == root or root in path.parents for root in roots):
+                raise PermissionError("path is outside configured storage roots")
+            if path.exists(): path.unlink()
+            storage.append({**location, "status": "deleted"})
+        except Exception as exc:
+            storage.append({**location, "status": "failed", "detail": str(exc)})
+    if report:
+        result = {"asset_id": asset_id, "metadata": "deleted", "storage": storage}
+        return JSONResponse(result, status_code=207 if any(item["status"] == "failed" for item in storage) else 200)
     return Response(status_code=204)

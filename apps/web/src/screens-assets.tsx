@@ -124,7 +124,7 @@ function ActionMessage({ message, error }: { message?: string; error?: string })
 
 function ObjectImageStrip({ assets, label }: { assets: Row[]; label: string }) {
   if (!assets.length) return null;
-  return <div className="object-image-strip" aria-label={label}>{assets.slice(0, 4).map(asset => <a href={`#/image/${idOf(asset)}`} key={idOf(asset)}><AssetImage assetRevisionId={str(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={str(asset.name, label)} loading="lazy" /></a>)}</div>;
+  return <div className="object-image-strip" aria-label={label}>{assets.slice(0, 4).map(asset => <a href={galleryOpenHref(asset)} key={idOf(asset)}><AssetImage assetRevisionId={str(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={str(asset.name, label)} loading="lazy" /></a>)}</div>;
 }
 
 export function DatasetsScreen({ projectId = "" }: { projectId?: string }) {
@@ -296,7 +296,7 @@ function CaptionItem({ item, draftId, selected, onSelect, onSaved }: { item: Row
   return <article className={`caption-item ${selected ? "selected" : ""}`}>
     <div className="caption-image">
       <label><input type="checkbox" checked={selected} onChange={event => onSelect(event.target.checked)} aria-label={`Select ${filename}`} /></label>
-      <a href={`#/image/${String(assetId)}`} title={`Open ${filename} in the image reviewer`}><AssetImage assetRevisionId={String(assetId)} alt={filename} loading="lazy" /><span>Open image</span></a>
+      <a href={galleryOpenHref(item, "dataset_image")} title={`Open ${filename} in the image reviewer`}><AssetImage assetRevisionId={String(assetId)} alt={filename} loading="lazy" /><span>Open image</span></a>
     </div>
     <div>
       <div className="caption-heading"><strong>{filename}</strong><Status value={item.caption_format ?? "text"} /></div>
@@ -626,10 +626,11 @@ type GalleryFilters = {
   rating: string;
   q: string;
   include_dataset_assets: boolean;
+  sort: string;
 };
 
 function galleryFiltersFromParams(params: URLSearchParams, projectId: string, defaults?: GalleryFilters): Partial<GalleryFilters> {
-  const isExplicitGalleryScope = ["project", "model", "dataset", "category", "kind", "decision", "rating", "q", "include_dataset_assets", "asset", "return"].some(key => params.has(key));
+  const isExplicitGalleryScope = ["project", "model", "dataset", "category", "kind", "decision", "rating", "q", "sort", "include_dataset_assets", "asset", "return"].some(key => params.has(key));
   if (isExplicitGalleryScope && defaults) {
     return {
       ...defaults,
@@ -641,6 +642,7 @@ function galleryFiltersFromParams(params: URLSearchParams, projectId: string, de
       decision: params.get("decision") ?? "",
       rating: params.get("rating") ?? "",
       q: params.get("q") ?? "",
+      sort: params.get("sort") ?? "origin_time_desc",
       include_dataset_assets: params.has("include_dataset_assets") ? params.get("include_dataset_assets") === "true" : params.get("category") === "dataset_image",
     };
   }
@@ -654,16 +656,17 @@ function galleryFiltersFromParams(params: URLSearchParams, projectId: string, de
   if (params.has("decision")) filters.decision = params.get("decision") ?? "";
   if (params.has("rating")) filters.rating = params.get("rating") ?? "";
   if (params.has("q")) filters.q = params.get("q") ?? "";
+  if (params.has("sort")) filters.sort = params.get("sort") ?? "origin_time_desc";
   if (params.has("include_dataset_assets")) filters.include_dataset_assets = params.get("include_dataset_assets") === "true";
   return filters;
 }
 
-function safeReturnTarget(value: string | null) {
+export function safeReturnTarget(value: string | null) {
   if (!value || value.startsWith("/") || value.startsWith("#") || /^[a-z]+:/i.test(value)) return "";
   return value;
 }
 
-function galleryHash(filters: GalleryFilters, page: number, pageSize: number, assetId = "", returnTarget = "") {
+export function galleryHash(filters: GalleryFilters, page: number, pageSize: number, assetId = "", returnTarget = "") {
   return `#/gallery${query({
     project: filters.project_id,
     model: filters.model_id,
@@ -673,6 +676,7 @@ function galleryHash(filters: GalleryFilters, page: number, pageSize: number, as
     decision: filters.decision,
     rating: filters.rating,
     q: filters.q,
+    sort: filters.sort === "origin_time_desc" ? "" : filters.sort,
     include_dataset_assets: filters.include_dataset_assets ? true : "",
     page,
     pageSize,
@@ -681,11 +685,23 @@ function galleryHash(filters: GalleryFilters, page: number, pageSize: number, as
   })}`;
 }
 
+export function galleryOpenHref(asset: Row, category = "") {
+  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata as Row : {};
+  const origin = str(asset.origin_type ?? metadata.origin_type, "").toUpperCase();
+  const resolvedCategory = category || (origin === "EVAL" ? "eval_output" : origin === "SAMPLE" ? "sample" : origin === "DATASET" ? "dataset_image" : "");
+  const returnTarget = typeof location !== "undefined" ? safeReturnTarget(location.hash.replace(/^#\/?/, "")) : "";
+  return `#/gallery${query({ project: asset.project_id ?? metadata.project_id, category: resolvedCategory, include_dataset_assets: resolvedCategory === "dataset_image" ? true : "", asset: asset.asset_revision_id ?? asset.asset_id ?? asset.id, return: returnTarget })}`;
+}
+
+export function isGalleryShortcutTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable=true]"));
+}
+
 export function GalleryScreen({ projectId = "", params = new URLSearchParams() }: { projectId?: string; params?: URLSearchParams }) {
   const projects = useResource<unknown>("/api/projects?limit=100");
   const [page, setPage] = useState(() => Math.max(1, Number(params.get("page")) || Number(localStorage.getItem("titles.gallery.page")) || 1));
   const [pageSize, setPageSize] = useState(() => Number(params.get("pageSize")) || Number(localStorage.getItem("titles.gallery.pageSize")) || 50);
-  const defaultFilters: GalleryFilters = { project_id: projectId, model_id: "", dataset_id: "", category: "", kind: "image", decision: "", rating: "", q: "", include_dataset_assets: false };
+  const defaultFilters: GalleryFilters = { project_id: projectId, model_id: "", dataset_id: "", category: "", kind: "image", decision: "", rating: "", q: "", include_dataset_assets: false, sort: "origin_time_desc" };
   const [filters, setFilters] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("titles.gallery.filters") ?? "null") as Partial<typeof defaultFilters> | null;
@@ -696,6 +712,7 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
   const models = useResource<unknown>(`/api/models${query({ project_id: filters.project_id })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: filters.project_id })}`);
   const [size, setSize] = useState(170);
+  const [actionNotice, setActionNotice] = useState("");
   const path = `/api/gallery${query({ ...filters, paginated: true, limit: pageSize, offset: (page - 1) * pageSize })}`;
   const resource = useResource<Row>(path);
   const assets = rows(resource.data);
@@ -735,29 +752,34 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
         <Field label="Search"><input value={filters.q} onChange={event => setFilters({ ...filters, q: event.target.value })} placeholder="Filename" /></Field>
         <Field label="Decision"><select value={filters.decision} onChange={event => setFilters({ ...filters, decision: event.target.value })}><option value="">Any</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="hold">Hold</option><option value="reject">Reject</option></select></Field>
         <Field label="Rating"><select value={filters.rating} onChange={event => setFilters({ ...filters, rating: event.target.value })}><option value="">Any</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} star{value === 1 ? "" : "s"}</option>)}</select></Field>
+        <Field label="Sort"><select value={filters.sort} onChange={event => setFilters({ ...filters, sort: event.target.value })}><option value="origin_time_desc">Newest generated or modified</option><option value="origin_time_asc">Oldest generated or modified</option></select></Field>
         <Field label="Dataset images"><label><input type="checkbox" checked={filters.include_dataset_assets} onChange={event => setFilters({ ...filters, include_dataset_assets: event.target.checked })} /> Include dataset members</label></Field>
         <Field label={`Thumbnail size · ${size}px`}><input aria-label="Thumbnail size" type="range" min="120" max="260" value={size} onChange={event => setSize(Number(event.target.value))} /></Field>
       </div>
       <div className="actions"><button onClick={() => setFilters(defaultFilters)} disabled={!isFiltered} title={!isFiltered ? "No additional filters are active" : undefined}><X size={14} />Clear filters</button><span className="vela-meta" aria-live="polite">{total} matching assets</span></div>
     </Panel>
     <Panel title="Assets">
+      <ActionMessage message={actionNotice} />
       <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !assets.length} />
-      {total > 0 && <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} onPageSize={setPageSize} />}
       {!!assets.length && <div style={{ "--asset-size": `${size}px` } as CSSProperties}><AssetGrid assets={assets} hrefForAsset={asset => galleryHash(filters, page, pageSize, str(asset.asset_revision_id ?? asset.asset_id ?? asset.id), returnTarget)} /></div>}
+      {total > 0 && <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} onPageSize={setPageSize} />}
     </Panel>
-    {selectedAssetId && <GalleryImageOverlay id={selectedAssetId} items={assets} filters={filters} page={page} pageSize={pageSize} closeHref={closeHref} returnTarget={returnTarget} />}
+    {selectedAssetId && <GalleryImageOverlay id={selectedAssetId} items={assets} filters={filters} page={page} pageSize={pageSize} closeHref={closeHref} returnTarget={returnTarget} onDeleted={resource.reload} onDeleteNotice={setActionNotice} />}
   </Page>;
 }
 
-function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, returnTarget }: { id: string; items: Row[]; filters: GalleryFilters; page: number; pageSize: number; closeHref: string; returnTarget: string }) {
+function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, returnTarget, onDeleted, onDeleteNotice }: { id: string; items: Row[]; filters: GalleryFilters; page: number; pageSize: number; closeHref: string; returnTarget: string; onDeleted: () => Promise<void>; onDeleteNotice: (message: string) => void }) {
   const asset = useResource<Row>(`/api/assets/${id}`);
   const context = useResource<Row>(`/api/assets/${id}/context`);
   const galleryContext = useResource<Row>(`/api/gallery/context${query({ ...filters, asset_id: id })}`);
   const comments = useResource<unknown>(`/api/comments${query({ subject_type: "asset", subject_id: id })}`);
   const reviews = useResource<unknown>(`/api/reviews${query({ subject_type: "asset", subject_id: id })}`);
-  const [fit, setFit] = useState(true);
+  const overlay = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const [ratingBusy, setRatingBusy] = useState(false);
   const [ratingError, setRatingError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const contextItems = rows(galleryContext.data?.items);
   const navigationItems = contextItems.length ? contextItems : items;
   const index = navigationItems.findIndex(item => idOf(item) === id || str(item.asset_revision_id ?? item.asset_id) === id);
@@ -766,12 +788,32 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const currentRating = Number(rows(reviews.data)[0]?.rating ?? 0);
   const metadata = context.data?.metadata && typeof context.data.metadata === "object" ? context.data.metadata as Row : {};
   const hrefFor = (item: Row) => galleryHash(filters, page, pageSize, str(item.asset_revision_id ?? item.asset_id ?? item.id), returnTarget);
-  return <div className="review-overlay vela-focus-workspace gallery-review-overlay"><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fit ? "Fill image" : "Fit image"} aria-label={fit ? "Fill image" : "Fit image"} onClick={() => setFit(!fit)}>{fit ? <Maximize2 size={16} /> : <Minimize2 size={16} />}<span>{fit ? "Fill" : "Fit"}</span></button><a className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
-    <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></div><AssetImage className={fit ? "fit" : "fill"} assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} />
+  const rate = async (value: number) => { setRatingBusy(true); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: id, rating: value, decision: "candidate" })); await reviews.reload(); } catch (reason) { setRatingError(errorText(reason)); } finally { setRatingBusy(false); } };
+  useEffect(() => {
+    const changed = () => setFullscreen(document.fullscreenElement === overlay.current);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (isGalleryShortcutTarget(event.target)) return;
+      if (event.key === "ArrowLeft" && previous) { event.preventDefault(); location.hash = hrefFor(previous).slice(1); }
+      if (event.key === "ArrowRight" && next) { event.preventDefault(); location.hash = hrefFor(next).slice(1); }
+      if (/^[1-5]$/.test(event.key) && !ratingBusy) { event.preventDefault(); void rate(Number(event.key)); }
+      if (event.key === "Escape" && !document.fullscreenElement) location.hash = closeHref.slice(1);
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [id, previous && idOf(previous), next && idOf(next), ratingBusy, closeHref]);
+  const originType = str(metadata.origin_type ?? (galleryContext.data?.current ? (galleryContext.data.current as Row).origin_type : undefined), "ASSET");
+  const prompt = str(metadata.prompt ?? metadata.caption, "");
+  return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`}><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit full screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
+    <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></div><div className="image-review-media"><span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{originType}</span><AssetImage className="fit" assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} /></div>{prompt && <p className="image-review-prompt">{prompt}</p>}
       <div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
-      <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} x {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{str(metadata.model_name, "Unknown")}</dd><dt>Base model</dt><dd>{str(metadata.base_model, "Unknown")}</dd><dt>Dataset</dt><dd>{str(metadata.dataset_name, "Unknown")}</dd><dt>Training run</dt><dd>{str(metadata.run_name, "Unknown")}</dd><dt>Step</dt><dd>{str(metadata.step, "Unknown")}</dd><dt>Seed</dt><dd>{str(metadata.seed, "Unknown")}</dd><dt>Storage</dt><dd>{rows((context.data?.asset as Row | undefined)?.locations).map(location => str(location.provider)).join(", ") || "Remote"}</dd></dl><details><summary>All metadata</summary><pre className="vela-code">{JSON.stringify(metadata, null, 2)}</pre></details>
+      <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} x {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{str(metadata.model_name, "Unknown")}</dd><dt>Checkpoint</dt><dd>{str(metadata.model_version_name, "Unknown")}</dd><dt>Base model</dt><dd>{str(metadata.base_model, "Unknown")}</dd><dt>Dataset</dt><dd>{str(metadata.dataset_name, "Unknown")}</dd><dt>Training run</dt><dd>{str(metadata.run_name, "Unknown")}</dd><dt>Step</dt><dd>{str(metadata.step, "Unknown")}</dd><dt>Seed</dt><dd>{str(metadata.seed, "Unknown")}</dd><dt>Storage</dt><dd>{rows((context.data?.asset as Row | undefined)?.locations).map(location => str(location.provider)).join(", ") || "Remote"}</dd></dl><details><summary>All metadata</summary><pre className="vela-code">{JSON.stringify(metadata, null, 2)}</pre></details>
         {Boolean(metadata.prompt ?? metadata.caption) && Boolean(metadata.model_version_id) && Boolean(metadata.model_id) && Boolean(metadata.project_id ?? asset.data?.project_id) && <a className="button vela-button" href={generatorHref("image", { kind: "model", projectId: str(metadata.project_id ?? asset.data?.project_id, ""), modelId: str(metadata.model_id, ""), modelVersionId: str(metadata.model_version_id, "") }, id)}><ImagePlus size={15} /> Generate with these settings</a>}
-        <div className="rating-control"><span>Image rating</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={async () => { setRatingBusy(true); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: id, rating: value, decision: "candidate" })); await reviews.reload(); } catch (reason) { setRatingError(reason instanceof Error ? reason.message : String(reason)); } finally { setRatingBusy(false); } }}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
+        <div className="rating-control"><span>Image rating (keys 1–5)</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={() => void rate(value)}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
+        <div className="image-delete-control"><button className="vela-button vela-button-danger" disabled={deleteBusy} onClick={async () => { if (!confirm(`Delete ${str(asset.data?.name, "this image")}? This removes DAM metadata and supported local content.`)) return; setDeleteBusy(true); setDeleteError(""); try { const result = await api<Row>(`/api/assets/${id}?report=true&delete_content=true`, { method: "DELETE" }); const retained = rows(result.storage).filter(item => item.status !== "deleted"); onDeleteNotice(retained.length ? `${retained.length} storage object(s) retained; DAM metadata deleted.` : "Image and local content deleted."); const destination = next ? hrefFor(next) : previous ? hrefFor(previous) : closeHref; await onDeleted(); location.hash = destination.slice(1); } catch (reason) { setDeleteError(errorText(reason)); } finally { setDeleteBusy(false); } }}><Trash2 size={15} />{deleteBusy ? "Deleting…" : "Delete image"}</button>{deleteError && <div className="vela-notice vela-notice-error" role="alert">{deleteError}</div>}</div>
         <section><h3>Comments</h3><div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div><Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form></section>
       </aside></main>
   </div>;
@@ -784,11 +826,14 @@ export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsse
     const step = asset.step ?? metadata.step;
     const seed = asset.seed ?? metadata.seed;
     const model = str(asset.model_name ?? metadata.model_name, "");
+    const checkpoint = str(metadata.model_version_name, "");
     const baseModel = str(asset.base_model ?? metadata.base_model, "");
     const dataset = str(asset.dataset_name ?? metadata.dataset_name, "");
-    const secondary = [model, baseModel, dataset, step !== undefined && step !== null ? `Step ${step}` : "", seed !== undefined && seed !== null ? `Seed ${seed}` : ""].filter(Boolean).join(" · ") || str(asset.kind, "Image");
-    return <a className="asset-card" key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : `#/image/${String(asset.asset_revision_id ?? asset.asset_id ?? asset.id)}`} title={`Open ${name}`}>
-      <AssetImage assetRevisionId={String(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={name} loading="lazy" />
+    const run = str(asset.run_name ?? metadata.run_name, "");
+    const originType = str(asset.origin_type ?? metadata.origin_type, "ASSET");
+    const secondary = [model, checkpoint && `Checkpoint: ${checkpoint}`, run && `Run: ${run}`, baseModel, dataset, step !== undefined && step !== null ? `Step ${step}` : "", seed !== undefined && seed !== null ? `Seed ${seed}` : ""].filter(Boolean).join(" · ") || str(asset.kind, "Image");
+    return <a className="asset-card" key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)} title={`Open ${name}`}>
+      <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{originType}</span><AssetImage assetRevisionId={String(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={name} loading="lazy" />
       <span>{name}</span><small>{secondary}</small>
     </a>;
   })}</div>;

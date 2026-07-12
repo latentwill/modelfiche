@@ -98,6 +98,53 @@ def test_gallery_context_uses_full_filtered_order_not_visible_page(client: TestC
     assert context["next"]["id"] != context["current"]["id"]
 
 
+def test_gallery_origin_sort_does_not_invent_eval_or_sample_timestamps(client: TestClient):
+    _profile, headers, project, _asset, _dataset = _seed(client)
+    legacy_eval = client.post("/api/assets", headers=headers, json={"project_id": project["id"], "kind": "image", "name": "legacy-eval.png", "metadata": {"category": "eval_output"}}).json()
+    row = client.get("/api/gallery", params={"project_id": project["id"], "category": "eval_output", "include_dataset_assets": True}).json()[0]
+    assert row["id"] == legacy_eval["id"]
+    assert row["origin_type"] == "EVAL"
+    assert row["generated_at"] is None
+    assert row["modified_at"] is None
+
+
+def test_gallery_delete_reports_retained_remote_content_and_removes_metadata(client: TestClient):
+    _profile, headers, project, _asset, _dataset = _seed(client)
+    asset = client.post("/api/assets", headers=headers, json={
+        "project_id": project["id"], "kind": "image", "name": "remote.png",
+        "location": {"provider": "s3", "uri": "s3://bucket/remote.png", "bucket": "bucket", "object_key": "remote.png"},
+    }).json()
+    response = client.delete(f"/api/assets/{asset['id']}?report=true&delete_content=true", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["metadata"] == "deleted"
+    assert response.json()["storage"][0]["status"] == "retained"
+    assert client.get(f"/api/assets/{asset['id']}").status_code == 404
+
+
+def test_gallery_delete_reports_partial_local_storage_failure(client: TestClient, tmp_path):
+    _profile, headers, project, _asset, _dataset = _seed(client)
+    outside = tmp_path / "outside-root.png"
+    outside.write_bytes(b"not-an-image")
+    asset = client.post("/api/assets", headers=headers, json={
+        "project_id": project["id"], "kind": "image", "name": "outside.png",
+        "location": {"provider": "local", "uri": str(outside), "hydration_state": "hydrated"},
+    }).json()
+    response = client.delete(f"/api/assets/{asset['id']}?report=true&delete_content=true", headers=headers)
+    assert response.status_code == 207
+    assert response.json()["metadata"] == "deleted"
+    assert response.json()["storage"][0]["status"] == "failed"
+    assert "outside configured storage roots" in response.json()["storage"][0]["detail"]
+    assert outside.exists()
+
+
+def test_gallery_refuses_dataset_source_deletion(client: TestClient):
+    _profile, headers, _project, asset, _dataset = _seed(client)
+    response = client.delete(f"/api/assets/{asset['id']}?report=true&delete_content=true", headers=headers)
+    assert response.status_code == 409
+    assert "dataset versioning" in response.json()["detail"]
+    assert client.get(f"/api/assets/{asset['id']}").status_code == 200
+
+
 def test_gallery_model_filter_uses_run_lineage_and_returns_rich_metadata(client: TestClient):
     _profile, headers, project, _asset, dataset = _seed(client)
     dataset_detail = client.get(f"/api/datasets/{dataset['id']}").json()

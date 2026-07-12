@@ -17,6 +17,7 @@ import { useResource } from "./hooks";
 import { DataTable, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
 import { ModelCheckpointPicker } from "./generator";
 import { generationModelFromRow } from "./generation";
+import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -414,7 +415,7 @@ export function EvalScreen({ id }: { id: string }) {
               <GroupComment subjectType="eval_run" subjectId={id} prefix={`Prompt ${promptId}`} />
               {promptOutputs.map(output => (
                 <article className="comparison-image" key={idOf(output)}>
-                  <a href={`#/image/${str(output.asset_revision_id ?? output.asset_id)}`}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={promptCopy(output) || "Eval output"} /></a>
+                  <a href={galleryOpenHref({ ...output, project_id: resource.data?.project_id, origin_type: "EVAL" })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={promptCopy(output) || "Eval output"} /></a>
                   <RatingControl output={output} />
                   <small>Seed {str(output.seed)}</small>
                 </article>
@@ -666,14 +667,14 @@ export function GridScreen({ id }: { id: string }) {
                         disabled={!cell}
                         onClick={() => cell && setSelectedCell(cell)}
                       >{cellAssetId ? <AssetImage assetRevisionId={cellAssetId} loading="lazy" alt={`${x}, ${y}`} /> : <span>Pending</span>}</button>
-                      {cellAssetId && <a className="grid-cell-detail" href={`#/image/${cellAssetId}`}>Details</a>}
+                      {cellAssetId && <a className="grid-cell-detail" href={galleryOpenHref({ ...(cell ?? {}), asset_id: cellAssetId, project_id: resource.data?.project_id, origin_type: "EVAL" })}>Details</a>}
                     </div>
                   );
                 }),
               ])}
             </div>
           )}
-          {Boolean(selectedCell?.asset_revision_id ?? selectedCell?.asset_id) && <a className="vela-button" href={`#/image/${str(selectedCell?.asset_revision_id ?? selectedCell?.asset_id)}`}><ExternalLink size={15} /> Open selected image</a>}
+          {Boolean(selectedCell?.asset_revision_id ?? selectedCell?.asset_id) && <a className="vela-button" href={galleryOpenHref({ ...selectedCell, project_id: resource.data?.project_id, origin_type: "EVAL" })}><ExternalLink size={15} /> Open selected image</a>}
         </Panel>
       </main>
     </div>
