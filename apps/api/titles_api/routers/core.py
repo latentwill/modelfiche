@@ -5,7 +5,7 @@ import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
@@ -165,7 +165,12 @@ def _gallery_query(
     provider: str | None = None,
     include_dataset_assets: bool = False,
 ):
-    query = select(models.Asset).order_by(models.Asset.created_at.desc())
+    eval_time = select(models.EvalOutput.generated_at).where(models.EvalOutput.asset_id == models.Asset.id).order_by(models.EvalOutput.generated_at.desc()).limit(1).scalar_subquery()
+    sample_time = select(models.Sample.modified_at).where(models.Sample.asset_id == models.Asset.id).order_by(models.Sample.modified_at.desc()).limit(1).scalar_subquery()
+    is_eval = select(models.EvalOutput.id).where(models.EvalOutput.asset_id == models.Asset.id).exists()
+    is_sample = select(models.Sample.id).where(models.Sample.asset_id == models.Asset.id).exists()
+    canonical_time = case((is_eval, eval_time), (is_sample, sample_time), else_=models.Asset.created_at)
+    query = select(models.Asset).order_by(canonical_time.desc().nulls_last(), models.Asset.id)
     if not include_dataset_assets and not dataset_id:
         dataset_asset_ids = select(models.DatasetItem.asset_id)
         query = query.where(
@@ -188,13 +193,12 @@ def _gallery_query(
         )
         sample_asset_ids = (
             select(models.Sample.asset_id)
-            .join(models.Checkpoint, models.Checkpoint.run_id == models.Sample.run_id)
+            .join(models.Checkpoint, models.Checkpoint.id == models.Sample.checkpoint_id)
             .join(models.ModelVersion, models.ModelVersion.checkpoint_id == models.Checkpoint.id)
             .where(models.ModelVersion.model_id == model_id)
         )
-        inferred_ids = _inferred_model_asset_ids(db, model_id)
         linked_ids = eval_asset_ids.union(sample_asset_ids)
-        query = query.where(models.Asset.id.in_(linked_ids) | models.Asset.id.in_(inferred_ids))
+        query = query.where(models.Asset.id.in_(linked_ids))
     if dataset_id:
         dataset_asset_ids = (
             select(models.DatasetItem.asset_id)
@@ -232,6 +236,7 @@ def _gallery_rows(db: Session, rows: list[models.Asset]) -> list[dict]:
     for row in rows:
         review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id).order_by(models.Review.created_at.desc()))
         rich_metadata = _gallery_asset_metadata(db, row)
+        origin_type = rich_metadata.get("origin_type", "ASSET")
         result.append({
             "id": row.id,
             "asset_revision_id": row.id,
@@ -256,6 +261,9 @@ def _gallery_rows(db: Session, rows: list[models.Asset]) -> list[dict]:
             "review_count": int(db.scalar(select(func.count()).select_from(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id)) or 0),
             "comment_count": int(db.scalar(select(func.count()).select_from(models.Comment).where(models.Comment.subject_type == "asset", models.Comment.subject_id == row.id)) or 0),
             "created_at": row.created_at,
+            "origin_type": origin_type,
+            "generated_at": rich_metadata.get("generated_at") if origin_type == "EVAL" else None,
+            "modified_at": rich_metadata.get("modified_at") if origin_type == "SAMPLE" else None,
         })
     return result
 
@@ -343,18 +351,18 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         source_step = int(filename_match.group(1)) if filename_match else sample.step
         sample_index = int(filename_match.group(2)) if filename_match else None
         metadata.update({key: value for key, value in {
+            "origin_type": "SAMPLE", "modified_at": sample.modified_at,
             "run_id": sample.run_id, "run_name": run.name if run else None,
             "base_model": run.base_model if run else None, "trainer": run.trainer if run else None,
             "step": source_step, "sample_index": sample_index, "prompt": sample.prompt, "seed": sample.seed,
             "generation_settings": sample.generation_metadata or None,
             "training_settings": run.normalized_config if run and run.normalized_config else None,
         }.items() if value is not None})
-        if run:
+        if run and sample.checkpoint_id:
             model_rows = db.execute(
                 select(models.Model.id, models.Model.name)
                 .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
-                .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
-                .where(models.Checkpoint.run_id == run.id)
+                .where(models.ModelVersion.checkpoint_id == sample.checkpoint_id)
                 .distinct()
             ).all()
             if model_rows:
@@ -372,9 +380,6 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         version = db.get(models.ModelVersion, definition.model_version_id) if definition and definition.model_version_id else None
         model = db.get(models.Model, version.model_id) if version else None
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
-        inferred = _infer_eval_model(db, asset, definition.endpoint if definition else None) if model is None else None
-        if inferred:
-            model, version = inferred
         checkpoint = db.get(models.Checkpoint, version.checkpoint_id) if version else None
         training_run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
         dataset_version = db.get(models.DatasetVersion, training_run.dataset_version_id) if training_run and training_run.dataset_version_id else None
@@ -383,6 +388,7 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         if not isinstance(request_input, dict):
             request_input = output.provider_metadata.get("_request_input") if isinstance(output.provider_metadata, dict) else None
         metadata.update({key: value for key, value in {
+            "origin_type": "EVAL", "generated_at": output.generated_at,
             "eval_run_id": output.eval_run_id, "eval_name": definition.name if definition else None,
             "endpoint": definition.endpoint if definition else None, "model_id": model.id if model else None,
             "model_name": model.name if model else metadata.get("inferred_model_name"), "model_version_id": version.id if version else None,
@@ -393,7 +399,8 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
             "prompt": prompt.text if prompt else None, "seed": output.seed,
             "generation_settings": request_input or (eval_run.parameters_snapshot if eval_run and eval_run.parameters_snapshot else (definition.parameters if definition else None)),
             "provider_metadata": output.provider_metadata or None,
-            "model_attribution": "inferred_from_lora_path" if inferred else ("explicit" if model else metadata.get("model_attribution")),
+            "checkpoint_id": checkpoint.id if checkpoint else None,
+            "model_attribution": "explicit" if model else None,
         }.items() if value is not None})
 
     item = db.scalar(select(models.DatasetItem).where(models.DatasetItem.asset_id == asset.id).order_by(models.DatasetItem.created_at.desc()))
@@ -401,6 +408,7 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         version = db.get(models.DatasetVersion, item.dataset_version_id)
         dataset = db.get(models.Dataset, version.dataset_id) if version else None
         metadata.update({key: value for key, value in {
+            "origin_type": "DATASET",
             "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None,
             "dataset_version_id": version.id if version else None, "dataset_version_name": version.name if version else None,
             "caption": item.caption, "caption_format": item.caption_format, "included": item.included, "tags": item.tags or None,
@@ -415,65 +423,6 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         }.items() if value is not None}
     metadata["provenance_kind"] = asset.provenance_kind
     return metadata
-
-
-def _inferred_model_asset_ids(db: Session, model_id: str) -> list[str]:
-    model = db.get(models.Model, model_id)
-    if model is None:
-        return []
-    assets = db.scalars(
-        select(models.Asset)
-        .join(models.EvalOutput, models.EvalOutput.asset_id == models.Asset.id)
-        .where(models.Asset.project_id == model.project_id)
-    ).all()
-    matches = []
-    for asset in assets:
-        inferred = _infer_eval_model(db, asset, None)
-        if inferred and inferred[0].id == model_id:
-            matches.append(asset.id)
-    return matches
-
-
-def _infer_eval_model(db: Session, asset: models.Asset, endpoint: str | None) -> tuple[models.Model, models.ModelVersion] | None:
-    raw = asset.metadata_ or {}
-    request_input = raw.get("fal_request_input")
-    if not isinstance(request_input, dict):
-        return None
-    loras = request_input.get("loras")
-    if not isinstance(loras, list):
-        return None
-    paths = [str(item.get("path", "")) for item in loras if isinstance(item, dict) and item.get("path")]
-    normalized_paths = [re.sub(r"[^a-z0-9]+", "-", path.lower()) for path in paths]
-    named_models = [
-        model for model in db.scalars(select(models.Model).where(models.Model.project_id == asset.project_id)).all()
-        if re.sub(r"[^a-z0-9]+", "-", model.name.lower()).strip("-") in " ".join(normalized_paths)
-    ]
-    steps = {int(match.group(1)) for path in paths if (match := re.search(r"(?:step|[-_])(\d{3,})(?:\D|$)", path, re.IGNORECASE))}
-    if len(named_models) == 1:
-        version_query = select(models.ModelVersion).join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id).where(models.ModelVersion.model_id == named_models[0].id)
-        matching = db.scalar(version_query.where(models.Checkpoint.step.in_(steps)).order_by(models.ModelVersion.created_at.desc())) if steps else None
-        representative = matching or db.scalar(version_query.order_by(models.Checkpoint.step.desc()))
-        if representative:
-            return named_models[0], representative
-    if not steps:
-        return None
-    endpoint_value = str(raw.get("endpoint") or endpoint or "").lower()
-    candidates = db.execute(
-        select(models.Model, models.ModelVersion)
-        .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
-        .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
-        .where(models.Model.project_id == asset.project_id, models.Checkpoint.step.in_(steps))
-    ).all()
-    if not candidates:
-        return None
-    family_matches = [(model, version) for model, version in candidates if version.base_model and any(token in version.base_model.lower() for token in ("ideogram", "qwen", "krea", "flux")) and any(token in endpoint_value for token in ("ideogram", "qwen", "krea", "flux") if token in version.base_model.lower())]
-    choices = family_matches or candidates
-    model_ids = {model.id for model, _version in choices}
-    if len(model_ids) != 1:
-        return None
-    model_id = next(iter(model_ids))
-    versions = [(model, version) for model, version in choices if model.id == model_id]
-    return versions[0] if len(versions) == 1 else None
 
 
 @router.post("/assets", response_model=schemas.AssetOut, status_code=status.HTTP_201_CREATED, include_in_schema=False)

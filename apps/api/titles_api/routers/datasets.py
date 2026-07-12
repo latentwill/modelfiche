@@ -19,6 +19,7 @@ def _dump(row) -> dict[str, Any]:
 def _asset_fields(db: Session, asset_id: str) -> dict[str, Any]:
     asset = db.get(models.Asset, asset_id)
     image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset_id))
+    locations = db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset_id)).all()
     return {
         "asset_revision_id": asset_id,
         "filename": asset.name if asset else None,
@@ -26,6 +27,11 @@ def _asset_fields(db: Session, asset_id: str) -> dict[str, Any]:
         "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
         "width": image.width if image else None,
         "height": image.height if image else None,
+        "origin_type": "DATASET",
+        "generated_at": None,
+        "modified_at": None,
+        "availability": "available" if locations else "missing",
+        "availability_error": None if locations else "No storage object is associated with this dataset asset.",
     }
 
 
@@ -73,6 +79,8 @@ def dataset(dataset_id: str, db: DB):
     project = db.get(models.Project, dataset.project_id)
     version_rows = [{**_dump(v), "item_count": int(db.scalar(select(func.count()).select_from(models.DatasetItem).where(models.DatasetItem.dataset_version_id == v.id)) or 0)} for v in versions]
     current = versions[0] if versions else None
+    version_ids = [version.id for version in versions]
+    runs = db.scalars(select(models.TrainingRun).where(models.TrainingRun.dataset_version_id.in_(version_ids)).order_by(models.TrainingRun.created_at.desc())).all() if version_ids else []
     return {
         **_dump(dataset),
         "project_name": project.title if project else None,
@@ -81,6 +89,8 @@ def dataset(dataset_id: str, db: DB):
         "source_uri": current.source_uri if current else None,
         "trigger_words": current.trigger_words if current else [],
         "versions": version_rows,
+        "training_runs": [{"id": run.id, "name": run.name, "status": run.status, "dataset_version_id": run.dataset_version_id} for run in runs],
+        "empty_reason": "No source image objects were imported for this dataset." if current and not version_rows[0]["item_count"] else None,
     }
 
 

@@ -83,8 +83,6 @@ class SQLAlchemyEvalOutputSink:
                         **({"generated_at": generated_at.isoformat()} if generated_at else {}),
                     },
                 )
-                if generated_at:
-                    asset.created_at = generated_at
                 session.add(asset)
                 session.flush()
                 StorageRepository(session, project.workspace_id).attach_verified_local_location(
@@ -111,9 +109,8 @@ class SQLAlchemyEvalOutputSink:
                         "request_ids": request_ids,
                         "response": response_metadata,
                     },
+                    generated_at=generated_at,
                 )
-                if generated_at:
-                    output.created_at = generated_at
                 session.add(output)
                 session.flush()
                 if run.checkpoint_id:

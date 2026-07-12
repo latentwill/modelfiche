@@ -237,6 +237,7 @@ export function DatasetScreen({ id }: { id: string }) {
         {draft && <button className="caption-version active" aria-pressed="true" disabled title="The working copy is the active caption version"><span className="caption-version-number">Draft</span><span className="caption-version-body"><strong>Working copy</strong><small>{str(rows(draft.items).length, "0")} images · unpublished changes</small></span><span className="caption-version-state">Editing</span></button>}
       </div>}
     </Panel>
+    {rows(data?.training_runs).length > 0 && <Panel title="Training runs using this dataset"><DataTable rows={rows(data?.training_runs)} columns={[["name", "Run"], ["status", "Status"], ["dataset_version_id", "Dataset version"]]} onRow={row => { location.hash = `run/${idOf(row)}`; }} /></Panel>}
 
     {draft && <Panel title="Batch caption operations">
       <div className="selection-toolbar">
@@ -272,6 +273,7 @@ export function DatasetScreen({ id }: { id: string }) {
 
     <Panel title="Images and captions">
       <Notice error={!draft ? publishedItems.error : undefined} loading={!draft && publishedItems.loading} empty={!publishedItems.loading && !items.length} />
+      {!publishedItems.loading && !items.length && Boolean(data?.empty_reason) && <div className="vela-notice" role="status"><strong>Dataset is empty</strong><span>{str(data?.empty_reason)}</span></div>}
       {!publishedItems.loading && !items.length && activeVersionReferenced && <div className="vela-notice" role="status"><strong>Dataset files not indexed yet</strong><span>This version currently points to its training-storage path. Its images and caption files still need to be imported before captions can be reviewed.</span></div>}
       {!!items.length && <Pagination page={page} pageSize={pageSize} total={items.length} onPage={setPage} onPageSize={setPageSize} />}
       {!!visibleItems.length && <div className="caption-list">{visibleItems.map((item, index) => <CaptionItem key={idOf(item) || index} item={item} selected={selected.includes(idOf(item))} onSelect={checked => setSelected(checked ? [...selected, idOf(item)] : selected.filter(value => value !== idOf(item)))} draftId={str(draft?.id, "")} onSaved={created => {
@@ -297,6 +299,7 @@ function CaptionItem({ item, draftId, selected, onSelect, onSaved }: { item: Row
     <div>
       <div className="caption-heading"><strong>{filename}</strong><Status value={item.caption_format ?? "text"} /></div>
       <textarea aria-label={`Caption for ${filename}`} value={caption} readOnly={!draftId} title={!draftId ? "Create a new version to edit this caption" : undefined} onChange={event => setCaption(event.target.value)} />
+      {item.availability === "missing" && <div className="vela-notice vela-notice-error" role="alert">{str(item.availability_error, "The source image object is missing.")}</div>}
       <label title={!draftId ? "Create a new version to change inclusion" : undefined}><input type="checkbox" checked={Boolean(item.included ?? true)} disabled={!draftId || saving} onChange={async event => {
         if (!draftId) return;
         setSaving(true); setError("");

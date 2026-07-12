@@ -162,7 +162,16 @@ def checkpoints(run_id: str, db: DB):
 def create_sample(run_id: str, body: schemas.SampleCreate, db: DB):
     get_or_404(db, models.TrainingRun, run_id)
     get_or_404(db, models.Asset, body.asset_id)
-    sample = models.Sample(run_id=run_id, **body.model_dump())
+    location = db.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == body.asset_id).order_by(models.AssetLocation.modified_at.desc()))
+    values = body.model_dump()
+    if values["checkpoint_id"] is None and values["step"] is not None:
+        checkpoint = db.scalar(select(models.Checkpoint).where(models.Checkpoint.run_id == run_id, models.Checkpoint.step == values["step"]))
+        values["checkpoint_id"] = checkpoint.id if checkpoint else None
+    if values["checkpoint_id"] is not None:
+        checkpoint = get_or_404(db, models.Checkpoint, values["checkpoint_id"])
+        if checkpoint.run_id != run_id:
+            raise HTTPException(status_code=400, detail="sample checkpoint does not belong to training run")
+    sample = models.Sample(run_id=run_id, modified_at=location.modified_at if location else None, **values)
     db.add(sample)
     db.commit()
     return dump(sample)
@@ -171,7 +180,7 @@ def create_sample(run_id: str, body: schemas.SampleCreate, db: DB):
 @router.get("/runs/{run_id}/samples")
 def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200, le=1000), offset: int = 0):
     get_or_404(db, models.TrainingRun, run_id)
-    query = select(models.Sample).where(models.Sample.run_id == run_id).order_by(models.Sample.step, models.Sample.created_at)
+    query = select(models.Sample).where(models.Sample.run_id == run_id).order_by(models.Sample.modified_at.asc().nulls_last(), models.Sample.id)
     if step is not None:
         query = query.where(models.Sample.step == step)
     rows = []
@@ -186,6 +195,9 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
             "mime_type": asset.mime_type if asset else None,
             "rating": review.rating if review else None,
             "decision": review.decision if review else None,
+            "origin_type": "SAMPLE",
+            "modified_at": sample.modified_at,
+            "generated_at": None,
         })
     return rows
 

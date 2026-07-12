@@ -261,6 +261,7 @@ class Sample(UUIDMixin, TimestampMixin, Base):
     prompt: Mapped[str | None] = mapped_column(Text)
     seed: Mapped[int | None] = mapped_column(Integer)
     generation_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class Model(UUIDMixin, TimestampMixin, Base):
@@ -326,6 +327,7 @@ class EvalOutput(UUIDMixin, TimestampMixin, Base):
     asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"))
     seed: Mapped[int | None] = mapped_column(Integer)
     provider_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class GridDefinition(UUIDMixin, TimestampMixin, Base):
@@ -773,5 +775,4 @@ class FalArtifactReceipt(UUIDMixin, TimestampMixin, Base):
     stage_fence: Mapped[str] = mapped_column(String(128))
     transfer_id: Mapped[str | None] = mapped_column(ForeignKey("storage_transfers.id", ondelete="SET NULL"), index=True)
     eval_output_id: Mapped[str | None] = mapped_column(ForeignKey("eval_outputs.id", ondelete="SET NULL"), index=True)
-
 

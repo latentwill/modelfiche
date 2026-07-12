@@ -418,7 +418,14 @@ class SQLAlchemyImportSink:
             stage_name = _stage_name(context.prefix, key)
             stage_id = stages[stage_name].id if stage_name else None
             checkpoint = checkpoints.get((stage_id, step)) if step is not None else None
-            self.session.add(models.Sample(run_id=run.id, checkpoint_id=checkpoint.id if checkpoint else None, asset_id=asset_id, step=step))
+            location = self.session.scalar(
+                select(models.AssetLocation).where(models.AssetLocation.asset_id == asset_id).order_by(models.AssetLocation.modified_at.desc())
+            )
+            self.session.add(models.Sample(
+                run_id=run.id, checkpoint_id=checkpoint.id if checkpoint else None,
+                asset_id=asset_id, step=step,
+                modified_at=location.modified_at if location else None,
+            ))
         self._persist_metrics(run)
         if run.status in {"failed", "unknown"} and checkpoints:
             run.normalized_config = {

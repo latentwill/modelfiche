@@ -104,10 +104,12 @@ def test_connection(provider: str, db: Session = Depends(get_db)) -> dict[str, A
             raise HTTPException(status_code=409, detail="FAL_KEY or FAL_API_KEY is not configured")
         return {"provider": "fal", "ok": True, "network_tested": False}
     if provider in {"s3", "mega"}:
-        source = db.scalar(select(models.ImportSource).where(models.ImportSource.is_active.is_(True)).order_by(models.ImportSource.created_at))
+        query = select(models.ImportSource).where(models.ImportSource.is_active.is_(True))
+        query = query.where(models.ImportSource.credential_env_prefix == "MEGA") if provider == "mega" else query.where(models.ImportSource.credential_env_prefix != "MEGA")
+        source = db.scalar(query.order_by(models.ImportSource.created_at))
         if source is None:
-            raise HTTPException(status_code=409, detail="no active S3 import source is configured")
-        return {"provider": "s3", **test_import_source(source.id, db)}
+            raise HTTPException(status_code=409, detail=f"no active {provider.upper()} import source is configured")
+        return {"provider": provider, **test_import_source(source.id, db)}
     raise HTTPException(status_code=404, detail="unknown connection provider")
 
 
@@ -154,6 +156,23 @@ def update_import_source(source_id: str, request: ImportSourceUpdate, db: Sessio
         setattr(source, key, value)
     db.commit()
     return {"id": source.id, "name": source.name, "bucket": source.bucket, "allowed_prefixes": source.allowed_prefixes}
+
+
+@router.delete("/api/import-sources/{source_id}", status_code=204)
+def delete_import_source(source_id: str, db: Session = Depends(get_db)) -> None:
+    source = db.get(models.ImportSource, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="import source not found")
+    references = {
+        "asset locations": db.scalar(select(models.AssetLocation.id).where(models.AssetLocation.source_id == source.id).limit(1)),
+        "import jobs": db.scalar(select(models.ImportJob.id).where(models.ImportJob.source_id == source.id).limit(1)),
+        "training runs": db.scalar(select(models.TrainingRun.id).where(models.TrainingRun.origin_source_id == source.id).limit(1)),
+    }
+    active = [name for name, value in references.items() if value is not None]
+    if active:
+        raise HTTPException(status_code=409, detail=f"source is still referenced by {', '.join(active)}; deactivate it instead")
+    db.delete(source)
+    db.commit()
 
 
 @router.post("/api/import-sources/{source_id}/test")

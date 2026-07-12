@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, FolderSearch, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Upload } from "lucide-react";
+import { Archive, FolderSearch, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Trash2, Upload } from "lucide-react";
 import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -82,6 +82,10 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
   const [error, setError] = useState("");
   const [sourceTest, setSourceTest] = useState("");
   const [busy, setBusy] = useState<"browse" | "detect" | "test" | "import" | "">("");
+  const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [localName, setLocalName] = useState("");
+  const [localProgress, setLocalProgress] = useState(0);
+  const [localResult, setLocalResult] = useState<Row | null>(null);
   const sources = rows(sourcesResource.data);
   const selectedSource = sources.find(source => idOf(source) === sourceId);
   const browseRecord = (browseData ?? {}) as Row;
@@ -114,6 +118,22 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(""); }
   }
+  async function importLocalFolder() {
+    if (!projectId || !localName.trim() || !localFiles.length) return;
+    setError(""); setBusy("import"); setLocalResult(null); setLocalProgress(0);
+    try {
+      const encoded: Row[] = [];
+      for (let index = 0; index < localFiles.length; index += 1) {
+        const file = localFiles[index];
+        const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error); reader.onload = () => resolve(String(reader.result)); reader.readAsDataURL(file); });
+        encoded.push({ path: file.webkitRelativePath || file.name, content_base64: dataUrl.split(",", 2)[1], mime_type: file.type || null, last_modified: file.lastModified });
+        setLocalProgress(Math.round(((index + 1) / localFiles.length) * 90));
+      }
+      const result = await api<Row>("/api/local-imports", jsonBody({ project_id: projectId, dataset_name: localName.trim(), files: encoded }));
+      setLocalResult(result); setLocalProgress(100);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(""); }
+  }
 
   const canBrowse = Boolean(sourceId && !busy);
   const canInspect = Boolean(sourceId && prefix && !busy);
@@ -121,6 +141,14 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
 
   return <Page title="Import from storage" subtitle="Browse an S3 bucket, inspect any prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
+    <Panel title="Import a local folder">
+      <p className="muted">Folder paths are preserved. Images use matching .txt captions and .json metadata sidecars when present.</p>
+      <div className="form-grid"><Field label="Dataset name"><input value={localName} onChange={event => setLocalName(event.target.value)} /></Field><Field label="Folder"><input type="file" multiple accept="image/*,.txt,.json" {...({ webkitdirectory: "" } as Record<string, string>)} onChange={event => { setLocalFiles(Array.from(event.target.files ?? [])); setLocalProgress(0); setLocalResult(null); }} /></Field></div>
+      <div className="actions"><button className="vela-button-primary" onClick={() => void importLocalFolder()} disabled={!projectId || !localName.trim() || !localFiles.length || Boolean(busy)}><Upload size={15} />{busy === "import" ? `Importing ${localProgress}%` : `Import folder (${localFiles.length} files)`}</button></div>
+      {localProgress > 0 && <progress max={100} value={localProgress} aria-label="Local folder import progress" />}
+      {localResult && <div className="vela-notice" role="status"><strong>{str(localResult.state)}</strong><span>{str(localResult.imported, "0")} imported, {str(localResult.duplicates, "0")} duplicates, {rows(localResult.failures).length} failures. <a href={`#/dataset/${str(localResult.dataset_id)}`}>Open dataset</a></span></div>}
+      {localResult && rows(localResult.failures).length > 0 && <Json value={localResult.failures} />}
+    </Panel>
     <Panel title="Source">
       <div className="form-grid">
         <Field label="Project"><SelectRecords name="project" records={rows(projectsResource.data)} labelKey="title" required value={projectId} onChange={setProjectId} /></Field>
@@ -270,7 +298,12 @@ function S3SourcesPanel() {
       try { const result = await api<Row>(`/api/import-sources/${editingId}/test`, jsonBody({})); setMessage(result.ok ? "Connection succeeded." : "Connection test did not succeed."); }
       catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
       finally { setTesting(false); }
-    }} disabled={testing} title={testing ? "Connection test is running." : "List one object from the first browse hint, or from the bucket root."}><PlugZap size={15} aria-hidden="true" />{testing ? "Testing..." : "Test connection"}</button><button onClick={() => { setEditingId(""); setMessage(""); }} disabled={testing} title={testing ? "Wait for the connection test to finish." : "Return to the new-source form."}>Cancel edit</button></>}</div>
+    }} disabled={testing} title={testing ? "Connection test is running." : "List one object from the first browse hint, or from the bucket root."}><PlugZap size={15} aria-hidden="true" />{testing ? "Testing..." : "Test connection"}</button><button onClick={async () => {
+      if (!window.confirm(`Delete source ${str(editing.name)}? Existing imported objects will be preserved.`)) return;
+      setMessage("");
+      try { await api(`/api/import-sources/${editingId}`, { method: "DELETE" }); setEditingId(""); setMessage("Source deleted."); await resource.reload(); }
+      catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
+    }} disabled={testing} title="Delete an unreferenced source configuration."><Trash2 size={15} />Delete source</button><button onClick={() => { setEditingId(""); setMessage(""); }} disabled={testing} title={testing ? "Wait for the connection test to finish." : "Return to the new-source form."}>Cancel edit</button></>}</div>
     {message && <div className="vela-notice" role="status"><strong>Storage source</strong><span>{message}</span></div>}
   </Panel>;
 }
