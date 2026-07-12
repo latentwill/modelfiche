@@ -1,7 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { formatCanonicalTimestamp, latestTrainingRun, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER } from "./screens-core";
+import { collectDroppedLocalFiles, formatCanonicalTimestamp, latestTrainingRun, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER } from "./screens-core";
 
 afterEach(cleanup);
 
@@ -37,5 +37,26 @@ describe("project packet timestamp", () => {
 
     const completed = render(<LatestTrainingRun projectId="project-1" loading={false} runs={[{ id: "run-ok", name: "Finished", status: "completed", created_at: "2026-07-12T00:00:00Z", result_model_id: "model-1", result_model_name: "vcribb" }]} />);
     expect(completed.getByRole("link", { name: "Open result model: vcribb" })).toHaveAttribute("href", "#/model/model-1");
+  });
+});
+
+describe("local folder drag and drop", () => {
+  it("recursively preserves entry paths", async () => {
+    const file = new File(["pixels"], "image.png", { type: "image/png" });
+    const fileEntry = { isFile: true, isDirectory: false, name: "image.png", file: (resolve: (value: File) => void) => resolve(file) };
+    let reads = 0;
+    const readEntries = vi.fn((resolve: (entries: typeof fileEntry[]) => void) => resolve(reads++ === 0 ? [fileEntry] : []));
+    const directoryEntry = {
+      isFile: false,
+      isDirectory: true,
+      name: "portraits",
+      createReader: () => ({ readEntries }),
+    };
+    const dataTransfer = {
+      items: [{ webkitGetAsEntry: () => directoryEntry }],
+      files: [],
+    } as unknown as DataTransfer;
+    await expect(collectDroppedLocalFiles(dataTransfer)).resolves.toEqual([{ file, path: "portraits/image.png" }]);
+    expect(readEntries).toHaveBeenCalledTimes(2);
   });
 });

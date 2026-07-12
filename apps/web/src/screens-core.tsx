@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Archive, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
 import { activityLabel } from "./activity";
-import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { ApiError, api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Panel, ProfileSelect, SelectRecords, Status } from "./ui";
@@ -9,7 +9,46 @@ import { generatorHref } from "./generation";
 import { LossGraph } from "./screens-assets";
 
 type Row = Record<string, unknown>;
+type LocalSelection = { file: File; path: string };
+type FileSystemEntryLike = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  file?: (success: (file: File) => void, failure?: (error: DOMException) => void) => void;
+  createReader?: () => { readEntries: (success: (entries: FileSystemEntryLike[]) => void, failure?: (error: DOMException) => void) => void };
+};
+type EntryDataTransferItem = { webkitGetAsEntry?: () => FileSystemEntryLike | null };
 const rows = (value: unknown) => listOf<Row>(value);
+
+async function readLocalEntry(entry: FileSystemEntryLike, parentPath = ""): Promise<LocalSelection[]> {
+  const path = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+  if (entry.isFile && entry.file) {
+    const file = await new Promise<File>((resolve, reject) => entry.file?.(resolve, reject));
+    return [{ file, path }];
+  }
+  if (!entry.isDirectory || !entry.createReader) return [];
+  const reader = entry.createReader();
+  const entries: FileSystemEntryLike[] = [];
+  while (true) {
+    const batch = await new Promise<FileSystemEntryLike[]>((resolve, reject) => reader.readEntries(resolve, reject));
+    if (!batch.length) break;
+    entries.push(...batch);
+  }
+  const nested = await Promise.all(entries.map(child => readLocalEntry(child, path)));
+  return nested.flat();
+}
+
+export async function collectDroppedLocalFiles(dataTransfer: DataTransfer): Promise<LocalSelection[]> {
+  const entries = Array.from(dataTransfer.items ?? []).map(item => {
+    const entryItem = item as unknown as EntryDataTransferItem;
+    return entryItem.webkitGetAsEntry?.();
+  }).filter((entry): entry is FileSystemEntryLike => Boolean(entry));
+  if (entries.length) {
+    const nested = await Promise.all(entries.map(entry => readLocalEntry(entry)));
+    return nested.flat();
+  }
+  return Array.from(dataTransfer.files ?? []).map(file => ({ file, path: file.webkitRelativePath || file.name }));
+}
 export const PROJECT_IMAGE_COLLECTION_ORDER = ["Dataset images", "Training samples", "Eval outputs"] as const;
 
 export function ProjectsScreen() {
@@ -133,10 +172,26 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
   const [error, setError] = useState("");
   const [sourceTest, setSourceTest] = useState("");
   const [busy, setBusy] = useState<"browse" | "detect" | "test" | "import" | "">("");
-  const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [localFiles, setLocalFiles] = useState<LocalSelection[]>([]);
   const [localName, setLocalName] = useState("");
   const [localProgress, setLocalProgress] = useState(0);
   const [localResult, setLocalResult] = useState<Row | null>(null);
+  const setSelectedLocalFiles = (files: LocalSelection[]) => {
+    setLocalFiles(files);
+    setLocalProgress(0);
+    setLocalResult(null);
+    setError("");
+  };
+  const handleLocalDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    try {
+      const files = await collectDroppedLocalFiles(event.dataTransfer);
+      if (!files.length) throw new Error("The dropped folder did not contain any readable files.");
+      setSelectedLocalFiles(files);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
   const sources = rows(sourcesResource.data);
   const selectedSource = sources.find(source => idOf(source) === sourceId);
   const browseRecord = (browseData ?? {}) as Row;
@@ -175,14 +230,28 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
     try {
       const encoded: Row[] = [];
       for (let index = 0; index < localFiles.length; index += 1) {
-        const file = localFiles[index];
+        const selection = localFiles[index];
+        const file = selection.file;
         const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error); reader.onload = () => resolve(String(reader.result)); reader.readAsDataURL(file); });
-        encoded.push({ path: file.webkitRelativePath || file.name, content_base64: dataUrl.split(",", 2)[1], mime_type: file.type || null, last_modified: file.lastModified });
+        encoded.push({ path: selection.path, content_base64: dataUrl.split(",", 2)[1], mime_type: file.type || null, last_modified: file.lastModified });
         setLocalProgress(Math.round(((index + 1) / localFiles.length) * 90));
       }
       const result = await api<Row>("/api/local-imports", jsonBody({ project_id: projectId, dataset_name: localName.trim(), files: encoded }));
       setLocalResult(result); setLocalProgress(100);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.details && typeof reason.details === "object" && "detail" in reason.details) {
+        const detail = reason.details.detail;
+        if (detail && typeof detail === "object" && "failures" in detail) {
+          const failures = rows(detail.failures).map(failure => `${str(failure.path, "unknown file")}: ${str(failure.error, "failed")}`);
+          const message = "message" in detail ? detail.message : reason.message;
+          setError(`${str(message)}${failures.length ? ` ${failures.join("; ")}` : ""}`);
+        } else {
+          setError(reason.message);
+        }
+      } else {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    }
     finally { setBusy(""); }
   }
 
@@ -193,8 +262,7 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
   return <Page title="Import from storage" subtitle="Browse an S3 bucket, inspect any prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
     <Panel title="Import a local folder">
-      <p className="muted">Folder paths are preserved. Images use matching .txt captions and .json metadata sidecars when present.</p>
-      <div className="form-grid"><Field label="Dataset name"><input value={localName} onChange={event => setLocalName(event.target.value)} /></Field><Field label="Folder"><input type="file" multiple accept="image/*,.txt,.json" {...({ webkitdirectory: "" } as Record<string, string>)} onChange={event => { setLocalFiles(Array.from(event.target.files ?? [])); setLocalProgress(0); setLocalResult(null); }} /></Field></div>
+      <div className="form-grid"><Field label="Dataset name"><input value={localName} onChange={event => setLocalName(event.target.value)} /></Field><Field label="Folder"><div className="local-import-dropzone" onDragOver={event => event.preventDefault()} onDrop={event => void handleLocalDrop(event)}><input type="file" multiple accept="image/*,.txt,.json" {...({ webkitdirectory: "" } as Record<string, string>)} onChange={event => { const files = Array.from(event.target.files ?? []).map(file => ({ file, path: file.webkitRelativePath || file.name })); setSelectedLocalFiles(files); }} /><p className="muted">Choose a folder or drop it here. Nested paths are preserved.</p>{localFiles.length > 0 && <p role="status">{localFiles.length} file(s) selected.</p>}</div></Field></div>
       <div className="actions"><button className="vela-button-primary" onClick={() => void importLocalFolder()} disabled={!projectId || !localName.trim() || !localFiles.length || Boolean(busy)}><Upload size={15} />{busy === "import" ? `Importing ${localProgress}%` : `Import folder (${localFiles.length} files)`}</button></div>
       {localProgress > 0 && <progress max={100} value={localProgress} aria-label="Local folder import progress" />}
       {localResult && <div className="vela-notice" role="status"><strong>{str(localResult.state)}</strong><span>{str(localResult.imported, "0")} imported, {str(localResult.duplicates, "0")} duplicates, {rows(localResult.failures).length} failures. <a href={`#/dataset/${str(localResult.dataset_id)}`}>Open dataset</a></span></div>}

@@ -39,6 +39,24 @@ def test_local_folder_import_preserves_paths_sidecars_duplicates_and_partial_fai
     assert all(item["origin_type"] == "DATASET" and item["availability"] == "available" for item in items)
 
 
+def test_local_folder_import_reports_unsupported_and_duplicate_paths(client: TestClient):
+    _headers, project = _project(client)
+    image = base64.b64encode(b"nested-image").decode()
+    response = client.post("/api/local-imports", json={
+        "project_id": project["id"], "dataset_name": "Folder diagnostics", "files": [
+            {"path": "nested/image.png", "content_base64": image},
+            {"path": "nested/image.png", "content_base64": image},
+            {"path": "nested/readme.exe", "content_base64": base64.b64encode(b"unsupported").decode()},
+        ],
+    })
+    assert response.status_code == 201
+    result = response.json()
+    assert result["imported"] == 1
+    assert result["duplicates"] == 0
+    assert {failure["path"] for failure in result["failures"]} == {"nested/image.png", "nested/readme.exe"}
+    assert any("duplicate path" in failure["error"] for failure in result["failures"])
+    assert any("unsupported file type" in failure["error"] for failure in result["failures"])
+
 def test_local_folder_import_removes_written_files_when_database_work_fails(client: TestClient, monkeypatch):
     _headers, project = _project(client)
     monkeypatch.setattr(local_imports, "record_activity", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("forced persistence failure")))
@@ -63,6 +81,7 @@ def test_dataset_detail_exposes_explicit_training_run_and_empty_reason(client: T
     assert refreshed["training_runs"] == [{"id": run["id"], "name": "linked run", "status": "unknown", "dataset_version_id": detail["current_version_id"]}]
 
 
+    assert client.delete("/api/import-sources/not-a-source").status_code == 404
 def test_source_delete_persists_and_referenced_source_is_safe(client: TestClient):
     source = client.post("/api/import-sources", json={"name": "Disposable", "bucket": "bucket"}).json()
     assert client.delete(f"/api/import-sources/{source['id']}").status_code == 204

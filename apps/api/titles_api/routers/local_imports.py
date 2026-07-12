@@ -21,6 +21,8 @@ from ..settings import get_settings
 router = APIRouter(prefix="/local-imports", tags=["imports"])
 DB = Annotated[Session, Depends(get_db)]
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif"}
+SIDECAR_SUFFIXES = {".txt", ".json"}
+SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | SIDECAR_SUFFIXES
 
 
 class LocalFile(BaseModel):
@@ -55,6 +57,9 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
     for item in body.files:
         try:
             path = _safe_path(item.path)
+            if path in decoded:
+                failures.append({"path": item.path, "error": "duplicate path in folder selection"})
+                continue
             data = base64.b64decode(item.content_base64, validate=True)
             if len(data) > 25 * 1024 * 1024:
                 raise ValueError("file exceeds 25 MiB limit")
@@ -65,6 +70,8 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
         except (ValueError, binascii.Error) as exc:
             failures.append({"path": item.path, "error": str(exc)})
 
+    unsupported = sorted(path for path in decoded if path.suffix.lower() not in SUPPORTED_SUFFIXES)
+    failures.extend({"path": str(path), "error": f"unsupported file type: {path.suffix or 'no extension'}"} for path in unsupported)
     images = [(path, data) for path, data in decoded.items() if path.suffix.lower() in IMAGE_SUFFIXES]
     if not images:
         raise HTTPException(status_code=422, detail={"message": "folder contains no supported images", "failures": failures})
@@ -88,11 +95,13 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
             else:
                 metadata: dict[str, Any] = {"category": "dataset_image", "relative_path": str(path), "origin": "local_folder"}
                 sidecar_json = decoded.get(path.with_suffix(".json"))
-                if sidecar_json:
+                if sidecar_json is not None:
                     try:
                         parsed = json.loads(sidecar_json.decode("utf-8"))
                         if isinstance(parsed, dict):
                             metadata["sidecar"] = parsed
+                        else:
+                            failures.append({"path": str(path.with_suffix(".json")), "error": "metadata sidecar must contain a JSON object"})
                     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                         failures.append({"path": str(path.with_suffix('.json')), "error": f"invalid JSON metadata: {exc}"})
                 target = destination / f"{digest}{path.suffix.lower()}"
