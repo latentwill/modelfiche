@@ -115,6 +115,7 @@ class FalEvalHandler:
                 context.progress(_progress(status), result_patch={"provider_status": provider_state})
                 if provider_state in self.TERMINAL_SUCCESS:
                     response = self.client.result(str(payload["provider_response_url"]))
+                    response.setdefault("_request_id", str(payload["provider_request_id"]))
                     ingested = self.sink.ingest_outputs(eval_run_id, payload.get("prompt_id"), response)
                     if payload.get("grid_definition_id"):
                         for output_id in ingested.get("output_ids", []):
@@ -226,6 +227,7 @@ class FalEvalBatchHandler:
                     context.progress((completed + _progress(status)) / total)
                     if state == "COMPLETED":
                         response = self.client.result(str(task["response_url"]))
+                        response.setdefault("_request_id", str(task["request_id"]))
                         self.sink.ingest_outputs(eval_run_id, prompt.id, response)
                         _finish_submission(self.sink, eval_run_id, prompt_id=prompt.id)
                         task["state"] = "completed"
@@ -351,6 +353,7 @@ class FalGridBatchHandler:
                     context.progress((completed + _progress(provider)) / total)
                     if state == "COMPLETED":
                         response = self.client.result(str(task["response_url"]))
+                        response.setdefault("_request_id", str(task["request_id"]))
                         ingested = self.sink.ingest_outputs(eval_run_id, plan.get("prompt_id"), response)
                         for output_id in ingested.get("output_ids", []):
                             self.sink.link_grid_cell(grid_id, str(output_id), x_index, y_index)
