@@ -97,7 +97,8 @@ export function GenerationQueue({ items, error, loading }: { items: Row[]; error
       const modelLabel = str(model.name, str(item.model_id, ""));
       const checkpointLabel = str(model.checkpointLabel, "");
       const workflow = str(item.workflow);
-      return <tr key={idOf(item)}><td>{index + 1}</td><td>{workflow === "eval" ? <a href={`#/eval-comparison/${idOf(item)}`}>Eval</a> : workflow}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || modelIds.join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td></tr>;
+      const workflowLink = workflow === "eval" ? <a href={`#/eval-comparison/${idOf(item)}`}>Eval</a> : workflow === "grid" ? <a href={`#/grid/${idOf(item)}`}>Grid</a> : workflow;
+      return <tr key={idOf(item)}><td>{index + 1}</td><td>{workflowLink}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || Array.from(new Set(modelIds)).join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td></tr>;
     })}</tbody></table></div>}
   </Panel>;
 }

@@ -130,6 +130,27 @@ def eval_queue_results(item_id: str, db: DB):
             "prompts": definition.inline_prompts if definition else [], "outputs": outputs})
     return {**projection(item), "runs": runs}
 
+@router.get("/generation-queue/{item_id}/grid-results")
+def grid_queue_results(item_id: str, db: DB):
+    """Project ingested child outputs back onto stable snapshot indexes."""
+    item = owned_queue_item(db, item_id)
+    if item.workflow != "grid":
+        raise HTTPException(status_code=409, detail="queue item is not a Grid workflow")
+    snapshot_cells = list((item.request_snapshot or {}).get("cells") or [])
+    children = list(db.scalars(select(models.GenerationQueueChild).where(
+        models.GenerationQueueChild.queue_item_id == item.id).order_by(models.GenerationQueueChild.ordinal)))
+    cells = []
+    for child in children:
+        cell = dict(snapshot_cells[child.ordinal]) if child.ordinal < len(snapshot_cells) else {"ordinal": child.ordinal}
+        admission = db.get(models.FalAdmission, child.admission_id) if child.admission_id else None
+        run = db.get(models.EvalRun, admission.eval_run_id) if admission and admission.eval_run_id else None
+        output = db.scalar(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run.id)
+            .order_by(models.EvalOutput.created_at, models.EvalOutput.id).limit(1)) if run else None
+        cells.append({**cell, "queue_child_id": child.id, "status": child.state, "error": child.error,
+            "eval_run_id": run.id if run else None, "asset_id": output.asset_id if output else None,
+            "asset_revision_id": output.asset_id if output else None, "generated_at": output.generated_at if output else None})
+    return {**projection(item), "cells": cells}
+
 @router.post("/generation-queue/claim")
 def claim_next(db: DB):
     """Atomically claim and admit exactly one DAM-owned FIFO item; provider contact remains worker-owned."""
@@ -212,8 +233,10 @@ def enqueue(body: QueueCreate, db: DB):
         if selected_model.project_id != project_id or (model_id and selected_model.id != model_id):
             raise HTTPException(status_code=409, detail="selected model version does not match queue context")
     child_specs = body.children or [QueueChildCreate(model_version_id=body.model_version_ids[0], compiled_request_id=body.compiled_request_id, admission_id=body.admission_id)]
-    if [str(child.model_version_id) for child in child_specs] != version_ids:
-        raise HTTPException(status_code=409, detail="ordered queue children do not match selected model versions")
+    if any(str(child.model_version_id) not in version_ids for child in child_specs):
+        raise HTTPException(status_code=409, detail="ordered queue children include a model outside the selected models")
+    if set(version_ids) != {str(child.model_version_id) for child in child_specs}:
+        raise HTTPException(status_code=409, detail="each selected model must have at least one ordered queue child")
     admissions = []
     for child in child_specs:
         admission = get_or_404(db, models.FalAdmission, str(child.admission_id))

@@ -53,6 +53,7 @@ export type NormalizedGenerationResult = {
   error?: string;
   raw?: unknown;
 };
+export type CompiledGenerationChild = { provider: GenerationProviderId; modelVersionId: string; compiledRequestId: string; admissionId: string };
 
 export type CanonicalGeneratedAssetMetadata = {
   workflow: GenerationWorkflow;
@@ -84,6 +85,7 @@ export const generationQueueCapabilities = {
 export interface GenerationProviderAdapter {
   readonly id: GenerationProviderId;
   resolveModel(row: Record<string, unknown>): GenerationModel;
+  compile(request: NormalizedGenerationRequest): Promise<CompiledGenerationChild>;
   submit(request: NormalizedGenerationRequest): Promise<NormalizedGenerationResult>;
   normalizeStatus(raw: unknown): NormalizedGenerationStatus;
   normalizeResult(raw: unknown): NormalizedGenerationResult;
@@ -119,7 +121,7 @@ export const falAdapter: GenerationProviderAdapter = {
       unavailableReason: available ? undefined : !revision ? "No immutable checkpoint revision" : !providerModelUrl ? "Not registered with FAL" : !endpoint ? "No FAL endpoint registered" : "Model is outside the selected project",
     };
   },
-  async submit(request) {
+  async compile(request) {
     const model = request.model;
     if (!model.available || !model.checkpointRevisionId || !model.endpoint) throw new Error(model.unavailableReason ?? "Model is unavailable for FAL generation.");
     if (model.projectId !== request.context.projectId) throw new Error("The selected checkpoint belongs to another project.");
@@ -139,12 +141,16 @@ export const falAdapter: GenerationProviderAdapter = {
     }));
     const admission = record(projection.admission);
     if (str(admission.state, "") !== "ready") throw new Error(`FAL admission is ${str(admission.state, "unavailable")}.`);
+    return { provider: "fal", modelVersionId: model.id, compiledRequestId: request.clientRequestId, admissionId: str(admission.id) };
+  },
+  async submit(request) {
+    const compiled = await falAdapter.compile(request);
     const queued = await api<Record<string, unknown>>("/api/generation-queue", jsonBody({
       workflow: request.workflow, provider: "fal",
       context: { kind: request.context.kind, project_id: request.context.projectId, model_id: request.context.kind === "model" ? request.context.modelId : undefined },
-      model_version_ids: [model.id], compiled_request_id: request.clientRequestId,
-      admission_id: admission.id, client_request_id: request.clientRequestId,
-      request: { workflow: request.workflow, context: request.context, model, parameters: request.parameters },
+      model_version_ids: [request.model.id], compiled_request_id: request.clientRequestId,
+      admission_id: compiled.admissionId, client_request_id: request.clientRequestId,
+      request: { workflow: request.workflow, context: request.context, model: request.model, parameters: request.parameters },
     }));
     return { provider: "fal", providerRequestId: str(queued.id, "") || undefined, status: "queued", assetIds: [], raw: queued };
   },
@@ -166,6 +172,12 @@ export const falAdapter: GenerationProviderAdapter = {
 };
 
 export const generationProviders: Readonly<Record<string, GenerationProviderAdapter>> = { fal: falAdapter };
+
+export function compileGenerationChild(request: NormalizedGenerationRequest) {
+  const provider = request.model.provider ? generationProviders[request.model.provider] : undefined;
+  if (!provider) throw new Error(request.model.unavailableReason ?? "The selected checkpoint has no installed generation provider.");
+  return provider.compile(request);
+}
 
 export function generationModelFromRow(row: Record<string, unknown>): GenerationModel {
   // Registration discovery is intentionally isolated here; a ComfyUI adapter can own its own metadata.

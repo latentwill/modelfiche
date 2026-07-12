@@ -57,7 +57,7 @@ class GenerationContextV1(FalContractModel):
 
 
 class GenerationCompileV1(FalContractModel):
-    workflow: Literal["image"]
+    workflow: Literal["image", "grid"]
     provider: str
     context: GenerationContextV1
     model_version_id: UUID

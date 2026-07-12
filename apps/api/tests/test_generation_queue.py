@@ -166,3 +166,37 @@ def test_multi_model_eval_is_one_ordered_parent_with_exactly_once_children_and_r
     assert [[output["prompt_id"] for output in run["outputs"]] for run in comparison["runs"]] == [["prompt-a", "prompt-b"], ["prompt-a", "prompt-b"]]
     assert [[output["seed"] for output in run["outputs"]] for run in comparison["runs"]] == [[0, 1], [10, 11]]
     assert unrelated_asset_id not in {output["asset_id"] for run in comparison["runs"] for output in run["outputs"]}
+
+
+def test_grid_parent_accepts_repeated_cell_models_and_unique_z_models(client):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Grid queue"}).json()
+    model_a, version_a = _registered_checkpoint(client, project["id"])
+    model_b, version_b = _registered_checkpoint(client, project["id"])
+    children, snapshot_cells = [], []
+    versions = [(model_a, version_a), (model_a, version_a), (model_b, version_b), (model_b, version_b)]
+    for ordinal, (model, version) in enumerate(versions):
+        request_id = str(uuid4())
+        payload = _payload(project["id"], model, version, request_id, f"prompt {ordinal}")
+        payload["workflow"] = "grid"
+        compiled = client.post("/api/generation-requests/compile", json=payload)
+        assert compiled.status_code == 200, compiled.text
+        children.append({"model_version_id": version["id"], "compiled_request_id": request_id,
+            "admission_id": compiled.json()["admission"]["id"]})
+        snapshot_cells.append({"id": f"cell-{ordinal}", "ordinal": ordinal, "x_index": ordinal % 2,
+            "y_index": 0, "z_index": ordinal // 2, "x": {"id": f"x-{ordinal % 2}", "label": "duplicate"},
+            "y": {"id": "y-0", "label": "1"}, "model_version_id": version["id"]})
+    parent_id = str(uuid4())
+    body = {"workflow": "grid", "provider": "fal", "context": {"kind": "project", "project_id": project["id"]},
+        "model_version_ids": [version_a["id"], version_b["id"]], "compiled_request_id": parent_id,
+        "client_request_id": parent_id, "request": {"workflow": "grid", "cells": snapshot_cells}, "children": children}
+    queued = client.post("/api/generation-queue", json=body)
+    assert queued.status_code == 202, queued.text
+    assert queued.json()["model_version_ids"] == [version_a["id"], version_b["id"]]
+    assert [child["model_version_id"] for child in queued.json()["children"]] == [version_a["id"], version_a["id"], version_b["id"], version_b["id"]]
+    replay = client.post("/api/generation-queue", json=body)
+    assert replay.status_code == 202 and replay.json()["id"] == queued.json()["id"]
+    results = client.get(f"/api/generation-queue/{queued.json()['id']}/grid-results")
+    assert results.status_code == 200
+    assert [(cell["ordinal"], cell["x_index"], cell["z_index"], cell["x"]["label"]) for cell in results.json()["cells"]] == [
+        (0, 0, 0, "duplicate"), (1, 1, 0, "duplicate"), (2, 0, 1, "duplicate"), (3, 1, 1, "duplicate")]

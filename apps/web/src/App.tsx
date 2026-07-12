@@ -1,7 +1,8 @@
 import { useHashRoute } from "./hooks";
 import { ImportScreen, JobScreen, ProjectScreen, ProjectsScreen, SettingsScreen } from "./screens-core";
 import { CheckpointScreen, DatasetScreen, DatasetsScreen, GalleryScreen, ModelScreen, ModelsScreen, RunScreen, RunsScreen } from "./screens-assets";
-import { EvalComparisonScreen, EvalScreen, EvalsScreen, GridScreen, GridsScreen, PromptSetsScreen, ReviewsScreen } from "./screens-evals";
+import { EvalComparisonScreen, EvalScreen, EvalsScreen, PromptSetsScreen, ReviewsScreen } from "./screens-evals";
+import { GridScreen, GridsScreen } from "./screens-grids";
 import { WorkbenchShell } from "./shell";
 import { DashboardScreen, ImageReviewScreen, SampleViewerScreen, TransfersScreen } from "./screens-wireframe";
 import { GenerationQueueScreen, ImageGeneratorScreen } from "./generator";
@@ -45,7 +46,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "evals": return <EvalsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
     case "eval": return <EvalScreen id={id} />;
     case "eval-comparison": return <EvalComparisonScreen id={id} />;
-    case "grids": return <GridsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
+    case "grids": return <GridsScreen params={params} />;
     case "grid": return <GridScreen id={id} />;
     case "reviews": return <ReviewsScreen projectId={projectId} subject={params.get("subject") ?? ""} />;
     case "transfers": return <TransfersScreen mode={params.get("mode") ?? ""} params={params} />;

@@ -243,6 +243,10 @@ pre { overflow: auto; background: #efeff1; padding: 10px; font-size: 0.72rem; wh
 .grid-board > .grid-cell > button.active { outline: 2px solid var(--accent); outline-offset: -2px; }
 .grid-board > .grid-cell > button img { width: 100%; height: 100%; object-fit: cover; }
 .grid-board > .grid-cell-detail { font-size: .58rem; text-align: center; }
+.grid-axis-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.grid-axis-layout .panel { margin: 0 0 16px; }
+.grid-z-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; }.grid-z-toggle input { width: auto; }
+.grid-subgrids { display: grid; gap: 18px; }.grid-subgrids h3 { margin: 0 0 8px; font: 700 10px var(--mono); text-transform: uppercase; }
+.grid-generate { margin: 0 0 16px; }
 
 @media (max-width: 1120px) {
   :root { --left: 210px; --right: 270px; }
