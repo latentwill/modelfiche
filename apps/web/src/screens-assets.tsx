@@ -452,6 +452,8 @@ export function CheckpointScreen({ id }: { id: string }) {
   const [actionError, setActionError] = useState("");
   const [hydrating, setHydrating] = useState(false);
   const checkpointAsset = resource.data?.asset && typeof resource.data.asset === "object" ? resource.data.asset as Row : {};
+  const artifact = resource.data?.artifact && typeof resource.data.artifact === "object" ? resource.data.artifact as Row : {};
+  const storage = rows(artifact.storage);
   const checkpointProjectId = str(checkpointAsset.project_id, "");
   const modelRows = rows(models.data).filter(model => !checkpointProjectId || str(model.project_id, "") === checkpointProjectId);
 
@@ -467,7 +469,7 @@ export function CheckpointScreen({ id }: { id: string }) {
   return <Page title={`Checkpoint ${str(resource.data?.step, "")}`} subtitle={str(resource.data?.run_name, "Training checkpoint")} actions={<button className="vela-button vela-button-primary" onClick={() => void hydrate()} disabled={hydrating || !resource.data} title={!resource.data ? "Checkpoint details must load before hydration" : undefined}><Download size={15} />{hydrating ? "Queuing..." : "Hydrate locally"}</button>}>
     <Notice error={resource.error} loading={resource.loading} />
     <ActionMessage message={message} error={actionError} />
-    {resource.data && <Panel title="Checkpoint record"><Json value={resource.data} /></Panel>}
+    {resource.data && <Panel title="Checkpoint artifact"><dl className="details"><dt>Filename</dt><dd>{str(artifact.filename, "Missing asset record")}</dd><dt>Checkpoint ID</dt><dd>{str(artifact.checkpoint_id)}</dd><dt>Asset ID</dt><dd>{str(artifact.asset_id)}</dd><dt>Revision</dt><dd>{str(artifact.checkpoint_revision_id, "No materialized revision")}</dd><dt>Step</dt><dd>{str(artifact.step)}</dd><dt>State</dt><dd><Status value={artifact.state} /></dd><dt>Size</dt><dd>{formatBytes(storage[0]?.size)}</dd><dt>Storage</dt><dd>{storage.length ? storage.map(location => `${str(location.provider)} · ${str(location.hydration_state)} · ${str(location.object_key ?? location.relative_path ?? location.uri)}`).join("; ") : "No storage location recorded"}</dd><dt>SHA-256</dt><dd>{str(artifact.sha256, "Not recorded")}</dd></dl><details className="config-disclosure"><summary>Artifact metadata</summary><Json value={artifact.metadata ?? {}} /></details></Panel>}
     <Panel title="Register model version">
       <Notice error={models.error} loading={models.loading} />
       {!models.loading && !modelRows.length && <div className="vela-empty"><span>No compatible model</span><small>Create a model in this checkpoint's project before registering a version.</small><a className="button vela-button" href="#/models"><Plus size={14} />Create model</a></div>}
@@ -519,11 +521,9 @@ export function ModelScreen({ id }: { id: string }) {
   const [actionError, setActionError] = useState("");
   const selectedState = str(selectedVersion?.lifecycle_state, "").toLowerCase();
   const latestVersion = versions[0] ?? {};
-  const importedRunId = str(resource.data?.description).match(/training run ([0-9a-f-]{36})/i)?.[1] ?? "";
-  const versionRunIds = new Set(versions.map(version => str((version.readiness as Row | undefined)?.training_run_id)).filter(Boolean));
-  if (importedRunId) versionRunIds.add(importedRunId);
+  const versionRunIds = new Set(versions.flatMap(version => [str(version.checkpoint_run_id), str((version.readiness as Row | undefined)?.training_run_id)]).filter(Boolean));
   const projectRuns = rows(runs.data);
-  const relatedRuns = projectRuns.filter(run => versionRunIds.has(idOf(run)) || (!versionRunIds.size && str(run.name) === str(resource.data?.name)));
+  const relatedRuns = projectRuns.filter(run => versionRunIds.has(idOf(run)));
 
   async function changeVersion(action: "approve" | "archive") {
     if (!selectedVersion) return;
@@ -553,7 +553,7 @@ export function ModelScreen({ id }: { id: string }) {
 
     <Panel title="Model versions">
       <Notice loading={resource.loading} empty={!resource.loading && !versions.length} />
-      {!!versions.length && <DataTable rows={versions} columns={[["name", "File"], ["checkpoint_step", "Step"], ["lifecycle_state", "State"], ["fal_url", "FAL link"], ["created_at", "Created"]]} onRow={setSelectedVersion} />}
+      {!!versions.length && <DataTable rows={versions} columns={[["filename", "Checkpoint file"], ["asset_id", "Artifact ID"], ["checkpoint_step", "Step"], ["lifecycle_state", "State"], ["fal_status", "FAL upload"], ["fal_url", "FAL URL / identifier"]]} onRow={setSelectedVersion} />}
       {selectedVersion && <div className="actions version-actions" aria-label={`Actions for ${str(selectedVersion.name, "selected version")}`}>
         <strong>{str(selectedVersion.name, "Selected version")}</strong>
         <button className="primary" onClick={() => void changeVersion("approve")} disabled={selectedState === "approved" || Boolean(busy)} title={selectedState === "approved" ? "This version is already approved" : undefined}><Check size={14} />{busy === "approve" ? "Approving..." : "Approve"}</button>
@@ -581,8 +581,8 @@ function ModelTrainingRun({ run }: { run: Row }) {
       <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>
       <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}`}><FileImage size={14} />View all samples</a></div>
       {expanded && <>
-        <section className="vela-section"><div className="vela-section-heading"><h3>Loss graph</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
         <section className="vela-section"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <AssetGrid assets={sampleRows.slice(0, 8)} />}</section>
+        <section className="vela-section"><div className="vela-section-heading"><h3>Loss graph</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
       </>}
     </div>
   </details>;

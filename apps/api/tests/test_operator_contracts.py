@@ -105,7 +105,17 @@ def test_gallery_model_filter_uses_run_lineage_and_returns_rich_metadata(client:
     checkpoint_asset = client.post("/api/assets", headers=headers, json={"project_id": project["id"], "kind": "model", "name": "step-250.safetensors"}).json()
     checkpoint = client.post(f"/api/runs/{run['id']}/checkpoints", headers=headers, json={"step": 250, "asset_id": checkpoint_asset["id"]}).json()
     model = client.post("/api/models", headers=headers, json={"project_id": project["id"], "name": "Portrait LoRA"}).json()
-    client.post("/api/model-versions", headers=headers, json={"model_id": model["id"], "checkpoint_id": checkpoint["id"], "name": "step 250", "base_model": "qwen-image"})
+    version = client.post("/api/model-versions", headers=headers, json={"model_id": model["id"], "checkpoint_id": checkpoint["id"], "name": "step 250", "base_model": "qwen-image"}).json()
+    model_detail = client.get(f"/api/models/{model['id']}").json()
+    artifact_version = model_detail["versions"][0]
+    assert artifact_version["filename"] == "step-250.safetensors"
+    assert artifact_version["asset_id"] == checkpoint_asset["id"]
+    assert artifact_version["artifact"]["checkpoint_id"] == checkpoint["id"]
+    assert artifact_version["artifact"]["step"] == 250
+    assert artifact_version["storage"] == []
+    version_detail = client.get(f"/api/model-versions/{version['id']}").json()
+    assert version_detail["filename"] == "step-250.safetensors"
+    assert version_detail["checkpoint_run_id"] == run["id"]
     sample_asset = client.post("/api/assets", headers=headers, json={"project_id": project["id"], "kind": "image", "name": "sample.png"}).json()
     client.post(f"/api/runs/{run['id']}/samples", json={"asset_id": sample_asset["id"], "step": 250, "prompt": "a portrait", "seed": 42, "generation_metadata": {"guidance": 3.5}})
 

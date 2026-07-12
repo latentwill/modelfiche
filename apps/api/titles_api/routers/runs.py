@@ -16,6 +16,45 @@ def dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
 
 
+def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> dict[str, Any] | None:
+    """Stable, explicit checkpoint artifact projection; never substitutes dataset identity."""
+    if checkpoint is None:
+        return None
+    asset = db.get(models.Asset, checkpoint.asset_id)
+    locations = db.scalars(
+        select(models.AssetLocation)
+        .where(models.AssetLocation.asset_id == checkpoint.asset_id)
+        .order_by(models.AssetLocation.created_at.desc())
+    ).all()
+    revision = db.get(models.CheckpointRevision, checkpoint.current_revision_id) if checkpoint.current_revision_id else None
+    return {
+        "checkpoint_id": checkpoint.id,
+        "checkpoint_revision_id": revision.id if revision else None,
+        "asset_id": checkpoint.asset_id,
+        "asset_revision_id": checkpoint.asset_id,
+        "filename": asset.name if asset else None,
+        "mime_type": asset.mime_type if asset else None,
+        "sha256": asset.sha256 if asset else None,
+        "step": checkpoint.step,
+        "state": checkpoint.state,
+        "metadata": asset.metadata_ if asset else {},
+        "storage": [
+            {
+                "location_id": location.id,
+                "provider": location.provider,
+                "uri": location.uri,
+                "bucket": location.bucket,
+                "object_key": location.object_key,
+                "relative_path": location.relative_path,
+                "size": location.size,
+                "hydration_state": location.hydration_state,
+                "verification_state": location.verification_state,
+            }
+            for location in locations
+        ],
+    }
+
+
 @router.get("/runs")
 def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(None, alias="status")):
     query = select(models.TrainingRun).order_by(models.TrainingRun.created_at.desc(), models.TrainingRun.id.desc())
@@ -119,7 +158,14 @@ def run_metrics(run_id: str, db: DB, name: str = Query("loss", min_length=1, max
 @router.get("/runs/{run_id}/config")
 def run_config(run_id: str, db: DB, raw: bool = False):
     run = get_or_404(db, models.TrainingRun, run_id)
-    return {"run_id": run.id, "normalized": run.normalized_config, **({"manifest": run.raw_manifest, "state": run.raw_state} if raw else {})}
+    result = {
+        "run_id": run.id,
+        "normalized": run.normalized_config,
+        "raw": {"manifest": run.raw_manifest, "state": run.raw_state},
+    }
+    if raw:
+        result.update({"manifest": run.raw_manifest, "state": run.raw_state})
+    return result
 
 
 @router.post("/runs/{run_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
@@ -226,7 +272,7 @@ def checkpoint(checkpoint_id: str, db: DB):
         "name": asset.name, "mime_type": asset.mime_type, "sha256": asset.sha256,
         "metadata": asset.metadata_, "created_at": asset.created_at, "updated_at": asset.updated_at,
     }
-    return {**dump(checkpoint), "run_name": run.name if run else None, "asset": asset_row, "locations": [dump(location) for location in locations]}
+    return {**dump(checkpoint), "run_name": run.name if run else None, "run_id": checkpoint.run_id, "asset": asset_row, "locations": [dump(location) for location in locations], "artifact": checkpoint_artifact(db, checkpoint)}
 
 
 @router.post("/checkpoints/{checkpoint_id}/hydrate", status_code=status.HTTP_202_ACCEPTED)
@@ -275,9 +321,15 @@ def model_detail(model_id: str, db: DB):
     version_rows = []
     for version in versions:
         checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+        artifact = checkpoint_artifact(db, checkpoint)
         version_rows.append({
             **dump(version),
             "checkpoint_step": checkpoint.step if checkpoint else None,
+            "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
+            "artifact": artifact,
+            "filename": artifact["filename"] if artifact else None,
+            "asset_id": artifact["asset_id"] if artifact else None,
+            "storage": artifact["storage"] if artifact else [],
             "fal_status": version.readiness.get("fal_status") if version.readiness else None,
             "fal_url": version.readiness.get("fal_url") if version.readiness else None,
         })
@@ -323,12 +375,17 @@ def model_versions(db: DB, model_id: str | None = None, project_id: str | None =
     for version in db.scalars(query).all():
         model = db.get(models.Model, version.model_id)
         checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+        artifact = checkpoint_artifact(db, checkpoint)
         rows.append({
             **dump(version),
             "model_name": model.name if model else None,
             "project_id": model.project_id if model else None,
             "checkpoint_step": checkpoint.step if checkpoint else None,
             "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
+            "artifact": artifact,
+            "filename": artifact["filename"] if artifact else None,
+            "asset_id": artifact["asset_id"] if artifact else None,
+            "storage": artifact["storage"] if artifact else [],
             "fal_status": version.readiness.get("fal_status") if version.readiness else None,
             "fal_url": version.readiness.get("fal_url") if version.readiness else None,
         })
@@ -337,7 +394,23 @@ def model_versions(db: DB, model_id: str | None = None, project_id: str | None =
 
 @router.get("/model-versions/{version_id}")
 def model_version(version_id: str, db: DB):
-    return dump(get_or_404(db, models.ModelVersion, version_id))
+    version = get_or_404(db, models.ModelVersion, version_id)
+    model = get_or_404(db, models.Model, version.model_id)
+    checkpoint = get_or_404(db, models.Checkpoint, version.checkpoint_id)
+    artifact = checkpoint_artifact(db, checkpoint)
+    return {
+        **dump(version),
+        "model_name": model.name,
+        "project_id": model.project_id,
+        "checkpoint_step": checkpoint.step,
+        "checkpoint_run_id": checkpoint.run_id,
+        "artifact": artifact,
+        "filename": artifact["filename"] if artifact else None,
+        "asset_id": artifact["asset_id"] if artifact else None,
+        "storage": artifact["storage"] if artifact else [],
+        "fal_status": version.readiness.get("fal_status") if version.readiness else None,
+        "fal_url": version.readiness.get("fal_url") if version.readiness else None,
+    }
 
 
 @router.post("/model-versions/{version_id}/approve")
