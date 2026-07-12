@@ -14,7 +14,6 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
   const visible = rows(projects.data).filter(project => project.state !== "archived");
   const displayed = visible.length ? visible : rows(projects.data);
   const runRows = rows(runs.data);
-  const chart = runVolume(runRows);
   return <main className="vela-main">
     <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and evaluation activity.</p></div><div className="vela-hero-art" aria-hidden="true" /></section>
     {createProject && <section className="vela-section"><ProjectCreatePanel onCreated={projects.reload} /></section>}
@@ -23,13 +22,12 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
       <Notice error={projects.error} loading={projects.loading} empty={!displayed.length} />
       <div className="vela-project-grid">{displayed.map(project => <ProjectSummaryCard key={idOf(project)} project={project} />)}</div>
     </section>
-    <section className="vela-section vela-dashboard-grid">
+    <section className="vela-section">
       <div className="vela-panel">
         <div className="vela-section-heading"><h2>Recent runs</h2><a className="vela-text-button" href="#/runs">View all</a></div>
         <Notice error={runs.error} loading={runs.loading} empty={!runRows.length} />
         <div className="vela-run-list">{runRows.map(run => <a className="vela-run-row" href={`#/run/${idOf(run)}`} key={idOf(run)}><span className="vela-run-mark" aria-hidden="true" /><span className="vela-run-copy"><h3>{str(run.name, "Training run")}<span className="vela-run-tag">{str(run.status, "unknown")}</span></h3><p>{str(run.base_model, "Base model not recorded")}</p></span><span className="vela-run-time">{formatDate(run.updated_at ?? run.created_at)}</span></a>)}</div>
       </div>
-      <RunVolumeChart values={chart.values} labels={chart.labels} />
     </section>
   </main>;
 }
@@ -44,15 +42,11 @@ function ProjectSummaryCard({ project }: { project: Row }) {
   const runs = useResource<unknown>(`/api/runs${query({ project_id: projectId })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: projectId })}`);
   const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: projectId })}`);
-  return <a className="vela-project-card" href={`#/project/${projectId}`}><div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div><div className="vela-project-card-body"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Evals <strong>{rows(evals.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
+  const latestFal = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "eval_output", provider: "fal", limit: 4 })}`);
+  const previewImages = rows(latestFal.data).slice(0, 4);
+  return <a className="vela-project-card" href={`#/project/${projectId}`}>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest FAL images`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Evals <strong>{rows(evals.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
 }
 
-function RunVolumeChart({ values, labels }: { values: number[]; labels: string[] }) {
-  const max = Math.max(...values, 1);
-  const points = values.map((value, index) => ({ x: 70 + index * (440 / Math.max(values.length - 1, 1)), y: 170 - (value / max) * 135 }));
-  const path = points.map((point, index) => `${index ? "L" : "M"}${point.x} ${point.y}`).join(" ");
-  return <div className="vela-panel vela-chart"><div className="vela-section-heading"><h2>Training runs · last 7 days</h2></div><svg viewBox="0 0 560 190" role="img" aria-label="Training runs created in the last seven days"><g stroke="var(--vela-border)" strokeWidth="1"><line x1="36" y1="35" x2="548" y2="35" /><line x1="36" y1="80" x2="548" y2="80" /><line x1="36" y1="125" x2="548" y2="125" /><line x1="36" y1="170" x2="548" y2="170" /></g><g fill="var(--vela-surface-soft)">{points.map((point, index) => <rect key={index} x={point.x - 18} y={point.y} width="36" height={170 - point.y} />)}</g><path d={path} fill="none" stroke="var(--vela-accent)" strokeWidth="3" /><g fill="var(--vela-accent)" stroke="var(--vela-surface)" strokeWidth="3">{points.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="5" />)}</g></svg><div className="vela-chart-labels">{labels.map(label => <span key={label}>{label}</span>)}</div></div>;
-}
 
 export function TransfersScreen({ mode = "", params = new URLSearchParams() }: { mode?: string; params?: URLSearchParams }) {
   const jobs = useResource<unknown>("/api/jobs?limit=100");
@@ -107,7 +101,7 @@ function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>;
 export function ImageReviewScreen({ id }: { id: string }) {
   const asset = useResource<Row>(`/api/assets/${id}`);
   const context = useResource<Row>(`/api/assets/${id}/context`);
-  const gallery = useResource<unknown>(asset.data ? `/api/gallery${query({ project_id: asset.data.project_id, kind: asset.data.kind, limit: 500 })}` : null);
+  const gallery = useResource<unknown>(asset.data ? `/api/gallery${query({ project_id: asset.data.project_id, kind: asset.data.kind, limit: 250 })}` : null);
   const comments = useResource<unknown>(`/api/comments${query({ subject_type: "asset", subject_id: id })}`);
   const reviews = useResource<unknown>(`/api/reviews${query({ subject_type: "asset", subject_id: id })}`);
   const items = rows(gallery.data); const index = items.findIndex(item => idOf(item) === id);
@@ -116,10 +110,11 @@ export function ImageReviewScreen({ id }: { id: string }) {
   const [ratingBusy, setRatingBusy] = useState(false);
   const [ratingError, setRatingError] = useState("");
   const currentRating = Number(rows(reviews.data)[0]?.rating ?? 0);
+  const metadata = context.data?.metadata && typeof context.data.metadata === "object" ? context.data.metadata as Row : {};
   return <div className="review-overlay vela-focus-workspace"><header className="viewer-topbar"><a href="#/gallery">Gallery</a><div className="viewer-actions"><button title={fit ? "Fill image" : "Fit image"} aria-label={fit ? "Fill image" : "Fit image"} onClick={() => setFit(!fit)}>{fit ? <Maximize2 size={16} /> : <Minimize2 size={16} />}<span>{fit ? "Fill" : "Fit"}</span></button><a className="button" aria-label="Close image review" href="#/gallery"><X size={16} /> Close</a></div></header>
     <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? `#/image/${idOf(previous)}` : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? `#/image/${idOf(next)}` : undefined}>Next <ChevronRight size={16} /></a></div><AssetImage className={fit ? "fit" : "fill"} assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} />
       <div className="filmstrip">{items.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={`#/image/${idOf(item)}`} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
-      <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || gallery.error} loading={asset.loading || context.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str((context.data?.image as Row | undefined)?.width)} × {str((context.data?.image as Row | undefined)?.height)}</dd><dt>Storage</dt><dd>{rows((context.data?.asset as Row | undefined)?.locations).map(location => str(location.provider)).join(", ") || "Remote"}</dd></dl>
+      <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || gallery.error} loading={asset.loading || context.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{str(metadata.model_name, "Unknown")}</dd><dt>Base model</dt><dd>{str(metadata.base_model, "Unknown")}</dd><dt>Dataset</dt><dd>{str(metadata.dataset_name, "Unknown")}</dd><dt>Training run</dt><dd>{str(metadata.run_name, "Unknown")}</dd><dt>Step</dt><dd>{str(metadata.step, "Unknown")}</dd><dt>Seed</dt><dd>{str(metadata.seed, "Unknown")}</dd><dt>Storage</dt><dd>{rows((context.data?.asset as Row | undefined)?.locations).map(location => str(location.provider)).join(", ") || "Remote"}</dd></dl><details><summary>All metadata</summary><pre className="vela-code">{JSON.stringify(metadata, null, 2)}</pre></details>
         <div className="rating-control"><span>Image rating</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={async () => { setRatingBusy(true); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: id, rating: value, decision: "candidate" })); await reviews.reload(); } catch (reason) { setRatingError(reason instanceof Error ? reason.message : String(reason)); } finally { setRatingBusy(false); } }}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
         <section><h3>Comments</h3><div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div><Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form></section>
       </aside></main>
@@ -147,7 +142,6 @@ export function SampleViewerScreen({ runId, initialStep = "" }: { runId: string;
 function splitList(value: FormDataEntryValue | null) { return String(value ?? "").split(",").map(item => item.trim()).filter(Boolean); }
 function initials(value: string) { return value.split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
 function formatDate(value: unknown) { const date = new Date(String(value ?? "")); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
-function runVolume(runs: Row[]) { const days = Array.from({ length: 7 }, (_, index) => { const date = new Date(); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - (6 - index)); return date; }); const values = days.map(day => runs.filter(run => { const value = new Date(String(run.created_at ?? run.updated_at ?? "")); return !Number.isNaN(value.valueOf()) && value >= day && value < new Date(day.valueOf() + 86_400_000); }).length); return { values, labels: days.map(day => day.toLocaleDateString(undefined, { weekday: "short" })) }; }
 function groupBy(items: Row[], key: (item: Row) => string) { return items.reduce<Record<string, Row[]>>((groups, item) => { const value = key(item); (groups[value] ??= []).push(item); return groups; }, {}); }
 function toggleLimited(values: string[], value: string, max: number) { return values.includes(value) ? values.filter(item => item !== value) : values.length < max ? [...values, value] : values; }
 function transferTarget(params: URLSearchParams) {

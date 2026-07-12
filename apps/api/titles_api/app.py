@@ -158,8 +158,8 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
             "cache": {"ok": settings.cache_root.exists(), "path": str(settings.cache_root)},
             "s3": {
                 "configured": bool(
-                    (os.getenv("S3_BUCKET") and os.getenv("S3_ALLOWED_PREFIXES"))
-                    or (os.getenv("MEGA_BUCKET") and os.getenv("MEGA_ALLOWED_PREFIXES"))
+                    os.getenv("S3_BUCKET")
+                    or os.getenv("MEGA_BUCKET")
                 )
             },
             "fal": {"configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"))},
@@ -180,4 +180,3 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
     app.include_router(compat.router, prefix="/api")
     app.include_router(integrations.router)
     return app
-

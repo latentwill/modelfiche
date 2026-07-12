@@ -5,6 +5,7 @@ import { RunScreen } from "./screens-assets";
 
 beforeEach(() => {
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null } });
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -24,6 +25,8 @@ function mockRunApi(metrics: unknown) {
       body = { normalized: {}, raw: {} };
     } else if (path === "/api/runs/run-1/metrics?name=loss") {
       body = metrics;
+    } else if (path === "/api/runs/run-1/metrics?name=learning_rate") {
+      body = { run_id: "run-1", metric_name: "learning_rate", points: [], final_value: null };
     } else {
       throw new Error(`Unexpected request: ${path}`);
     }
@@ -32,7 +35,7 @@ function mockRunApi(metrics: unknown) {
 }
 
 describe("RunScreen loss metrics", () => {
-  it("renders a sorted accessible SVG loss graph and sources final loss from metrics", async () => {
+  it("renders an accessible Flint loss chart and sources final loss from metrics", async () => {
     const fetchMock = mockRunApi({
       run_id: "run-1",
       metric_name: "loss",
@@ -50,15 +53,13 @@ describe("RunScreen loss metrics", () => {
     render(<RunScreen id="run-1" />);
 
     const graph = await screen.findByRole("img", { name: "Loss over training step" });
-    const path = graph.querySelector("path[data-loss-path]");
-    expect(path).not.toBeNull();
-    expect(path?.getAttribute("d")).toMatch(/^M 24 /);
-    expect(path?.getAttribute("d")).not.toMatch(/NaN|Infinity/);
+    expect(graph.querySelector("canvas")).not.toBeNull();
 
     const metricsPanel = screen.getByRole("heading", { name: "Training metrics" }).parentElement?.parentElement;
     expect(metricsPanel).not.toBeNull();
     expect(within(metricsPanel as HTMLElement).getByText("0.25")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/metrics?name=loss", expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/metrics?name=learning_rate", expect.any(Object));
   });
 
   it("shows a clear empty state when the metric response has no usable points", async () => {
@@ -70,6 +71,6 @@ describe("RunScreen loss metrics", () => {
     expect(screen.queryByRole("img", { name: "Loss over training step" })).not.toBeInTheDocument();
     const metricsPanel = screen.getByRole("heading", { name: "Training metrics" }).parentElement?.parentElement;
     expect(metricsPanel).not.toBeNull();
-    expect(within(metricsPanel as HTMLElement).getByText("Final loss").previousElementSibling).toHaveTextContent("Unavailable");
+    expect(within(metricsPanel as HTMLElement).getByText("Final loss").nextElementSibling).toHaveTextContent("Unavailable");
   });
 });

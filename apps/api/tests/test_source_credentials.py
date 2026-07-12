@@ -35,6 +35,16 @@ def test_source_settings_ignore_ambient_aws_environment(monkeypatch):
     assert settings.secret_access_key is None
 
 
+def test_source_settings_do_not_require_allowed_prefixes(monkeypatch):
+    monkeypatch.setenv("S3_BUCKET", "bucket")
+    monkeypatch.delenv("S3_ALLOWED_PREFIXES", raising=False)
+
+    settings = S3Settings.from_env("S3", legacy_fallback=False)
+
+    assert settings.bucket == "bucket"
+    assert settings.allowed_prefixes == ()
+
+
 def test_missing_named_credentials_stops_before_sdk_construction(monkeypatch):
     calls: list[dict[str, object]] = []
     monkeypatch.setitem(sys.modules, "boto3", SimpleNamespace(client=lambda **kwargs: calls.append(kwargs)))

@@ -75,6 +75,49 @@ def parse_training_log(body: bytes) -> list[MetricPoint]:
     return points[:_MAX_METRIC_POINTS]
 
 
+def parse_tensorboard_event(body: bytes) -> list[MetricPoint]:
+    """Read scalar summaries from one TensorBoard event stream."""
+    if not isinstance(body, bytes):
+        return []
+    try:
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+        from tensorboard.util import tensor_util
+
+        with tempfile.NamedTemporaryFile(prefix="titles-tfevents-") as snapshot:
+            snapshot.write(body)
+            snapshot.flush()
+            accumulator = EventAccumulator(snapshot.name, size_guidance={"scalars": 0, "tensors": 0})
+            accumulator.Reload()
+            points: list[MetricPoint] = []
+            tags = accumulator.Tags()
+            for tag in tags.get("scalars", []):
+                name = _canonical_metric_name(tag)
+                for event in accumulator.Scalars(tag):
+                    value = _coerce_finite_float(event.value)
+                    if value is not None:
+                        points.append(MetricPoint(int(event.step), name, value, float(event.wall_time)))
+            for tag in tags.get("tensors", []):
+                name = _canonical_metric_name(tag)
+                for event in accumulator.Tensors(tag):
+                    values = tensor_util.make_ndarray(event.tensor_proto).reshape(-1)
+                    value = _coerce_finite_float(values[0]) if len(values) else None
+                    if value is not None:
+                        points.append(MetricPoint(int(event.step), name, value, float(event.wall_time)))
+            points.sort(key=lambda point: (point.name, point.step))
+            return points[:_MAX_METRIC_POINTS]
+    except (ImportError, OSError, TypeError, ValueError, OverflowError):
+        return []
+
+
+def _canonical_metric_name(name: str) -> str:
+    lowered = name.lower().strip()
+    if "learning_rate" in lowered or lowered.endswith("/lr") or lowered == "lr":
+        return "learning_rate"
+    if "loss" in lowered:
+        return "loss"
+    return name
+
+
 def _parse_json_log_line(line: str) -> list[MetricPoint]:
     try:
         value = json.loads(line)
@@ -101,11 +144,14 @@ def _parse_text_log_line(line: str) -> list[MetricPoint]:
     pairs = [(match.group("key"), match.group("value")) for match in _KEY_VALUE.finditer(line)]
     step = next((_coerce_step(value) for key, value in pairs if key.lower() in _STEP_KEYS), None)
     if step is None:
+        progress = re.search(r"(?P<step>\d+)\s*/\s*(?P<total>\d+)", line)
+        step = _coerce_step(progress.group("step")) if progress else None
+    if step is None:
         return []
     return [
-        MetricPoint(step, key, float(value))
+        MetricPoint(step, "learning_rate" if key.lower() == "lr" else key, float(value))
         for key, value in pairs
-        if key.lower() not in _STEP_KEYS and ("loss" in key.lower() or key.lower() == "learning_rate")
+        if key.lower() not in _STEP_KEYS and ("loss" in key.lower() or key.lower() in {"lr", "learning_rate"})
     ]
 
 
@@ -116,6 +162,8 @@ def _coerce_step(value: Any) -> int | None:
         return value
     if isinstance(value, float) and math.isfinite(value) and value.is_integer():
         return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
     return None
 
 

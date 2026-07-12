@@ -26,6 +26,25 @@ def attributed(db: Session, row) -> dict[str, Any]:
     }
 
 
+def _lineage_preview(db: Session, edge: models.LineageEdge) -> str | None:
+    for kind, identifier in ((edge.target_type, edge.target_id), (edge.source_type, edge.source_id)):
+        if kind == "eval_output":
+            output = db.get(models.EvalOutput, identifier)
+            if output:
+                return output.asset_id
+        if kind == "checkpoint":
+            asset_id = db.scalar(select(models.Sample.asset_id).where(models.Sample.checkpoint_id == identifier).order_by(models.Sample.created_at.desc()).limit(1))
+            if asset_id:
+                return asset_id
+        if kind == "training_run":
+            asset_id = db.scalar(select(models.Sample.asset_id).where(models.Sample.run_id == identifier).order_by(models.Sample.created_at.desc()).limit(1))
+            if asset_id:
+                return asset_id
+        if kind == "asset":
+            return identifier
+    return None
+
+
 @router.post("/reviews", status_code=status.HTTP_201_CREATED)
 def create_review(body: schemas.ReviewCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     if body.rating is None and body.decision is None:
@@ -119,7 +138,7 @@ def lineage(db: DB, subject_type: str, subject_id: str):
         (models.LineageEdge.source_type == subject_type) & (models.LineageEdge.source_id == subject_id),
         (models.LineageEdge.target_type == subject_type) & (models.LineageEdge.target_id == subject_id),
     )).order_by(models.LineageEdge.created_at)
-    return [dump(row) for row in db.scalars(query).all()]
+    return [{**dump(row), "preview_asset_id": _lineage_preview(db, row)} for row in db.scalars(query).all()]
 
 
 @router.get("/activity")

@@ -13,6 +13,8 @@ dependencies = [
   "sqlalchemy>=2.0",
   "typer>=0.12",
   "uvicorn[standard]>=0.30",
+  "pyyaml>=6.0",
+  "tensorboard>=2.20",
 ]
 
 [project.optional-dependencies]

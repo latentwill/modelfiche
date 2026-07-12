@@ -15,7 +15,7 @@ from .. import models
 from ..database import get_db
 from ..integrations.config import S3Settings
 from ..integrations.fal.adapters import LoraInput, ValidationError, get_adapter, list_adapters
-from ..integrations.s3.browser import PrefixAccessError, S3Browser
+from ..integrations.s3.browser import PrefixAccessError, S3Browser, normalize_prefix
 from ..integrations.s3.detection import detect_prefix
 from ..services import active_profile, current_workspace
 
@@ -23,7 +23,7 @@ router = APIRouter(tags=["integrations"])
 
 
 class PrefixRequest(BaseModel):
-    prefix: str = Field(min_length=1)
+    prefix: str = ""
 
 
 class ImportSourceCreate(BaseModel):
@@ -33,7 +33,7 @@ class ImportSourceCreate(BaseModel):
     addressing_style: Literal["auto", "path", "virtual"] = "auto"
     credential_env_prefix: str = Field(default="S3", pattern=r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
     bucket: str = Field(min_length=1, max_length=255)
-    allowed_prefixes: list[str] = Field(min_length=1)
+    allowed_prefixes: list[str] = Field(default_factory=list)
 
 
 class ImportSourceUpdate(BaseModel):
@@ -43,7 +43,7 @@ class ImportSourceUpdate(BaseModel):
     addressing_style: Literal["auto", "path", "virtual"] | None = None
     credential_env_prefix: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
     bucket: str | None = Field(default=None, min_length=1, max_length=255)
-    allowed_prefixes: list[str] | None = Field(default=None, min_length=1)
+    allowed_prefixes: list[str] | None = None
     is_active: bool | None = None
 
 
@@ -114,18 +114,8 @@ def test_connection(provider: str, db: Session = Depends(get_db)) -> dict[str, A
 @router.post("/api/import-sources", status_code=201)
 def create_import_source(request: ImportSourceCreate, db: Session = Depends(get_db)) -> dict[str, Any]:
     workspace = current_workspace(db)
-    # Prefix validation is performed before persisting; secrets remain process-only.
-    settings = S3Settings.for_source(
-        endpoint_url=request.endpoint_url,
-        bucket=request.bucket,
-        allowed_prefixes=tuple(request.allowed_prefixes),
-        region=request.region,
-        addressing_style=request.addressing_style,
-        credential_env_prefix=request.credential_env_prefix,
-    )
-    browser = S3Browser(None, settings)
     try:
-        normalized = [browser.require_allowed(prefix) for prefix in request.allowed_prefixes]
+        normalized = [normalize_prefix(prefix) for prefix in request.allowed_prefixes]
     except PrefixAccessError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     source = models.ImportSource(
@@ -152,15 +142,10 @@ def update_import_source(source_id: str, request: ImportSourceUpdate, db: Sessio
         raise HTTPException(status_code=404, detail="import source not found")
     values = request.model_dump(exclude_unset=True)
     if "allowed_prefixes" in values:
-        probe = S3Browser(None, S3Settings.for_source(
-            endpoint_url=values.get("endpoint_url", source.endpoint_url),
-            bucket=values.get("bucket", source.bucket),
-            allowed_prefixes=tuple(values["allowed_prefixes"]),
-            region=values.get("region", source.region),
-            addressing_style=values.get("addressing_style", source.addressing_style),
-            credential_env_prefix=values.get("credential_env_prefix", source.credential_env_prefix),
-        ))
-        values["allowed_prefixes"] = [probe.require_allowed(prefix) for prefix in values["allowed_prefixes"]]
+        try:
+            values["allowed_prefixes"] = [normalize_prefix(prefix) for prefix in values["allowed_prefixes"]]
+        except PrefixAccessError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if values.get("endpoint_url"):
         values["endpoint_url"] = values["endpoint_url"].rstrip("/")
     if values.get("credential_env_prefix"):
@@ -175,7 +160,7 @@ def update_import_source(source_id: str, request: ImportSourceUpdate, db: Sessio
 def test_import_source(source_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     browser = _browser(db, source_id)
     try:
-        first_root = browser.settings.allowed_prefixes[0]
+        first_root = browser.settings.allowed_prefixes[0] if browser.settings.allowed_prefixes else ""
         browser.browse(first_root, page_size=1)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"S3 connection failed: {exc}") from exc
@@ -185,7 +170,7 @@ def test_import_source(source_id: str, db: Session = Depends(get_db)) -> dict[st
 @router.get("/api/import-sources/{source_id}/browse")
 def browse_source(
     source_id: str,
-    prefix: str = Query(min_length=1),
+    prefix: str = Query(default=""),
     cursor: str | None = None,
     page_size: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),

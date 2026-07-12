@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Check, LoaderCircle, UserRound } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, LoaderCircle, UserRound } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
 
@@ -40,11 +40,24 @@ export function Form(props: { onSubmit: (form: FormData) => void | Promise<void>
 
 export function Json({ value }: { value: unknown }) { return <pre className="vela-code">{JSON.stringify(value, null, 2)}</pre>; }
 
+export function Pagination({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total ? (page - 1) * pageSize + 1 : 0;
+  const end = Math.min(page * pageSize, total);
+  return <nav className="vela-pagination" aria-label="Pagination">
+    <span>{start}–{end} of {total}</span>
+    <label>Per page <select value={pageSize} onChange={event => onPageSize(Number(event.target.value))}>{[50, 100, 250].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+    <button aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button>
+    <span>Page {page} of {pages}</span>
+    <button aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}><ChevronRight size={15} /></button>
+  </nav>;
+}
+
 export function DataTable(props: { rows: Record<string, unknown>[]; columns: Array<[string, string]>; onRow?: (row: Record<string, unknown>) => void }) {
   return <div className="vela-table-wrap table-wrap"><table className="vela-table"><thead><tr>{props.columns.map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={String(row.id ?? index)} role={props.onRow ? "link" : undefined} aria-label={props.onRow ? `Open ${str(row[props.columns[0]?.[0]], "record")}` : undefined} onClick={() => props.onRow?.(row)} onKeyDown={event => { if (props.onRow && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); props.onRow(row); } }} tabIndex={props.onRow ? 0 : undefined} className={props.onRow ? "is-clickable" : ""}>{props.columns.map(([key]) => <td key={key}>{renderCell(row[key])}</td>)}</tr>)}</tbody></table></div>;
 }
 
-function renderCell(value: unknown): ReactNode { if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.map(String).join(", "); if (value && typeof value === "object") return JSON.stringify(value); return str(value); }
+function renderCell(value: unknown): ReactNode { if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.map(String).join(", "); if (value && typeof value === "object") return JSON.stringify(value); if (typeof value === "string" && /^https?:\/\//.test(value)) return <a href={value} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Open</a>; return str(value); }
 
 export function SelectRecords(props: { name: string; records: Record<string, unknown>[]; labelKey?: string; valueKey?: string; required?: boolean; value?: string; onChange?: (value: string) => void }) {
   const labelKey = props.labelKey ?? "name"; const valueKey = props.valueKey ?? "id";

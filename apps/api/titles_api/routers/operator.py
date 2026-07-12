@@ -15,6 +15,19 @@ def _count(db: Session, model, *criteria) -> int:
     return int(db.scalar(select(func.count()).select_from(model).where(*criteria)) or 0)
 
 
+def _preview_asset_id(db: Session, result_type: str, row) -> str | None:
+    if result_type == "asset" and row.kind == models.AssetKind.image:
+        return row.id
+    if result_type == "dataset":
+        return db.scalar(select(models.DatasetItem.asset_id).join(models.DatasetVersion, models.DatasetVersion.id == models.DatasetItem.dataset_version_id).where(models.DatasetVersion.dataset_id == row.id).order_by(models.DatasetVersion.version_number.desc(), models.DatasetItem.position).limit(1))
+    if result_type == "run":
+        return db.scalar(select(models.Sample.asset_id).where(models.Sample.run_id == row.id).order_by(models.Sample.step.desc(), models.Sample.created_at.desc()).limit(1))
+    project_id = row.id if result_type == "project" else getattr(row, "project_id", None)
+    if project_id:
+        return db.scalar(select(models.EvalOutput.asset_id).join(models.EvalRun, models.EvalRun.id == models.EvalOutput.eval_run_id).join(models.EvalDefinition, models.EvalDefinition.id == models.EvalRun.definition_id).where(models.EvalDefinition.project_id == project_id).order_by(models.EvalOutput.created_at.desc()).limit(1))
+    return None
+
+
 @router.get("/dashboard")
 def dashboard(db: DB, project_id: str | None = None):
     project_filter = (models.Project.id == project_id,) if project_id else ()
@@ -88,7 +101,7 @@ def global_search(db: DB, q: str = Query(min_length=1), project_id: str | None =
     project_query = select(models.Project).where(or_(models.Project.title.ilike(needle), models.Project.description.ilike(needle)))
     if project_id:
         project_query = project_query.where(models.Project.id == project_id)
-    results.extend({"type": "project", "id": row.id, "project_id": row.id, "title": row.title, "subtitle": row.description} for row in db.scalars(project_query.limit(per_type)))
+    results.extend({"type": "project", "id": row.id, "project_id": row.id, "title": row.title, "subtitle": row.description, "preview_asset_id": _preview_asset_id(db, "project", row)} for row in db.scalars(project_query.limit(per_type)))
 
     searches = (
         ("asset", models.Asset, models.Asset.name, models.Asset.project_id),
@@ -102,5 +115,5 @@ def global_search(db: DB, q: str = Query(min_length=1), project_id: str | None =
         if project_id:
             query = query.where(project_column == project_id)
         for row in db.scalars(query.order_by(model.updated_at.desc()).limit(per_type)):
-            results.append({"type": result_type, "id": row.id, "project_id": getattr(row, "project_id", None), "title": getattr(row, "name", ""), "updated_at": row.updated_at})
+            results.append({"type": result_type, "id": row.id, "project_id": getattr(row, "project_id", None), "title": getattr(row, "name", ""), "updated_at": row.updated_at, "preview_asset_id": _preview_asset_id(db, result_type, row)})
     return {"query": q, "results": results[:limit], "count": min(len(results), limit)}

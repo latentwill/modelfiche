@@ -188,6 +188,9 @@
 .vela-project-identity { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px; border-bottom: 1px solid var(--vela-border); background: var(--vela-surface-soft); }
 .vela-project-identity span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--vela-accent); color: var(--vela-surface); font: 700 13px var(--vela-font-display); }
 .vela-project-identity small { color: var(--vela-muted); font: 10px var(--vela-font-mono); text-transform: uppercase; }
+.vela-project-preview { height: 132px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 2px; overflow: hidden; background: var(--vela-border); }
+.vela-project-preview img { width: 100%; height: 100%; min-height: 0; object-fit: cover; background: var(--vela-surface-soft); }
+.vela-project-preview img:only-child { grid-column: 1 / -1; grid-row: 1 / -1; }
 .vela-project-art { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: var(--vela-surface-soft); }
 .vela-project-art::before, .vela-project-art::after { content: ""; position: absolute; }
 .vela-project-art[data-art="portrait"] { background: color-mix(in oklch, var(--vela-accent-soft) 76%, var(--vela-surface-soft)); }
@@ -363,7 +366,8 @@
 .vela-global-search > svg { position: absolute; z-index: 2; top: 13px; left: 13px; color: var(--vela-muted); pointer-events: none; }
 .vela-global-search .vela-search { width: 100%; padding-inline-start: 42px !important; }
 .vela-search-results { position: absolute; top: 48px; right: 0; left: 0; z-index: 40; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-md); background: var(--vela-surface); box-shadow: 0 6px 8px color-mix(in oklch, var(--vela-fg) 11%, transparent); }
-.vela-search-results a { display: grid; gap: 3px; padding: 9px; border-radius: var(--vela-radius-sm); }.vela-search-results a:hover { background: var(--vela-surface-soft); }.vela-search-results strong { font: 700 11px var(--vela-font-display); text-transform: uppercase; }.vela-search-results span { color: var(--vela-muted); font-size: 10px; }
+.vela-search-results a { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 9px; align-items: center; padding: 6px; border-radius: var(--vela-radius-sm); }.vela-search-results a:hover { background: var(--vela-surface-soft); }.vela-search-results a > img { width: 42px; height: 42px; object-fit: cover; border-radius: var(--vela-radius-sm); background: var(--vela-surface-soft); }.vela-search-results a > span { min-width: 0; display: grid; gap: 3px; }.vela-search-results strong { overflow: hidden; text-overflow: ellipsis; font: 700 11px var(--vela-font-display); text-transform: uppercase; white-space: nowrap; }.vela-search-results small { color: var(--vela-muted); font-size: 10px; }
+.vela-search-results a:not(:has(> img)) { grid-template-columns: 1fr; }
 .vela-create-menu a { display: flex; align-items: center; gap: 8px; padding: 9px; border-radius: 7px; font: 700 11px var(--vela-font-display); text-transform: uppercase; }.vela-create-menu a:hover { background: var(--vela-surface-soft); }
 .vela-profile-select { display: flex; align-items: center; gap: 7px; }.vela-profile-select select { min-width: 150px; }.vela-profile-select.is-compact { position: relative; width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--vela-border); border-radius: 50%; background: var(--vela-surface); overflow: hidden; }.vela-profile-select.is-compact select { position: absolute; inset: 0; min-width: 0; opacity: 0; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
@@ -531,7 +535,7 @@
 .vela-focus-workspace .image-nav a { display: flex; align-items: center; gap: 5px; color: white; font-size: 12px; }
 .vela-focus-workspace .image-nav a:last-child { justify-self: end; }
 .vela-focus-workspace .image-nav a[aria-disabled="true"] { pointer-events: none; opacity: .35; }
-.vela-focus-workspace .filmstrip { min-height: 80px; align-items: center; background: oklch(18% 0.015 255); }
+.vela-focus-workspace .filmstrip { min-height: 80px; align-items: center; justify-content: center; background: oklch(18% 0.015 255); }
 .vela-focus-workspace .filmstrip a.active { border-color: var(--vela-accent); }
 .vela-focus-workspace .image-review-inspector { padding: 18px; border-color: var(--vela-border); background: var(--vela-surface); }
 .vela-focus-workspace .image-review-inspector h2 { font: 700 15px var(--vela-font-display); }

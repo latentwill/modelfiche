@@ -53,4 +53,13 @@ describe("AssetImage", () => {
     await waitFor(() => expect(image).toHaveAttribute("src", "/delivery/fresh"));
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("shows a neutral placeholder when delivery is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ kind: "failure", failure: { redacted_message: "Not hydrated", action: { kind: "hydrate" } } }), { status: 200, headers: { "content-type": "application/json" } }));
+    const view = render(<AssetImage assetRevisionId="missing-asset" alt="Unavailable portrait" />);
+    const image = view.getByRole("img");
+    expect(image.getAttribute("src")).toContain("data:image/svg+xml");
+    await waitFor(() => expect(image).toHaveAttribute("data-delivery-state", "unavailable"));
+    expect(image.getAttribute("src")).toContain("data:image/svg+xml");
+  });
 });

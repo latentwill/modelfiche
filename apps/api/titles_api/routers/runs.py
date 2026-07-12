@@ -74,6 +74,7 @@ def run(run_id: str, db: DB):
     ).all()
     return {
         **dump(run),
+        **{key: value for key, value in dict(run.normalized_config or {}).items() if key in {"learning_rate", "lora_rank", "steps", "epochs", "usable_output", "source_status", "source_message", "status_evidence"}},
         "dataset_id": dataset.id if dataset else None,
         "dataset_name": dataset.name if dataset else None,
         "dataset_version_name": dataset_version.name if dataset_version else None,
@@ -114,10 +115,18 @@ def refresh_run(run_id: str, db: DB, x_profile_id: Annotated[str | None, Header(
     run = get_or_404(db, models.TrainingRun, run_id)
     if not run.source_prefix:
         raise HTTPException(status_code=409, detail="run has no remote source prefix")
-    sources = db.scalars(select(models.ImportSource).where(models.ImportSource.is_active.is_(True))).all()
-    source = next((candidate for candidate in sources if any(run.source_prefix.rstrip("/") == root.rstrip("/") or run.source_prefix.startswith(root.rstrip("/") + "/") for root in candidate.allowed_prefixes)), None)
+    source = None
+    if run.origin_source_id:
+        source = db.scalar(
+            select(models.ImportSource).where(
+                models.ImportSource.id == run.origin_source_id,
+                models.ImportSource.is_active.is_(True),
+            )
+        )
     if source is None:
-        raise HTTPException(status_code=409, detail="no active import source allows this run prefix")
+        source = db.scalar(select(models.ImportSource).where(models.ImportSource.is_active.is_(True)).order_by(models.ImportSource.created_at))
+    if source is None:
+        raise HTTPException(status_code=409, detail="no active import source is available")
     actor = active_profile(db, x_profile_id)
     job = models.Job(workspace_id=get_or_404(db, models.Project, run.project_id).workspace_id, kind="s3.import", profile_id=actor.id, payload={"source_id": source.id, "project_id": run.project_id, "prefix": run.source_prefix, "profile_id": actor.id, "hydrate_dataset_images": False})
     db.add(job)
@@ -242,7 +251,12 @@ def model_detail(model_id: str, db: DB):
     version_rows = []
     for version in versions:
         checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
-        version_rows.append({**dump(version), "checkpoint_step": checkpoint.step if checkpoint else None, "fal_status": version.readiness.get("fal_status") if version.readiness else None})
+        version_rows.append({
+            **dump(version),
+            "checkpoint_step": checkpoint.step if checkpoint else None,
+            "fal_status": version.readiness.get("fal_status") if version.readiness else None,
+            "fal_url": version.readiness.get("fal_url") if version.readiness else None,
+        })
     return {**dump(model), "versions": version_rows}
 
 
@@ -292,6 +306,7 @@ def model_versions(db: DB, model_id: str | None = None, project_id: str | None =
             "checkpoint_step": checkpoint.step if checkpoint else None,
             "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
             "fal_status": version.readiness.get("fal_status") if version.readiness else None,
+            "fal_url": version.readiness.get("fal_url") if version.readiness else None,
         })
     return rows
 

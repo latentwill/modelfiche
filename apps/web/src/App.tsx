@@ -34,7 +34,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "runs": return <RunsScreen projectId={projectId} />;
     case "run": return <RunScreen id={id} />;
     case "checkpoint": return <CheckpointScreen id={id} />;
-    case "gallery": return <GalleryScreen projectId={projectId} />;
+    case "gallery": return <GalleryScreen projectId={projectId} params={params} />;
     case "models": return <ModelsScreen projectId={projectId} />;
     case "model": return <ModelScreen id={id} />;
     case "prompt-sets": return <PromptSetsScreen projectId={projectId} promptSetId={id} />;

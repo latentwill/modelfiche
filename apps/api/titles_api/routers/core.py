@@ -1,15 +1,17 @@
 from typing import Annotated
 
 from pathlib import Path
+import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
 from ..database import get_db
 from ..services import active_profile, current_workspace, get_or_404, record_activity
+from ..image_provenance import normalize_fal_image_metadata
 from ..asset_cache import AssetCache
 from ..integrations.config import CacheSettings
 from ..settings import get_settings
@@ -140,9 +142,161 @@ def assets(db: DB, project_id: str | None = None, kind: str | None = None, q: st
         query = query.where(models.Asset.project_id == project_id)
     if kind:
         query = query.where(models.Asset.kind == kind)
+        if kind == "image":
+            query = query.where(or_(
+                models.Asset.mime_type.startswith("image/"),
+                models.Asset.metadata_["category"].as_string().in_(["sample", "eval_output", "dataset_image"]),
+            ))
     if q:
         query = query.where(models.Asset.name.contains(q))
     return db.scalars(query.offset(offset).limit(limit)).all()
+
+
+def _gallery_query(
+    db: Session,
+    project_id: str | None = None,
+    kind: str | None = None,
+    q: str | None = None,
+    decision: str | None = None,
+    rating: int | None = None,
+    model_id: str | None = None,
+    dataset_id: str | None = None,
+    category: str | None = None,
+    provider: str | None = None,
+    include_dataset_assets: bool = False,
+):
+    query = select(models.Asset).order_by(models.Asset.created_at.desc())
+    if not include_dataset_assets and not dataset_id:
+        dataset_asset_ids = select(models.DatasetItem.asset_id)
+        query = query.where(
+            models.Asset.id.not_in(dataset_asset_ids),
+            func.coalesce(models.Asset.metadata_["category"].as_string(), "") != "dataset_image",
+        )
+    if project_id:
+        query = query.where(models.Asset.project_id == project_id)
+    if category:
+        query = query.where(models.Asset.metadata_["category"].as_string() == category)
+    if provider:
+        query = query.where(models.Asset.metadata_["provider"].as_string() == provider)
+    if model_id:
+        eval_asset_ids = (
+            select(models.EvalOutput.asset_id)
+            .join(models.EvalRun, models.EvalRun.id == models.EvalOutput.eval_run_id)
+            .join(models.EvalDefinition, models.EvalDefinition.id == models.EvalRun.definition_id)
+            .join(models.ModelVersion, models.ModelVersion.id == models.EvalDefinition.model_version_id)
+            .where(models.ModelVersion.model_id == model_id)
+        )
+        sample_asset_ids = (
+            select(models.Sample.asset_id)
+            .join(models.Checkpoint, models.Checkpoint.run_id == models.Sample.run_id)
+            .join(models.ModelVersion, models.ModelVersion.checkpoint_id == models.Checkpoint.id)
+            .where(models.ModelVersion.model_id == model_id)
+        )
+        inferred_ids = _inferred_model_asset_ids(db, model_id)
+        linked_ids = eval_asset_ids.union(sample_asset_ids)
+        query = query.where(models.Asset.id.in_(linked_ids) | models.Asset.id.in_(inferred_ids))
+    if dataset_id:
+        dataset_asset_ids = (
+            select(models.DatasetItem.asset_id)
+            .join(models.DatasetVersion, models.DatasetVersion.id == models.DatasetItem.dataset_version_id)
+            .where(models.DatasetVersion.dataset_id == dataset_id)
+        )
+        sample_asset_ids = (
+            select(models.Sample.asset_id)
+            .join(models.TrainingRun, models.TrainingRun.id == models.Sample.run_id)
+            .join(models.DatasetVersion, models.DatasetVersion.id == models.TrainingRun.dataset_version_id)
+            .where(models.DatasetVersion.dataset_id == dataset_id)
+        )
+        query = query.where(models.Asset.id.in_(dataset_asset_ids.union(sample_asset_ids)))
+    if kind:
+        query = query.where(models.Asset.kind == kind)
+        if kind == "image":
+            query = query.where(or_(
+                models.Asset.mime_type.startswith("image/"),
+                models.Asset.metadata_["category"].as_string().in_(["sample", "eval_output", "dataset_image"]),
+            ))
+    if q:
+        query = query.where(models.Asset.name.contains(q))
+    if decision or rating is not None:
+        reviewed_assets = select(models.Review.subject_id).where(models.Review.subject_type == "asset")
+        if decision:
+            reviewed_assets = reviewed_assets.where(models.Review.decision == decision)
+        if rating is not None:
+            reviewed_assets = reviewed_assets.where(models.Review.rating == rating)
+        query = query.where(models.Asset.id.in_(reviewed_assets))
+    return query
+
+
+def _gallery_rows(db: Session, rows: list[models.Asset]) -> list[dict]:
+    result = []
+    for row in rows:
+        review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id).order_by(models.Review.created_at.desc()))
+        rich_metadata = _gallery_asset_metadata(db, row)
+        result.append({
+            "id": row.id,
+            "asset_revision_id": row.id,
+            "project_id": row.project_id,
+            "kind": row.kind.value if hasattr(row.kind, "value") else row.kind,
+            "name": row.name,
+            "mime_type": row.mime_type,
+            "sha256": row.sha256,
+            "metadata": rich_metadata,
+            "model_id": rich_metadata.get("model_id"),
+            "model_name": rich_metadata.get("model_name"),
+            "base_model": rich_metadata.get("base_model"),
+            "dataset_id": rich_metadata.get("dataset_id"),
+            "dataset_name": rich_metadata.get("dataset_name"),
+            "run_id": rich_metadata.get("run_id"),
+            "run_name": rich_metadata.get("run_name"),
+            "step": rich_metadata.get("step"),
+            "seed": rich_metadata.get("seed"),
+            "locations": [schemas.AssetLocationOut.model_validate(location).model_dump(mode="json") for location in row.locations],
+            "rating": review.rating if review else None,
+            "decision": review.decision if review else None,
+            "review_count": int(db.scalar(select(func.count()).select_from(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id)) or 0),
+            "comment_count": int(db.scalar(select(func.count()).select_from(models.Comment).where(models.Comment.subject_type == "asset", models.Comment.subject_id == row.id)) or 0),
+            "created_at": row.created_at,
+        })
+    return result
+
+
+@router.get("/gallery/context")
+def gallery_context(
+    db: DB,
+    asset_id: str,
+    project_id: str | None = None,
+    kind: str | None = None,
+    q: str | None = None,
+    decision: str | None = None,
+    rating: int | None = Query(None, ge=1, le=5),
+    model_id: str | None = None,
+    dataset_id: str | None = None,
+    category: str | None = None,
+    provider: str | None = None,
+    include_dataset_assets: bool = False,
+):
+    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets)
+    ordered_ids = db.scalars(query.with_only_columns(models.Asset.id)).all()
+    try:
+        selected_index = ordered_ids.index(asset_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="asset is not in the filtered gallery")
+
+    window_ids = ordered_ids[max(0, selected_index - 4): selected_index + 5]
+    assets_by_id = {
+        asset.id: asset
+        for asset in db.scalars(select(models.Asset).options(selectinload(models.Asset.locations)).where(models.Asset.id.in_(window_ids))).all()
+    }
+    items = _gallery_rows(db, [assets_by_id[item_id] for item_id in window_ids if item_id in assets_by_id])
+    current_index = next(index for index, item in enumerate(items) if item["id"] == asset_id)
+    return {
+        "index": selected_index,
+        "total": len(ordered_ids),
+        "previous": items[current_index - 1] if selected_index > 0 and current_index > 0 else None,
+        "current": items[current_index],
+        "next": items[current_index + 1] if selected_index < len(ordered_ids) - 1 and current_index < len(items) - 1 else None,
+        "items": items,
+    }
 
 
 @router.get("/gallery")
@@ -153,51 +307,173 @@ def gallery(
     q: str | None = None,
     decision: str | None = None,
     rating: int | None = Query(None, ge=1, le=5),
+    model_id: str | None = None,
+    dataset_id: str | None = None,
+    category: str | None = None,
+    provider: str | None = None,
     include_dataset_assets: bool = False,
-    limit: int = Query(100, ge=1, le=2000),
+    paginated: bool = False,
+    limit: int = Query(50, ge=1, le=250),
     offset: int = Query(0, ge=0),
 ):
-    query = select(models.Asset).options(selectinload(models.Asset.locations)).order_by(models.Asset.created_at.desc())
-    if not include_dataset_assets:
-        dataset_asset_ids = select(models.DatasetItem.asset_id)
-        query = query.where(
-            models.Asset.id.not_in(dataset_asset_ids),
-            func.coalesce(models.Asset.metadata_["category"].as_string(), "") != "dataset_image",
-        )
-    if project_id:
-        query = query.where(models.Asset.project_id == project_id)
-    if kind:
-        query = query.where(models.Asset.kind == kind)
-    if q:
-        query = query.where(models.Asset.name.contains(q))
-    if decision or rating is not None:
-        reviewed_assets = select(models.Review.subject_id).where(models.Review.subject_type == "asset")
-        if decision:
-            reviewed_assets = reviewed_assets.where(models.Review.decision == decision)
-        if rating is not None:
-            reviewed_assets = reviewed_assets.where(models.Review.rating == rating)
-        query = query.where(models.Asset.id.in_(reviewed_assets))
-    rows = db.scalars(query.offset(offset).limit(limit)).all()
-    result = []
-    for row in rows:
-        review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id).order_by(models.Review.created_at.desc()))
-        result.append({
-            "id": row.id,
-            "asset_revision_id": row.id,
-            "project_id": row.project_id,
-            "kind": row.kind.value if hasattr(row.kind, "value") else row.kind,
-            "name": row.name,
-            "mime_type": row.mime_type,
-            "sha256": row.sha256,
-            "metadata": row.metadata_,
-            "locations": [schemas.AssetLocationOut.model_validate(location).model_dump(mode="json") for location in row.locations],
-            "rating": review.rating if review else None,
-            "decision": review.decision if review else None,
-            "review_count": int(db.scalar(select(func.count()).select_from(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id)) or 0),
-            "comment_count": int(db.scalar(select(func.count()).select_from(models.Comment).where(models.Comment.subject_type == "asset", models.Comment.subject_id == row.id)) or 0),
-            "created_at": row.created_at,
-        })
-    return result
+    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets)
+    total = int(db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0)
+    rows = db.scalars(query.options(selectinload(models.Asset.locations)).offset(offset).limit(limit)).all()
+    result = _gallery_rows(db, rows)
+    return {"items": result, "total": total, "limit": limit, "offset": offset} if paginated else result
+
+
+def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
+    """Project the richest reliable provenance available for a gallery image."""
+    metadata = dict(asset.metadata_ or {})
+    normalized_fal = normalize_fal_image_metadata(metadata)
+    for key, value in normalized_fal.items():
+        metadata.setdefault(key, value)
+    image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset.id))
+    if image:
+        metadata.update({key: value for key, value in {
+            "width": image.width, "height": image.height, "color_mode": image.color_mode,
+            "orientation": image.orientation, "exif": image.exif_summary or None,
+        }.items() if value is not None})
+
+    sample = db.scalar(select(models.Sample).where(models.Sample.asset_id == asset.id).order_by(models.Sample.created_at.desc()))
+    if sample:
+        run = db.get(models.TrainingRun, sample.run_id)
+        filename_match = re.search(r"__(\d{6,})_(\d+)(?:\.[^.]+)?$", asset.name)
+        source_step = int(filename_match.group(1)) if filename_match else sample.step
+        sample_index = int(filename_match.group(2)) if filename_match else None
+        metadata.update({key: value for key, value in {
+            "run_id": sample.run_id, "run_name": run.name if run else None,
+            "base_model": run.base_model if run else None, "trainer": run.trainer if run else None,
+            "step": source_step, "sample_index": sample_index, "prompt": sample.prompt, "seed": sample.seed,
+            "generation_settings": sample.generation_metadata or None,
+            "training_settings": run.normalized_config if run and run.normalized_config else None,
+        }.items() if value is not None})
+        if run:
+            model_rows = db.execute(
+                select(models.Model.id, models.Model.name)
+                .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
+                .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
+                .where(models.Checkpoint.run_id == run.id)
+                .distinct()
+            ).all()
+            if model_rows:
+                metadata["model_id"], metadata["model_name"] = model_rows[0]
+                metadata["models"] = [{"id": model_id, "name": name} for model_id, name in model_rows]
+            if run.dataset_version_id:
+                version = db.get(models.DatasetVersion, run.dataset_version_id)
+                dataset = db.get(models.Dataset, version.dataset_id) if version else None
+                metadata.update({"dataset_version_id": run.dataset_version_id, "dataset_version_name": version.name if version else None, "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None})
+
+    output = db.scalar(select(models.EvalOutput).where(models.EvalOutput.asset_id == asset.id).order_by(models.EvalOutput.created_at.desc()))
+    if output:
+        eval_run = db.get(models.EvalRun, output.eval_run_id)
+        definition = db.get(models.EvalDefinition, eval_run.definition_id) if eval_run else None
+        version = db.get(models.ModelVersion, definition.model_version_id) if definition and definition.model_version_id else None
+        model = db.get(models.Model, version.model_id) if version else None
+        prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
+        inferred = _infer_eval_model(db, asset, definition.endpoint if definition else None) if model is None else None
+        if inferred:
+            model, version = inferred
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id) if version else None
+        training_run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+        dataset_version = db.get(models.DatasetVersion, training_run.dataset_version_id) if training_run and training_run.dataset_version_id else None
+        dataset = db.get(models.Dataset, dataset_version.dataset_id) if dataset_version else None
+        request_input = metadata.get("fal_request_input")
+        if not isinstance(request_input, dict):
+            request_input = output.provider_metadata.get("_request_input") if isinstance(output.provider_metadata, dict) else None
+        metadata.update({key: value for key, value in {
+            "eval_run_id": output.eval_run_id, "eval_name": definition.name if definition else None,
+            "endpoint": definition.endpoint if definition else None, "model_id": model.id if model else None,
+            "model_name": model.name if model else metadata.get("inferred_model_name"), "model_version_id": version.id if version else None,
+            "model_version_name": version.name if version else None, "base_model": version.base_model if version else None,
+            "run_id": training_run.id if training_run else None, "run_name": training_run.name if training_run else None,
+            "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None,
+            "dataset_version_id": dataset_version.id if dataset_version else None, "dataset_version_name": dataset_version.name if dataset_version else None,
+            "prompt": prompt.text if prompt else None, "seed": output.seed,
+            "generation_settings": request_input or (eval_run.parameters_snapshot if eval_run and eval_run.parameters_snapshot else (definition.parameters if definition else None)),
+            "provider_metadata": output.provider_metadata or None,
+            "model_attribution": "inferred_from_lora_path" if inferred else ("explicit" if model else metadata.get("model_attribution")),
+        }.items() if value is not None})
+
+    item = db.scalar(select(models.DatasetItem).where(models.DatasetItem.asset_id == asset.id).order_by(models.DatasetItem.created_at.desc()))
+    if item:
+        version = db.get(models.DatasetVersion, item.dataset_version_id)
+        dataset = db.get(models.Dataset, version.dataset_id) if version else None
+        metadata.update({key: value for key, value in {
+            "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None,
+            "dataset_version_id": version.id if version else None, "dataset_version_name": version.name if version else None,
+            "caption": item.caption, "caption_format": item.caption_format, "included": item.included, "tags": item.tags or None,
+        }.items() if value is not None})
+
+    remote = next((location for location in asset.locations if location.provider != "local"), asset.locations[0] if asset.locations else None)
+    if remote:
+        metadata["storage"] = {key: value for key, value in {
+            "provider": remote.provider, "bucket": remote.bucket, "object_key": remote.object_key,
+            "uri": remote.uri, "size": remote.size, "modified_at": remote.modified_at,
+            "hydration_state": remote.hydration_state,
+        }.items() if value is not None}
+    metadata["provenance_kind"] = asset.provenance_kind
+    return metadata
+
+
+def _inferred_model_asset_ids(db: Session, model_id: str) -> list[str]:
+    model = db.get(models.Model, model_id)
+    if model is None:
+        return []
+    assets = db.scalars(
+        select(models.Asset)
+        .join(models.EvalOutput, models.EvalOutput.asset_id == models.Asset.id)
+        .where(models.Asset.project_id == model.project_id)
+    ).all()
+    matches = []
+    for asset in assets:
+        inferred = _infer_eval_model(db, asset, None)
+        if inferred and inferred[0].id == model_id:
+            matches.append(asset.id)
+    return matches
+
+
+def _infer_eval_model(db: Session, asset: models.Asset, endpoint: str | None) -> tuple[models.Model, models.ModelVersion] | None:
+    raw = asset.metadata_ or {}
+    request_input = raw.get("fal_request_input")
+    if not isinstance(request_input, dict):
+        return None
+    loras = request_input.get("loras")
+    if not isinstance(loras, list):
+        return None
+    paths = [str(item.get("path", "")) for item in loras if isinstance(item, dict) and item.get("path")]
+    normalized_paths = [re.sub(r"[^a-z0-9]+", "-", path.lower()) for path in paths]
+    named_models = [
+        model for model in db.scalars(select(models.Model).where(models.Model.project_id == asset.project_id)).all()
+        if re.sub(r"[^a-z0-9]+", "-", model.name.lower()).strip("-") in " ".join(normalized_paths)
+    ]
+    steps = {int(match.group(1)) for path in paths if (match := re.search(r"(?:step|[-_])(\d{3,})(?:\D|$)", path, re.IGNORECASE))}
+    if len(named_models) == 1:
+        version_query = select(models.ModelVersion).join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id).where(models.ModelVersion.model_id == named_models[0].id)
+        matching = db.scalar(version_query.where(models.Checkpoint.step.in_(steps)).order_by(models.ModelVersion.created_at.desc())) if steps else None
+        representative = matching or db.scalar(version_query.order_by(models.Checkpoint.step.desc()))
+        if representative:
+            return named_models[0], representative
+    if not steps:
+        return None
+    endpoint_value = str(raw.get("endpoint") or endpoint or "").lower()
+    candidates = db.execute(
+        select(models.Model, models.ModelVersion)
+        .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
+        .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
+        .where(models.Model.project_id == asset.project_id, models.Checkpoint.step.in_(steps))
+    ).all()
+    if not candidates:
+        return None
+    family_matches = [(model, version) for model, version in candidates if version.base_model and any(token in version.base_model.lower() for token in ("ideogram", "qwen", "krea", "flux")) and any(token in endpoint_value for token in ("ideogram", "qwen", "krea", "flux") if token in version.base_model.lower())]
+    choices = family_matches or candidates
+    model_ids = {model.id for model, _version in choices}
+    if len(model_ids) != 1:
+        return None
+    model_id = next(iter(model_ids))
+    versions = [(model, version) for model, version in choices if model.id == model_id]
+    return versions[0] if len(versions) == 1 else None
 
 
 @router.post("/assets", response_model=schemas.AssetOut, status_code=status.HTTP_201_CREATED, include_in_schema=False)
@@ -235,7 +511,7 @@ def asset_metadata(asset_id: str, db: DB):
     return {
         "asset_id": asset.id,
         "asset_revision_id": asset.id,
-        "metadata": asset.metadata_,
+        "metadata": _gallery_asset_metadata(db, asset),
         "image": None if image is None else {column.name: getattr(image, column.key) for column in image.__table__.columns},
     }
 
@@ -251,7 +527,7 @@ def asset_context(asset_id: str, db: DB):
     return {
         "asset_revision_id": asset.id,
         "asset": schemas.AssetOut.model_validate(asset).model_dump(mode="json"),
-        "metadata": asset.metadata_,
+        "metadata": _gallery_asset_metadata(db, asset),
         "image": None if image is None else {column.name: getattr(image, column.key) for column in image.__table__.columns},
         "reviews": [{**{column.name: getattr(row, column.key) for column in row.__table__.columns}, "profile_name": profiles.get(row.profile_id)} for row in reviews],
         "comments": [{**{column.name: getattr(row, column.key) for column in row.__table__.columns}, "profile_name": profiles.get(row.profile_id)} for row in comments],

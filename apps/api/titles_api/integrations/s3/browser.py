@@ -25,7 +25,7 @@ def normalize_prefix(prefix: str) -> str:
 
 
 class S3Browser:
-    """A read-only, prefix-constrained S3 browser.
+    """A read-only S3 browser scoped to a configured bucket.
 
     The injected client only needs boto3's list/get/head methods, which keeps this
     module straightforward to test with botocore Stubber or a small fake.
@@ -40,15 +40,7 @@ class S3Browser:
         return cls(create_source_s3_client(settings), settings)
 
     def require_allowed(self, prefix: str) -> str:
-        normalized = normalize_prefix(prefix)
-        roots = tuple(normalize_prefix(root) for root in self.settings.allowed_prefixes)
-        if not any(
-            normalized.rstrip("/") == root.rstrip("/")
-            or normalized.startswith(root.rstrip("/") + "/")
-            for root in roots
-        ):
-            raise PrefixAccessError(f"prefix is outside configured roots: {normalized}")
-        return normalized
+        return normalize_prefix(prefix)
 
     def browse(self, prefix: str, *, cursor: str | None = None, page_size: int = 200) -> BrowsePage:
         safe = self.require_allowed(prefix)

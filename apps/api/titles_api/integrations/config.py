@@ -33,8 +33,6 @@ class S3Settings:
         prefixes = _csv(os.getenv(f"{selected}_ALLOWED_PREFIXES"))
         if not bucket:
             raise ValueError(f"{selected}_BUCKET is required")
-        if not prefixes:
-            raise ValueError(f"{selected}_ALLOWED_PREFIXES must contain at least one prefix")
         settings = cls(
             endpoint_url=endpoint.rstrip("/") if endpoint else None,
             bucket=bucket,
@@ -58,7 +56,7 @@ class S3Settings:
         *,
         endpoint_url: str | None,
         bucket: str,
-        allowed_prefixes: tuple[str, ...],
+        allowed_prefixes: tuple[str, ...] = (),
         region: str | None = None,
         addressing_style: str = "auto",
         credential_env_prefix: str = "S3",

@@ -15,6 +15,7 @@ type AssetImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
 
 const descriptorCache = new Map<string, string>();
 const descriptorRequests = new Map<string, Promise<string>>();
+const unavailablePlaceholder = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="#d1d5db"/><g fill="none" stroke="#6b7280" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><rect x="35" y="27" width="90" height="66" rx="5"/><circle cx="62" cy="51" r="8"/><path d="m43 84 25-23 17 15 13-12 19 20"/></g></svg>')}`;
 
 function descriptorKey(assetRevisionId: string, variant: AssetImageVariant, maxPixels: number) {
   return `${assetRevisionId}:${variant}:${variant === "thumbnail" ? maxPixels : "original"}`;
@@ -70,7 +71,7 @@ export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels =
     return () => { active = false; };
   }, [assetRevisionId, maxPixels, variant, visible]);
 
-  return <img {...props} ref={imageRef} src={delivery?.src || undefined} alt={alt} aria-busy={visible && !delivery} data-delivery-error={delivery?.error || undefined} onError={event => {
+  return <img {...props} ref={imageRef} src={delivery?.src || unavailablePlaceholder} alt={alt} aria-busy={visible && !delivery} data-delivery-state={delivery?.error ? "unavailable" : delivery?.src ? "loaded" : "loading"} data-delivery-error={delivery?.error || undefined} onError={event => {
     props.onError?.(event);
     if (!delivery?.src || retriedRef.current) return;
     retriedRef.current = true;

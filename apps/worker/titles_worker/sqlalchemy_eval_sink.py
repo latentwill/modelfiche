@@ -15,6 +15,7 @@ from titles_api import models
 from titles_api.asset_cache import AssetCache
 from titles_api.storage.network import SafeHttpTransport
 from titles_api.storage.repository import StorageRepository
+from titles_api.image_provenance import fal_generated_at
 
 
 
@@ -49,6 +50,7 @@ class SQLAlchemyEvalOutputSink:
             prompt_text = prompt.text if prompt else str(response.get("prompt") or "") or None
             response_metadata = {key: value for key, value in response.items() if key != "images"}
             request_ids = [str(response["_request_id"])] if response.get("_request_id") else list(run.provider_job_ids or [])
+            generated_at = fal_generated_at(response)
             output_count = 0
             output_ids: list[str] = []
             for index, image in enumerate(images):
@@ -78,8 +80,11 @@ class SQLAlchemyEvalOutputSink:
                         "seed": response.get("seed"),
                         "provider_request_ids": request_ids,
                         "parameters": dict(run.parameters_snapshot or definition.parameters or {}),
+                        **({"generated_at": generated_at.isoformat()} if generated_at else {}),
                     },
                 )
+                if generated_at:
+                    asset.created_at = generated_at
                 session.add(asset)
                 session.flush()
                 StorageRepository(session, project.workspace_id).attach_verified_local_location(
@@ -107,6 +112,8 @@ class SQLAlchemyEvalOutputSink:
                         "response": response_metadata,
                     },
                 )
+                if generated_at:
+                    output.created_at = generated_at
                 session.add(output)
                 session.flush()
                 if run.checkpoint_id:

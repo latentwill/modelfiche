@@ -6,7 +6,7 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import create_app
+from .app import create_app, initialize_database
 from .security_middleware import LocalLaunchContract
 from .settings import get_settings
 from .storage.run_lease import RunLease
@@ -24,6 +24,11 @@ def main() -> None:
         os.environ["TITLES_RUN_LEASE_ID"] = lease.lease_id
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
+            # Complete the synchronous migration/seed pass before handing the
+            # process to uvicorn. Running it through ASGI lifespan can leave
+            # uvicorn waiting indefinitely when another local process has an
+            # open SQLite WAL reader during large imports.
+            initialize_database()
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind((host, port))
             listener.listen(128)
@@ -41,6 +46,7 @@ def main() -> None:
                 forwarded_allow_ips="",
                 reload=False,
                 access_log=True,
+                lifespan="off",
             )
             uvicorn.Server(config).run(sockets=[listener])
         finally:

@@ -1,5 +1,5 @@
 {
-  "name": "@titles-dam/web",
+  "name": "@modelfiche/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -14,6 +14,8 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "latest",
+    "chart.js": "^4.5.1",
+    "flint-chart": "^0.2.0",
     "lucide-react": "^1.23.0",
     "react": "latest",
     "react-dom": "latest",

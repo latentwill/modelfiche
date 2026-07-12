@@ -1,4 +1,4 @@
-# Titles DAM
+# Modelfiche
 
 Local-first digital asset management for image-model datasets, training runs,
 checkpoints, evaluations, grids, reviews, and model promotion. The current

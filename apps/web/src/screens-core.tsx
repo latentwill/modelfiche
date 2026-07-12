@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Archive, FolderSearch, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Upload } from "lucide-react";
 import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Panel, ProfileSelect, SelectRecords, Status } from "./ui";
 
@@ -34,6 +35,9 @@ export function ProjectScreen({ id }: { id: string }) {
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: id })}`);
   const models = useResource<unknown>(`/api/models${query({ project_id: id })}`);
   const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: id })}`);
+  const trainingImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "sample", limit: 8 })}`);
+  const datasetImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "dataset_image", include_dataset_assets: true, limit: 8 })}`);
+  const evalImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "eval_output", limit: 8 })}`);
   const [projectMessage, setProjectMessage] = useState("");
   const [projectActionError, setProjectActionError] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
@@ -41,6 +45,11 @@ export function ProjectScreen({ id }: { id: string }) {
   const archived = project.data?.state === "archived";
   return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"} · ${str(project.data?.state, "active")}`} actions={archived ? <button disabled title="Restore the project before importing"><Upload size={15} /> Import unavailable</button> : <a className="button vela-button-primary" href={`#/import?project=${id}`}><Upload size={15} aria-hidden="true" /> Import assets</a>}>
     <Notice error={project.error || projectActionError} loading={project.loading} />
+    <div className="project-visual-grid">
+      <ProjectImagePanel title="Training samples" assets={rows(trainingImages.data)} loading={trainingImages.loading} error={trainingImages.error} href={projectGalleryHref(id, "sample")} returnTarget={`project/${id}`} />
+      <ProjectImagePanel title="Dataset images" assets={rows(datasetImages.data)} loading={datasetImages.loading} error={datasetImages.error} href={projectGalleryHref(id, "dataset_image", { include_dataset_assets: true })} returnTarget={`project/${id}`} />
+      <ProjectImagePanel title="Eval outputs" assets={rows(evalImages.data)} loading={evalImages.loading} error={evalImages.error} href={projectGalleryHref(id, "eval_output")} returnTarget={`project/${id}`} />
+    </div>
     <div className="project-compare-grid">
       <Panel title="Training runs"><Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !runRows.length} /><div className="comparison-stack">{runRows.slice(0, 4).map(run => <a href={`#/run/${idOf(run)}`} key={idOf(run)}><strong>{str(run.name, "Run")}</strong><Status value={run.status} /><span>{str(run.checkpoint_count, "0")} checkpoints</span></a>)}</div><a className="vela-text-button" href={`#/runs?project=${id}`}>View all runs</a></Panel>
       <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} empty={!datasets.loading && !datasetRows.length} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div><a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
@@ -50,6 +59,14 @@ export function ProjectScreen({ id }: { id: string }) {
     <div className="dashboard-lower"><Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["status", "Status"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel><Panel title="Project activity"><Notice error={activity.error} loading={activity.loading} empty={!rows(activity.data).length} /><DataTable rows={rows(activity.data).slice(0, 8)} columns={[["action", "Event"], ["profile_name", "Profile"], ["created_at", "Time"]]} /></Panel></div>
     {project.data && <Panel title="Project settings"><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { await api(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); setProjectMessage("Project updated."); await project.reload(); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel>}
   </Page>;
+}
+
+function projectGalleryHref(projectId: string, category: string, extra: Record<string, unknown> = {}) {
+  return `#/gallery${query({ project: projectId, category, page: 1, ...extra })}`;
+}
+
+function ProjectImagePanel({ title, assets, loading, error, href, returnTarget }: { title: string; assets: Row[]; loading: boolean; error?: string; href: string; returnTarget: string }) {
+  return <section className="vela-panel project-image-panel"><div className="vela-section-heading"><h2>{title}</h2><a className="vela-text-button" href={href}>View all</a></div><Notice error={error} loading={loading} empty={!loading && !assets.length} />{!!assets.length && <div className="project-image-mosaic">{assets.slice(0, 8).map(asset => <a href={`${href}&return=${encodeURIComponent(returnTarget)}&asset=${encodeURIComponent(idOf(asset))}`} key={idOf(asset)}><AssetImage assetRevisionId={idOf(asset)} alt={str(asset.name, title)} loading="lazy" /></a>)}</div>}</section>;
 }
 
 export function ImportScreen({ initialProject = "" }: { initialProject?: string }) {
@@ -98,10 +115,11 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
     finally { setBusy(""); }
   }
 
+  const canBrowse = Boolean(sourceId && !busy);
   const canInspect = Boolean(sourceId && prefix && !busy);
   const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
 
-  return <Page title="Import from storage" subtitle="Browse an allowed S3 prefix, inspect its structure, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
+  return <Page title="Import from storage" subtitle="Browse an S3 bucket, inspect any prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
     <Panel title="Source">
       <div className="form-grid">
@@ -113,11 +131,11 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
           const firstPrefix = Array.isArray(source?.allowed_prefixes) ? source.allowed_prefixes[0] : "";
           setPrefix(firstPrefix ? String(firstPrefix) : "");
         }} /></Field>
-        <Field label="Prefix" hint="Must be inside one of the source's allowed roots."><input value={prefix} onChange={event => { setPrefix(event.target.value); setPreview(null); setJob(null); }} placeholder="training-runs/2026-07/" /></Field>
+        <Field label="Prefix" hint="Leave blank to browse from the bucket root."><input value={prefix} onChange={event => { setPrefix(event.target.value); setPreview(null); setJob(null); }} placeholder="training-runs/2026-07/" /></Field>
       </div>
-      {selectedSource && <dl className="details source-summary"><dt>Bucket</dt><dd>{str(selectedSource.bucket)}</dd><dt>Endpoint</dt><dd>{str(selectedSource.endpoint_url, "AWS default")}</dd><dt>Region</dt><dd>{str(selectedSource.region, "Default")}</dd><dt>Allowed roots</dt><dd>{Array.isArray(selectedSource.allowed_prefixes) ? selectedSource.allowed_prefixes.map(String).join(", ") : "-"}</dd></dl>}
+      {selectedSource && <dl className="details source-summary"><dt>Bucket</dt><dd>{str(selectedSource.bucket)}</dd><dt>Endpoint</dt><dd>{str(selectedSource.endpoint_url, "AWS default")}</dd><dt>Region</dt><dd>{str(selectedSource.region, "Default")}</dd><dt>Browse hints</dt><dd>{Array.isArray(selectedSource.allowed_prefixes) && selectedSource.allowed_prefixes.length ? selectedSource.allowed_prefixes.map(String).join(", ") : "Whole bucket"}</dd></dl>}
       <div className="actions">
-        <button className="vela-button-primary" onClick={() => void browse()} disabled={!canInspect} title={!sourceId ? "Select a storage source first." : !prefix ? "Enter an allowed prefix first." : busy ? "A storage operation is already running." : undefined}><FolderSearch size={15} aria-hidden="true" />{busy === "browse" ? "Browsing..." : "Browse"}</button>
+        <button className="vela-button-primary" onClick={() => void browse()} disabled={!canBrowse} title={!sourceId ? "Select a storage source first." : busy ? "A storage operation is already running." : undefined}><FolderSearch size={15} aria-hidden="true" />{busy === "browse" ? "Browsing..." : "Browse"}</button>
         <button onClick={() => void detect()} disabled={!canInspect} title={!sourceId ? "Select a storage source first." : !prefix ? "Choose a prefix first." : busy ? "A storage operation is already running." : undefined}><Import size={15} aria-hidden="true" />{busy === "detect" ? "Detecting..." : "Detect structure"}</button>
         <button onClick={async () => {
           if (!sourceId) return; setError(""); setBusy("test"); setSourceTest("");
@@ -242,17 +260,17 @@ function S3SourcesPanel() {
         <Field label="Endpoint URL" hint="Leave blank for standard AWS S3."><input name="endpoint_url" type="url" defaultValue={str(editing?.endpoint_url, "")} placeholder="https://s3.example.com" /></Field>
         <Field label="Region"><input name="region" defaultValue={str(editing?.region, "")} placeholder="us-east-1" /></Field>
         <Field label="Addressing style"><select name="addressing_style" defaultValue={str(editing?.addressing_style, "auto")}><option value="auto">Auto</option><option value="path">Path</option><option value="virtual">Virtual-hosted</option></select></Field>
-        <Field label="Credential environment prefix" hint="Reads PREFIX_ACCESS_KEY_ID and PREFIX_SECRET_ACCESS_KEY at runtime."><input name="credential_env_prefix" defaultValue={str(editing?.credential_env_prefix, "S3")} pattern="[A-Za-z][A-Za-z0-9_]{0,39}" required /></Field>
+        <Field label="Credential environment prefix" hint="Reads PREFIX_ACCESS_KEY and PREFIX_SECRET_KEY at runtime."><input name="credential_env_prefix" defaultValue={str(editing?.credential_env_prefix, "S3")} pattern="[A-Za-z][A-Za-z0-9_]{0,39}" required /></Field>
         {editing && <Field label="Source state"><select name="is_active" defaultValue={editing.is_active === false ? "false" : "true"}><option value="true">Active</option><option value="false">Inactive</option></select></Field>}
       </div>
-      <Field label="Allowed prefixes" hint="One read-only root per line."><textarea name="allowed_prefixes" defaultValue={Array.isArray(editing?.allowed_prefixes) ? editing.allowed_prefixes.map(String).join("\n") : ""} required /></Field>
+      <Field label="Browse starting prefixes" hint="Optional. One convenience root per line; imports can still target any key in the bucket."><textarea name="allowed_prefixes" defaultValue={Array.isArray(editing?.allowed_prefixes) ? editing.allowed_prefixes.map(String).join("\n") : ""} /></Field>
     </Form>
     <div className="actions source-actions">{editing && <><button onClick={async () => {
       setMessage(""); setTesting(true);
       try { const result = await api<Row>(`/api/import-sources/${editingId}/test`, jsonBody({})); setMessage(result.ok ? "Connection succeeded." : "Connection test did not succeed."); }
       catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
       finally { setTesting(false); }
-    }} disabled={testing} title={testing ? "Connection test is running." : "List one object from the first allowed prefix."}><PlugZap size={15} aria-hidden="true" />{testing ? "Testing..." : "Test connection"}</button><button onClick={() => { setEditingId(""); setMessage(""); }} disabled={testing} title={testing ? "Wait for the connection test to finish." : "Return to the new-source form."}>Cancel edit</button></>}</div>
+    }} disabled={testing} title={testing ? "Connection test is running." : "List one object from the first browse hint, or from the bucket root."}><PlugZap size={15} aria-hidden="true" />{testing ? "Testing..." : "Test connection"}</button><button onClick={() => { setEditingId(""); setMessage(""); }} disabled={testing} title={testing ? "Wait for the connection test to finish." : "Return to the new-source form."}>Cancel edit</button></>}</div>
     {message && <div className="vela-notice" role="status"><strong>Storage source</strong><span>{message}</span></div>}
   </Panel>;
 }

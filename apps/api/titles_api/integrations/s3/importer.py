@@ -71,12 +71,14 @@ _SMALL_SOURCE_NAMES = {
     "config.yml",
     "checksums.sha256",
     "loss_log.db",
+    "log.txt",
     "run_manifest.json",
     "run_state.json",
     "train.yaml",
     "train.yml",
     "train.log",
     "training.log",
+    "training_args.json",
 }
 
 
@@ -132,7 +134,9 @@ class S3Importer:
 def _should_read_small(item: ObjectInfo, kind: PrefixKind) -> bool:
     name = PurePosixPath(item.key).name.lower()
     return item.size <= 2 * 1024 * 1024 and (
-        name in _SMALL_SOURCE_NAMES or (kind == PrefixKind.DATASET and PurePosixPath(name).suffix == ".txt")
+        name in _SMALL_SOURCE_NAMES
+        or name.startswith("events.out.tfevents.")
+        or (kind == PrefixKind.DATASET and PurePosixPath(name).suffix == ".txt")
     )
 
 
@@ -147,11 +151,11 @@ def classify_object(item: ObjectInfo, kind: PrefixKind) -> str:
         return "sample" if kind == PrefixKind.TRAINING_RUN and "samples" in parts else "dataset_image"
     if name in {"run_manifest.json", "run_state.json"}:
         return "run_metadata"
-    if name in _SMALL_SOURCE_NAMES:
+    if name in _SMALL_SOURCE_NAMES or name.startswith("events.out.tfevents."):
         return "source_metadata"
     if kind == PrefixKind.DATASET and ext == ".txt":
         return "caption"
-    if ext in {".log", ".out"}:
+    if ext in {".log", ".out"} or name == "log.txt":
         return "log"
     if ext in {".pt", ".sqlite", ".sqlite3", ".wal"} or name.endswith(".pid"):
         return "sidecar"

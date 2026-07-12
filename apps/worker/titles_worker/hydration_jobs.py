@@ -42,11 +42,26 @@ class CheckpointHydrationHandler:
             ).order_by(models.AssetLocation.created_at.desc()))
             if remote is None or not remote.bucket or not remote.object_key:
                 raise LookupError("checkpoint has no available S3 location")
-            source = next((item for item in session.scalars(select(models.ImportSource).where(
-                models.ImportSource.is_active.is_(True), models.ImportSource.bucket == remote.bucket
-            )) if any(remote.object_key.rstrip("/") == root.rstrip("/") or remote.object_key.startswith(root.rstrip("/") + "/") for root in item.allowed_prefixes)), None)
+            source = session.scalar(
+                select(models.ImportSource)
+                .where(
+                    models.ImportSource.is_active.is_(True),
+                    models.ImportSource.bucket == remote.bucket,
+                    models.ImportSource.id == remote.source_id,
+                )
+                .order_by(models.ImportSource.created_at.desc())
+            )
             if source is None:
-                raise LookupError("no active import source permits the checkpoint object")
+                source = session.scalar(
+                    select(models.ImportSource)
+                    .where(
+                        models.ImportSource.is_active.is_(True),
+                        models.ImportSource.bucket == remote.bucket,
+                    )
+                    .order_by(models.ImportSource.created_at.desc())
+                )
+            if source is None:
+                raise LookupError("no active import source is available for the checkpoint bucket")
             settings = S3Settings.for_source(
                 endpoint_url=source.endpoint_url,
                 bucket=source.bucket,

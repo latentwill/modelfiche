@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import yaml
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
@@ -14,7 +15,7 @@ from ... import models
 from ...storage.repository import StorageRepository
 from .detection import PrefixKind
 from .importer import ImportContext, ImportResult
-from .metrics import parse_loss_log_db, parse_training_log
+from .metrics import parse_loss_log_db, parse_tensorboard_event, parse_training_log
 from .models import ObjectInfo
 from .reconciliation import StoredObject
 
@@ -157,9 +158,9 @@ class SQLAlchemyImportSink:
         name = PurePosixPath(context.prefix.rstrip("/")).name
         project_id = self._dataset_project_id(context)
         if version is None:
-            dataset = self.session.scalar(
-                select(models.Dataset).where(models.Dataset.project_id == project_id, models.Dataset.name == name)
-            )
+            version = self._referenced_dataset_version(project_id, context.prefix, name)
+        if version is None:
+            dataset = self._dataset_for_import(project_id, context.prefix, name)
             if dataset is None:
                 dataset = models.Dataset(project_id=project_id, name=name)
                 self.session.add(dataset)
@@ -180,6 +181,11 @@ class SQLAlchemyImportSink:
             dataset = self.session.get(models.Dataset, version.dataset_id)
             if dataset is not None:
                 dataset.project_id = project_id
+                version.name = dataset.name
+            version.source_uri = source_uri
+            version.status = "published"
+            if context.requested_by_profile_id:
+                version.published_by_profile_id = context.requested_by_profile_id
         captions = self._captions(context.prefix)
         image_keys = [key for key in self._assets if PurePosixPath(key).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".avif", ".tif", ".tiff"}]
         existing_items = {
@@ -214,6 +220,53 @@ class SQLAlchemyImportSink:
                 if caption:
                     item.caption = caption
         return version.id
+
+    def _dataset_for_import(self, project_id: str, prefix: str, name: str) -> models.Dataset | None:
+        candidates = self._dataset_name_candidates(prefix, name)
+        datasets = list(
+            self.session.scalars(
+                select(models.Dataset).where(
+                    models.Dataset.project_id == project_id,
+                    models.Dataset.name.in_(candidates),
+                )
+            )
+        )
+        if not datasets:
+            return None
+        return sorted(datasets, key=lambda dataset: candidates.index(dataset.name))[0]
+
+    def _referenced_dataset_version(self, project_id: str, prefix: str, name: str) -> models.DatasetVersion | None:
+        candidates = self._dataset_name_candidates(prefix, name)
+        rows = self.session.execute(
+            select(models.DatasetVersion, models.Dataset)
+            .join(models.Dataset, models.Dataset.id == models.DatasetVersion.dataset_id)
+            .where(
+                models.Dataset.project_id == project_id,
+                models.DatasetVersion.status == "referenced",
+            )
+            .order_by(models.DatasetVersion.version_number.desc())
+        ).all()
+        for version, dataset in rows:
+            source_uri = str(version.source_uri or "")
+            source_name = PurePosixPath(source_uri.removeprefix("training-path://")).name if source_uri.startswith("training-path://") else ""
+            if dataset.name in candidates or source_name in candidates:
+                return version
+        return None
+
+    def _dataset_name_candidates(self, prefix: str, name: str) -> list[str]:
+        candidates = [name]
+        parts = PurePosixPath(prefix.rstrip("/")).parts
+        lowered = [part.lower() for part in parts]
+        for marker in ("datasets", "dataset"):
+            if marker not in lowered:
+                continue
+            index = lowered.index(marker)
+            if index + 1 < len(parts):
+                owner = parts[index + 1]
+                if owner.lower() != name.lower():
+                    candidates.append(f"{owner}-{name}")
+            break
+        return list(dict.fromkeys(candidates))
 
     def _dataset_project_id(self, context: ImportContext) -> str:
         parts = PurePosixPath(context.prefix.rstrip("/")).parts
@@ -264,20 +317,47 @@ class SQLAlchemyImportSink:
         source = self._source(context.source_id)
         manifest = result.detection.metadata.get("manifest", {})
         state = self._json_named("run_state.json")
+        training_config = self._training_config()
+        process = _training_process(training_config)
+        model_config = process.get("model", {}) if isinstance(process.get("model"), dict) else {}
+        train_config = process.get("train", {}) if isinstance(process.get("train"), dict) else {}
+        config_name = _first(training_config.get("config", {}) if isinstance(training_config.get("config"), dict) else {}, "name")
+        trainer = _first(manifest, "trainer", "training_tool") or ("ai-toolkit" if process else None)
+        base_model = _first(manifest, "base_model", "model") or _first(model_config, "name_or_path", "model", "path")
+        normalized = _normalize_config(manifest, state)
+        manifest_dataset = _first(manifest, "dataset_id", "dataset", "dataset_path", "dataset_uri")
+        if manifest_dataset:
+            normalized["dataset_sources"] = [str(manifest_dataset)]
+        if training_config:
+            configured_datasets = [item.get("folder_path") for item in process.get("datasets", []) if isinstance(item, dict) and item.get("folder_path")]
+            direct_dataset = _first(training_config, "dataset_base_path", "dataset_path", "dataset_uri")
+            if not configured_datasets and direct_dataset:
+                configured_datasets = [str(direct_dataset)]
+            normalized = {
+                **normalized,
+                "trainer": trainer,
+                "base_model": base_model,
+                "steps": _first(train_config, "steps", "max_steps", "total_steps") or _first(training_config, "max_steps", "total_steps"),
+                "epochs": _first(train_config, "epochs", "num_epochs") or _first(training_config, "epochs", "num_epochs"),
+                "learning_rate": _first(train_config, "lr", "learning_rate") or _first(training_config, "lr", "learning_rate"),
+                "lora_rank": _first(process.get("network", {}) if isinstance(process.get("network"), dict) else {}, "linear", "rank") or _first(training_config, "lora_rank", "network_dim"),
+                "dataset_sources": configured_datasets or normalized.get("dataset_sources", []),
+                "training_config": training_config,
+            }
         status = _public_run_status(_first(state, "status", "state"))
         if run is None:
             run = models.TrainingRun(
                 project_id=context.project_id,
-                name=PurePosixPath(context.prefix.rstrip("/")).name,
-                trainer=_first(manifest, "trainer", "training_tool"),
-                base_model=_first(manifest, "base_model", "model"),
+                name=str(config_name or PurePosixPath(context.prefix.rstrip("/")).name),
+                trainer=trainer,
+                base_model=base_model,
                 status=status,
                 source_prefix=context.prefix,
                 origin_source_id=source.id,
                 origin_source_fingerprint=source.identity_fingerprint,
                 raw_manifest=manifest,
                 raw_state=state,
-                normalized_config=_normalize_config(manifest, state),
+                normalized_config=normalized,
             )
             self.session.add(run)
             self.session.flush()
@@ -286,7 +366,10 @@ class SQLAlchemyImportSink:
             run.origin_source_fingerprint = source.identity_fingerprint
             run.raw_manifest = manifest
             run.raw_state = state
-            run.normalized_config = _normalize_config(manifest, state)
+            run.name = str(config_name or run.name)
+            run.trainer = trainer or run.trainer
+            run.base_model = base_model or run.base_model
+            run.normalized_config = normalized
             run.status = status
         stage_names = {
             name
@@ -337,26 +420,63 @@ class SQLAlchemyImportSink:
             checkpoint = checkpoints.get((stage_id, step)) if step is not None else None
             self.session.add(models.Sample(run_id=run.id, checkpoint_id=checkpoint.id if checkpoint else None, asset_id=asset_id, step=step))
         self._persist_metrics(run)
+        if run.status in {"failed", "unknown"} and checkpoints:
+            run.normalized_config = {
+                **dict(run.normalized_config or {}),
+                "source_status": run.status,
+                "source_message": _first(state, "message", "error"),
+                "usable_output": True,
+                "status_evidence": f"{len(checkpoints)} checkpoint(s) imported",
+            }
+            run.status = "completed"
         self._link_dataset(run)
         self._reconcile_model(run, checkpoints.values())
         return run.id
 
+    def _training_config(self) -> dict[str, Any]:
+        for key, body in self._snapshots.items():
+            if PurePosixPath(key).name.lower() not in {"config.yaml", "config.yml", "train.yaml", "train.yml", "config.json", "train_config.json", "training_args.json"}:
+                continue
+            try:
+                value = yaml.safe_load(body)
+                if isinstance(value, dict):
+                    return value
+            except (yaml.YAMLError, UnicodeDecodeError):
+                continue
+        return {}
+
     def _link_dataset(self, run: models.TrainingRun) -> None:
         if run.dataset_version_id:
             return
-        run_tokens = _identity_tokens(run.name)
-        candidates = self.session.execute(
-            select(models.DatasetVersion, models.Dataset)
-            .join(models.Dataset, models.Dataset.id == models.DatasetVersion.dataset_id)
-            .where(models.Dataset.project_id == run.project_id)
-        ).all()
-        ranked = sorted(
-            ((len(run_tokens & _identity_tokens(dataset.name)), version) for version, dataset in candidates),
-            key=lambda item: item[0],
-            reverse=True,
-        )
-        if ranked and ranked[0][0] >= 1 and (len(ranked) == 1 or ranked[0][0] > ranked[1][0]):
-            run.dataset_version_id = ranked[0][1].id
+        sources = run.normalized_config.get("dataset_sources", []) if isinstance(run.normalized_config, dict) else []
+        source_names = [PurePosixPath(str(source)).name for source in sources if source]
+        if sources:
+            source_path = str(sources[0])
+            source_name = PurePosixPath(source_path).name
+            resolved_name = f"{run.name}-dataset" if source_name.lower() in {"dataset", "datasets", "data"} else source_name
+            project_versions = self.session.execute(select(models.DatasetVersion, models.Dataset).join(models.Dataset, models.Dataset.id == models.DatasetVersion.dataset_id).where(models.Dataset.project_id == run.project_id).order_by(models.DatasetVersion.version_number.desc())).all()
+            matches = [(version, dataset) for version, dataset in project_versions if dataset.name == resolved_name or resolved_name.lower().endswith("-" + dataset.name.lower())]
+            if len({dataset.id for _version, dataset in matches}) == 1:
+                run.dataset_version_id = matches[0][0].id
+                return
+        if not sources:
+            return
+        source_path = str(sources[0])
+        source_name = PurePosixPath(source_path).name
+        if source_name.lower() in {"dataset", "datasets", "data"}:
+            source_name = f"{run.name}-dataset"
+        dataset = self.session.scalar(select(models.Dataset).where(models.Dataset.project_id == run.project_id, models.Dataset.name == source_name))
+        if dataset is None:
+            dataset = models.Dataset(project_id=run.project_id, name=source_name, description=f"Training dataset referenced by {run.name}: {source_path}")
+            self.session.add(dataset)
+            self.session.flush()
+        version = self.session.scalar(select(models.DatasetVersion).where(models.DatasetVersion.dataset_id == dataset.id, models.DatasetVersion.source_uri == f"training-path://{source_path}"))
+        if version is None:
+            next_number = int(self.session.scalar(select(func.max(models.DatasetVersion.version_number)).where(models.DatasetVersion.dataset_id == dataset.id)) or 0) + 1
+            version = models.DatasetVersion(dataset_id=dataset.id, version_number=next_number, name=source_name, source_uri=f"training-path://{source_path}", caption_format="text", status="referenced", published_by_profile_id=None)
+            self.session.add(version)
+            self.session.flush()
+        run.dataset_version_id = version.id
 
     def _reconcile_model(self, run: models.TrainingRun, checkpoints) -> None:
         marker = f"Imported from training run {run.id}"
@@ -403,7 +523,8 @@ class SQLAlchemyImportSink:
         for key, body in self._snapshots.items():
             if not _is_metric_source(key):
                 continue
-            parser = parse_loss_log_db if PurePosixPath(key).suffix.lower() == ".db" else parse_training_log
+            name = PurePosixPath(key).name.lower()
+            parser = parse_tensorboard_event if name.startswith("events.out.tfevents.") else (parse_loss_log_db if PurePosixPath(key).suffix.lower() == ".db" else parse_training_log)
             for point in parser(body):
                 metric = self.session.scalar(
                     select(models.TrainingMetric).where(
@@ -510,6 +631,9 @@ def _extract_step(name: str) -> int | None:
     match = _STEP.search(name)
     if match:
         return int(match.group(1))
+    timestamp_sample = re.search(r"__(\d{6,})_\d+(?:\.[^.]+)?$", name)
+    if timestamp_sample:
+        return int(timestamp_sample.group(1))
     numbers = re.findall(r"\d+", PurePosixPath(name).stem)
     return int(numbers[-1]) if numbers else None
 
@@ -537,7 +661,7 @@ def _public_run_status(value: Any) -> str:
 
 
 def _identity_tokens(value: str) -> set[str]:
-    ignored = {"titlesxyz", "title", "captions", "caption", "image", "images", "run", "dataset"}
+    ignored = {"titlesxyz", "title", "captions", "caption", "image", "images", "run", "dataset", "vcribb", "kzapata"}
     return {
         token for token in re.split(r"[^a-z0-9]+", value.lower())
         if token and token not in ignored and not re.fullmatch(r"v?\d+", token)
@@ -549,6 +673,12 @@ def _first(value: dict[str, Any], *keys: str) -> Any:
         if value.get(key) is not None:
             return value[key]
     return None
+
+
+def _training_process(config: dict[str, Any]) -> dict[str, Any]:
+    root = config.get("config") if isinstance(config.get("config"), dict) else config
+    processes = root.get("process", []) if isinstance(root, dict) else []
+    return processes[0] if isinstance(processes, list) and processes and isinstance(processes[0], dict) else {}
 
 
 def _normalize_config(manifest: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
@@ -564,7 +694,8 @@ def _normalize_config(manifest: dict[str, Any], state: dict[str, Any]) -> dict[s
     }
 
 def _is_metric_source(key: str) -> bool:
-    return PurePosixPath(key).name.lower() in {"aitk_db.db", "loss_log.db", "train.log", "training.log"}
+    name = PurePosixPath(key).name.lower()
+    return name in {"aitk_db.db", "loss_log.db", "log.txt", "train.log", "training.log"} or name.startswith("events.out.tfevents.")
 
 
 

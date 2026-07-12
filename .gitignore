@@ -17,6 +17,7 @@ htmlcov/
 critique.json
 
 node_modules/
+.pnpm-store/
 dist/
 coverage/
 playwright-report/

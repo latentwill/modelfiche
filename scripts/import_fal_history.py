@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import select
 
 from titles_api import models
+from titles_api.image_provenance import fal_generated_at, normalize_fal_image_metadata
 from titles_api.asset_cache import AssetCache
 from titles_api.database import build_engine
 from titles_api.integrations.config import CacheSettings
@@ -143,7 +144,12 @@ def main() -> None:
             with factory.begin() as session:
                 asset = session.scalar(select(models.Asset).where(models.Asset.metadata_["provider_request_ids"].contains(request_id)).order_by(models.Asset.created_at.desc()).limit(1))
                 if asset is not None:
-                    asset.metadata_ = {**dict(asset.metadata_ or {}), "fal_request_id": request_id, "fal_request_input": request, "project_evidence": record["_project_evidence"]}
+                    metadata = {**dict(asset.metadata_ or {}), "fal_request_id": request_id, "fal_request_input": request, "project_evidence": record["_project_evidence"]}
+                    generated_at = fal_generated_at({"_request_id": request_id, "_history": response.get("_history")})
+                    if generated_at:
+                        metadata["generated_at"] = generated_at.isoformat()
+                        asset.created_at = generated_at
+                    asset.metadata_ = {**metadata, **normalize_fal_image_metadata(metadata)}
             imported += 1
             if imported % 25 == 0:
                 print(json.dumps({"imported": imported, "skipped": skipped, "total": len(records)}), flush=True)

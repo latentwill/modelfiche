@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { Notice, ProfileSelect, Status } from "./ui";
 
@@ -82,9 +83,9 @@ function CreateLink({ href, icon, onSelect, children }: { href: string; icon: Re
 function GlobalSearch() {
   const [value, setValue] = useState("");
   const resource = useResource<Row>(value.trim().length >= 2 ? `/api/search${query({ q: value.trim(), limit: 8 })}` : null);
-  const results = rows(resource.data?.results);
+  const results: Array<Row & { preview_asset_id: string }> = rows(resource.data?.results).map((result: Row) => ({ ...result, preview_asset_id: str(result.preview_asset_id, "") }));
   const open = value.trim().length >= 2;
-  return <div className="vela-global-search"><Search size={16} aria-hidden="true" /><label className="sr-only" htmlFor="global-search">Search workspace</label><input id="global-search" className="vela-search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls="global-search-results" value={value} onChange={event => setValue(event.target.value)} onKeyDown={event => { if (event.key === "Escape") setValue(""); }} placeholder="Search projects, runs, model files..." />{open && <div className="vela-search-results" id="global-search-results" role="listbox">{resource.loading ? <span>Searching...</span> : resource.error ? <span role="alert">{resource.error}</span> : results.length ? results.map(result => <a role="option" aria-selected="false" href={searchHref(result)} key={`${str(result.type)}-${idOf(result)}`} onClick={() => setValue("")}><strong>{str(result.title)}</strong><span>{str(result.type)} · {str(result.subtitle)}</span></a>) : <span>No matching workspace objects</span>}</div>}</div>;
+  return <div className="vela-global-search"><Search size={16} aria-hidden="true" /><label className="sr-only" htmlFor="global-search">Search workspace</label><input id="global-search" className="vela-search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls="global-search-results" value={value} onChange={event => setValue(event.target.value)} onKeyDown={event => { if (event.key === "Escape") setValue(""); }} placeholder="Search projects, runs, model files..." />{open && <div className="vela-search-results" id="global-search-results" role="listbox">{resource.loading ? <span>Searching...</span> : resource.error ? <span role="alert">{resource.error}</span> : results.length ? results.map(result => <a role="option" aria-selected="false" href={searchHref(result)} key={`${str(result.type)}-${idOf(result)}`} onClick={() => setValue("")}>{result.preview_asset_id && <AssetImage assetRevisionId={str(result.preview_asset_id)} alt="" loading="lazy" />}<span><strong>{str(result.title)}</strong><small>{str(result.type)} · {str(result.subtitle)}</small></span></a>) : <span>No matching workspace objects</span>}</div>}</div>;
 }
 
 function Sidebar({ section, id, activeProjectId, projects, collapsed, mobileOpen, onMobileClose, onCollapse }: { section: string; id: string; activeProjectId: string; projects: Row[]; collapsed: boolean; mobileOpen: boolean; onMobileClose: () => void; onCollapse: () => void }) {
@@ -93,7 +94,7 @@ function Sidebar({ section, id, activeProjectId, projects, collapsed, mobileOpen
   const shownProjects = visibleProjects.length ? visibleProjects : projects;
   const activeSources = rows(sources.data).filter(source => source.is_active !== false).length;
   return <aside className="vela-sidebar" id="vela-navigation" data-mobile-open={mobileOpen} onClick={event => { if ((event.target as HTMLElement).closest("a")) onMobileClose(); }}>
-    <div className="vela-brand"><a className="vela-wordmark" href="#/dashboard">VELA</a><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close navigation" onClick={onMobileClose}><X size={18} /></button></div>
+    <div className="vela-brand"><a className="vela-wordmark" href="#/dashboard">MODELFICHE</a><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close navigation" onClick={onMobileClose}><X size={18} /></button></div>
     <nav className="vela-nav" aria-label="Primary navigation">
       <VelaNavLink href="#/dashboard" active={section === "dashboard" || section === "projects"} icon={<LayoutDashboard size={16} />}>Dashboard</VelaNavLink>
       <VelaNavLink href="#/gallery" active={section === "gallery" || section === "image"} icon={<Images size={16} />}>Gallery</VelaNavLink>
