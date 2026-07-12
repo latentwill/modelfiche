@@ -493,17 +493,18 @@ class ContentBlob(UUIDMixin, TimestampMixin, Base):
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class LocalRoot(UUIDMixin, TimestampMixin, Base):
+class LocalRoot(UUIDMixin, Base):
     __tablename__ = "local_roots"
     __table_args__ = (UniqueConstraint("workspace_id", "canonical_path", name="uq_local_root_workspace_path"),)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(32))
     canonical_path: Mapped[str] = mapped_column(String(2048))
-    fingerprint: Mapped[str] = mapped_column(String(512))
+    fingerprint: Mapped[dict[str, Any]] = mapped_column(JSON)
     owner_uid: Mapped[int] = mapped_column(Integer)
     mode: Mapped[int] = mapped_column(Integer)
     availability: Mapped[str] = mapped_column(String(32), default="available", index=True)
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SourceCapability(UUIDMixin, TimestampMixin, Base):
@@ -530,10 +531,9 @@ class SourceCapability(UUIDMixin, TimestampMixin, Base):
     redacted_detail: Mapped[str | None] = mapped_column(Text)
 
 
-class StoragePolicy(UUIDMixin, TimestampMixin, Base):
+class StoragePolicy(Base):
     __tablename__ = "storage_policies"
-    __table_args__ = (UniqueConstraint("workspace_id", name="uq_storage_policy_workspace"),)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True)
     version: Mapped[int] = mapped_column(Integer, default=0)
     desired_provider: Mapped[str] = mapped_column(String(16), default="local")
     resolved_provider: Mapped[str] = mapped_column(String(16), default="local")
@@ -541,9 +541,10 @@ class StoragePolicy(UUIDMixin, TimestampMixin, Base):
     selection_origin: Mapped[str] = mapped_column(String(16), default="automatic")
     fal_local_fallback: Mapped[bool] = mapped_column(Boolean, default=True)
     blocked_reason: Mapped[str | None] = mapped_column(String(128))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
-class StoragePolicySnapshot(UUIDMixin, TimestampMixin, Base):
+class StoragePolicySnapshot(UUIDMixin, Base):
     __tablename__ = "storage_policy_snapshots"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     contract_version: Mapped[int] = mapped_column(Integer, default=1)
@@ -553,11 +554,12 @@ class StoragePolicySnapshot(UUIDMixin, TimestampMixin, Base):
     origin_source_fingerprint: Mapped[str | None] = mapped_column(String(96))
     write_source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
     write_source_fingerprint: Mapped[str | None] = mapped_column(String(96))
-    write_managed_prefix: Mapped[str | None] = mapped_column(String(1024))
+    write_managed_prefix: Mapped[str | None] = mapped_column("managed_prefix", String(1024))
     local_root_id: Mapped[str | None] = mapped_column(ForeignKey("local_roots.id", ondelete="RESTRICT"), index=True)
     fal_local_fallback: Mapped[bool] = mapped_column(Boolean, default=True)
     operation_id: Mapped[str] = mapped_column(String(128), index=True)
     actor_profile_id: Mapped[str | None] = mapped_column(ForeignKey("user_profiles.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class StorageMigration(UUIDMixin, TimestampMixin, Base):
