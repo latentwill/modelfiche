@@ -135,6 +135,34 @@ def test_multi_model_eval_is_one_ordered_parent_with_exactly_once_children_and_r
     assert [child["status"] for child in terminal["children"]] == ["completed", "completed"]
     with app_module.SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(models.Job).where(models.Job.kind == "fal.eval_admission")) == 2
+    with app_module.SessionLocal.begin() as db:
+        workspace_id = db.get(models.Project, project["id"]).workspace_id
+        queue_children = list(db.scalars(select(models.GenerationQueueChild).where(
+            models.GenerationQueueChild.queue_item_id == queued.json()["id"]).order_by(models.GenerationQueueChild.ordinal)))
+        for child_index, child in enumerate(queue_children):
+            admission = db.get(models.FalAdmission, child.admission_id)
+            for prompt_index, prompt in enumerate(prompts):
+                asset = models.Asset(workspace_id=workspace_id, project_id=project["id"], kind="image", name=f"child-{child_index}-{prompt_index}.jpg",
+                    mime_type="image/jpeg", metadata_={"category": "eval_output"})
+                db.add(asset); db.flush()
+                db.add(models.EvalOutput(eval_run_id=admission.eval_run_id, asset_id=asset.id,
+                    seed=child_index * 10 + prompt_index,
+                    provider_metadata={"inline_prompt_id": prompt["prompt_id"]}))
+        unrelated_definition = models.EvalDefinition(project_id=project["id"], name="Unrelated", endpoint="fal-ai/krea-2/turbo/lora",
+            model_version_id=version_a["id"], prompt_set_id=None,
+            inline_prompts=[{"id": "prompt-a", "text": "first prompt", "position": 0}], parameters={})
+        db.add(unrelated_definition); db.flush()
+        unrelated_run = models.EvalRun(definition_id=unrelated_definition.id, status="succeeded")
+        db.add(unrelated_run); db.flush()
+        unrelated_asset = models.Asset(workspace_id=workspace_id, project_id=project["id"], kind="image", name="unrelated.jpg",
+            mime_type="image/jpeg", metadata_={"category": "eval_output"})
+        db.add(unrelated_asset); db.flush()
+        db.add(models.EvalOutput(eval_run_id=unrelated_run.id, asset_id=unrelated_asset.id,
+            provider_metadata={"inline_prompt_id": "prompt-a"}))
+        unrelated_asset_id = unrelated_asset.id
     comparison = client.get(f"/api/generation-queue/{queued.json()['id']}/eval-results").json()
     assert [run["model_version_id"] for run in comparison["runs"]] == [version_a["id"], version_b["id"]]
     assert [[prompt["id"] for prompt in run["prompts"]] for run in comparison["runs"]] == [["prompt-a", "prompt-b"], ["prompt-a", "prompt-b"]]
+    assert [[output["prompt_id"] for output in run["outputs"]] for run in comparison["runs"]] == [["prompt-a", "prompt-b"], ["prompt-a", "prompt-b"]]
+    assert [[output["seed"] for output in run["outputs"]] for run in comparison["runs"]] == [[0, 1], [10, 11]]
+    assert unrelated_asset_id not in {output["asset_id"] for run in comparison["runs"] for output in run["outputs"]}
