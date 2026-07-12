@@ -13,6 +13,8 @@ describe("grid planner", () => {
     expect(gridSource).toContain('workflow: "grid"');
     expect(gridSource).toContain("Generate grid");
     expect(gridSource).toContain("children: compiled");
+    expect(gridSource).toContain('queue.error ? `/api/grids/${id}` : null');
+    expect(gridSource).toContain("Historical · read only");
     for (const removed of ["Prompt source", "Num Images", "Acceleration vs Rendering Speed", "billing acknowledgement", "Provider / endpoint"])
       expect(gridSource).not.toContain(removed);
   });

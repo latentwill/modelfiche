@@ -149,14 +149,27 @@ function GridBoard({ x, y, cells, completed = false }: { x: GridAxisValue[]; y: 
 
 export function GridScreen({ id }: { id: string }) {
   const queue = useResource<Row>(`/api/generation-queue/${id}/grid-results`);
+  const legacy = useResource<Row>(queue.error ? `/api/grids/${id}` : null);
+  const isLegacy = !queue.data && Boolean(legacy.data);
+  const data = queue.data ?? legacy.data;
   const request = queue.data?.request as Row | undefined;
   const axes = request?.axes as Row | undefined;
-  const x = (axes?.x as GridAxis | undefined) ?? { field: "prompt", values: [] };
-  const y = (axes?.y as GridAxis | undefined) ?? { field: "seed", values: [] };
-  const cells = rows(queue.data?.cells);
-  const zValues = Array.isArray((axes?.z as Row | undefined)?.values) ? (axes?.z as Row).values as GridAxisValue[] : [{ id: "default", label: "Grid", value: "" }];
-  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><strong>Grid results</strong><span>{str(queue.data?.status, "Loading")} · {cells.length} cells</span></div><div className="viewer-actions"><a className="vela-button" href="#/grids"><ArrowLeft size={15} /> Grid generator</a></div></header><main className="vela-main">
-    <Notice error={queue.error} loading={queue.loading} /><Panel title="Grid review"><Status value={str(queue.data?.status, "queued")} /><div className="grid-subgrids">{zValues.map((z, zIndex) => <section key={`${z.id}-${zIndex}`}><h3>{z.label}</h3><GridBoard x={x.values} y={y.values} cells={cells.filter(cell => Number(cell.z_index ?? 0) === zIndex)} completed /></section>)}</div>
-      {cells.filter(cell => cell.asset_id).map(cell => { const cellX = cell.x && typeof cell.x === "object" ? cell.x as Row : {}; const cellY = cell.y && typeof cell.y === "object" ? cell.y as Row : {}; return <a key={str(cell.id)} className="vela-button" href={galleryOpenHref({ ...cell, project_id: queue.data?.project_id, origin_type: "EVAL" })}><ExternalLink size={15} /> Open {str(cellX.label, "cell")} × {str(cellY.label, "cell")}</a>; })}</Panel>
+  const legacyX = legacyAxis(legacy.data?.x_axis, "prompt");
+  const legacyY = legacyAxis(legacy.data?.y_axis, "seed");
+  const x = (axes?.x as GridAxis | undefined) ?? legacyX;
+  const y = (axes?.y as GridAxis | undefined) ?? legacyY;
+  const cells = rows(data?.cells);
+  const zValues = Array.isArray((axes?.z as Row | undefined)?.values) ? (axes?.z as Row).values as GridAxisValue[] : [{ id: "default", label: isLegacy ? "Historical grid" : "Grid", value: "" }];
+  const error = queue.error && legacy.error ? `Queue lookup: ${queue.error}. Historical grid lookup: ${legacy.error}.` : "";
+  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><strong>{str(data?.name, "Grid results")}</strong><span>{isLegacy ? "Historical · read only" : str(data?.status, "Loading")} · {cells.length} cells</span></div><div className="viewer-actions"><a className="vela-button" href="#/grids"><ArrowLeft size={15} /> Grid generator</a></div></header><main className="vela-main">
+    <Notice error={error} loading={queue.loading || legacy.loading} />{isLegacy && <div className="vela-notice"><strong>Historical grid</strong><span>This saved GridDefinition remains available for review. New runs use the shared Grid generator and queue.</span></div>}<Panel title="Grid review"><Status value={isLegacy ? "saved" : str(data?.status, "queued")} /><div className="grid-subgrids">{zValues.map((z, zIndex) => <section key={`${z.id}-${zIndex}`}><h3>{z.label}</h3><GridBoard x={x.values} y={y.values} cells={cells.filter(cell => Number(cell.z_index ?? 0) === zIndex)} completed /></section>)}</div>
+      {cells.filter(cell => cell.asset_id).map(cell => { const cellX = cell.x && typeof cell.x === "object" ? cell.x as Row : {}; const cellY = cell.y && typeof cell.y === "object" ? cell.y as Row : {}; return <a key={str(cell.id)} className="vela-button" href={galleryOpenHref({ ...cell, project_id: data?.project_id, origin_type: "EVAL" })}><ExternalLink size={15} /> Open {str(cellX.label ?? cell.x_value, "cell")} × {str(cellY.label ?? cell.y_value, "cell")}</a>; })}</Panel>
   </main></div>;
+}
+
+function legacyAxis(value: unknown, fallback: GridAxisField): GridAxis {
+  const axis = value && typeof value === "object" ? value as Row : {};
+  const field = str(axis.parameter ?? axis.field, fallback) as GridAxisField;
+  const values = Array.isArray(axis.values) ? axis.values : [];
+  return { field, values: values.map((entry, index) => ({ id: `legacy-${field}-${index}`, label: str(entry), value: typeof entry === "number" ? entry : str(entry) })) };
 }
