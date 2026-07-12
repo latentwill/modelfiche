@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { falAdapter, generationModelFromRow, generatorHref, normalizedParametersFromMetadata } from "./generation";
-import { ImageGeneratorScreen, ModelCheckpointPicker } from "./generator";
+import { GenerationQueue, ImageGeneratorScreen, ModelCheckpointPicker } from "./generator";
 import { api } from "./api";
 
 vi.mock("./api", async importOriginal => {
@@ -48,5 +48,14 @@ describe("shared generation contracts", () => {
     vi.mocked(api).mockClear();
     render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&scope=project&prefill_asset=a1")} />);
     expect(vi.mocked(api).mock.calls.some(([path]) => /generation-requests\/compile|fal-admissions/.test(String(path)))).toBe(false);
+  });
+
+  it("renders useful queue context and checkpoint labels from the persisted request", () => {
+    render(<GenerationQueue items={[{ id: "q1", workflow: "image", project_id: "project-id", model_id: "model-id",
+      model_version_ids: ["version-id"], status: "queued", progress: { completed: 0, total: 1 },
+      request: { context: { projectTitle: "Portrait Project" }, model: { name: "Character LoRA", checkpointLabel: "model.safetensors · step 1200" } } }]} />);
+    expect(screen.getByText("Portrait Project / Character LoRA")).toBeTruthy();
+    expect(screen.getByText("model.safetensors · step 1200")).toBeTruthy();
+    expect(screen.queryByText("project-id / model-id")).toBeNull();
   });
 });

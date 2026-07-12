@@ -89,8 +89,14 @@ export function GenerationQueue({ items, error, loading }: { items: Row[]; error
   return <Panel title="Generation queue"><Notice error={error} loading={loading} empty={!loading && !items.length} />
     {!!items.length && <div className="table-wrap"><table><thead><tr><th>Order</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th></tr></thead><tbody>{items.map((item, index) => {
       const progress = item.progress && typeof item.progress === "object" ? item.progress as Row : {};
+      const request = item.request && typeof item.request === "object" ? item.request as Row : {};
+      const context = request.context && typeof request.context === "object" ? request.context as Row : {};
+      const model = request.model && typeof request.model === "object" ? request.model as Row : {};
       const modelIds = Array.isArray(item.model_version_ids) ? item.model_version_ids.map(String) : [];
-      return <tr key={idOf(item)}><td>{index + 1}</td><td>{str(item.workflow)}</td><td>{str(item.project_id)}{item.model_id ? ` / ${str(item.model_id)}` : ""}</td><td>{modelIds.join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td></tr>;
+      const projectLabel = str(context.projectTitle ?? context.projectName, str(item.project_id));
+      const modelLabel = str(model.name, str(item.model_id, ""));
+      const checkpointLabel = str(model.checkpointLabel, "");
+      return <tr key={idOf(item)}><td>{index + 1}</td><td>{str(item.workflow)}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || modelIds.join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td></tr>;
     })}</tbody></table></div>}
   </Panel>;
 }

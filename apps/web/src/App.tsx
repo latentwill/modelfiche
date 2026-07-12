@@ -38,8 +38,6 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "gallery": return <GalleryScreen projectId={projectId} params={params} />;
     case "generate": return <ImageGeneratorScreen params={params} />;
     case "generation-queue": return <GenerationQueueScreen />;
-    case "generation-queue": return <GenerationQueueScreen />;
-    case "generation-queue": return <GenerationQueueScreen />;
     case "models": return <ModelsScreen projectId={projectId} />;
     case "model": return <ModelScreen id={id} />;
     case "prompt-sets": return <PromptSetsScreen projectId={projectId} promptSetId={id} />;

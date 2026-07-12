@@ -80,3 +80,20 @@ def test_provider_managed_queue_is_never_scheduled_internally(client):
     response = client.post("/api/generation-queue", json=body)
     assert response.status_code == 422
     assert "provider-native queue" in response.json()["detail"]
+
+
+def test_enqueue_rejects_model_or_compiled_binding_tampering(client):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Binding"}).json()
+    model, version = _registered_checkpoint(client, project["id"])
+    body, _queued = _compile_and_queue(client, project, model, version)
+    body["client_request_id"] = str(uuid4())
+    body["compiled_request_id"] = body["client_request_id"]
+    body["model_version_ids"] = [str(uuid4())]
+    response = client.post("/api/generation-queue", json=body)
+    assert response.status_code == 404
+
+    body["model_version_ids"] = [version["id"]]
+    response = client.post("/api/generation-queue", json=body)
+    assert response.status_code == 409
+    assert "compiled FAL admission" in response.json()["detail"]

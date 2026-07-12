@@ -135,11 +135,26 @@ def enqueue(body: QueueCreate, db: DB):
         raise HTTPException(status_code=409, detail="compiled FAL admission is not ready for this workspace")
     project_id = str(body.context.get("project_id") or "")
     model_id = str(body.context.get("model_id") or "") or None
-    if not db.get(models.Project, project_id):
+    project = db.get(models.Project, project_id)
+    if not project:
         raise HTTPException(status_code=404, detail="project not found")
+    if project.workspace_id != workspace.id:
+        raise HTTPException(status_code=409, detail="project belongs to another workspace")
+    version_ids = [str(value) for value in body.model_version_ids]
+    for version_id in version_ids:
+        version = get_or_404(db, models.ModelVersion, version_id)
+        selected_model = get_or_404(db, models.Model, version.model_id)
+        if selected_model.project_id != project_id or (model_id and selected_model.id != model_id):
+            raise HTTPException(status_code=409, detail="selected model version does not match queue context")
+    subject = db.scalar(select(models.FalSubject).where(models.FalSubject.admission_id == admission.id).order_by(models.FalSubject.ordinal))
+    binding = dict(subject.definition or {}) if subject else {}
+    snapshot = get_or_404(db, models.StoragePolicySnapshot, admission.snapshot_id)
+    if (not subject or binding.get("project_id") != project_id or binding.get("model_version_id") not in version_ids
+        or snapshot.operation_id != str(body.compiled_request_id) or str(body.compiled_request_id) != str(body.client_request_id)):
+        raise HTTPException(status_code=409, detail="compiled FAL admission does not match queued request context")
     item = models.GenerationQueueItem(workspace_id=workspace.id, client_request_id=str(body.client_request_id), workflow=body.workflow,
         provider=body.provider, queue_owner=capability["owner"], project_id=project_id, model_id=model_id,
-        model_version_ids=[str(value) for value in body.model_version_ids], compiled_request_id=str(body.compiled_request_id),
+        model_version_ids=version_ids, compiled_request_id=str(body.compiled_request_id),
         admission_id=str(body.admission_id), state="queued", progress={"completed": 0, "total": admission.expected_artifact_count},
         result={}, request_snapshot=body.request)
     db.add(item)
