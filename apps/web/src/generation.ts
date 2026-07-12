@@ -35,6 +35,30 @@ export type GenerationModel = {
   available: boolean;
   unavailableReason?: string;
 };
+export type GenerationPickerMode = "single" | "multiple" | "fixed" | "axis";
+
+/** Stable picker inputs shared by Image, Eval, and Grid workflows. */
+export type GenerationPickerSelection = {
+  mode: GenerationPickerMode;
+  selectedIds: string[];
+};
+
+export function pickerModeMultiple(mode: GenerationPickerMode): boolean {
+  return mode === "multiple" || mode === "axis";
+}
+
+export function eligibleGenerationModel(model: GenerationModel): boolean {
+  return model.available && Boolean(model.id && model.modelId && model.projectId && model.checkpointRevisionId && model.provider && model.endpoint);
+}
+
+export function generationModelUnavailableReason(model: GenerationModel): string {
+  if (!model.available) return model.unavailableReason ?? "Provider registration is unavailable.";
+  if (!model.checkpointRevisionId) return "Checkpoint revision is missing.";
+  if (!model.provider) return "Provider registration is missing.";
+  if (!model.endpoint) return "Provider endpoint is missing.";
+  if (!model.modelId || !model.projectId) return "Model project registration is incomplete.";
+  return "";
+}
 
 export type NormalizedGenerationRequest = {
   workflow: GenerationWorkflow;
@@ -204,9 +228,28 @@ export function normalizedParametersFromMetadata(metadata: Record<string, unknow
     seed: numberOrUndefined(metadata.seed ?? request.seed), width: numberOrUndefined(metadata.width ?? size.width), height: numberOrUndefined(metadata.height ?? size.height),
     guidance: numberOrUndefined(metadata.guidance ?? metadata.guidance_scale ?? request.guidance_scale),
     steps: numberOrUndefined(metadata.steps ?? metadata.num_inference_steps ?? request.num_inference_steps),
+
     sampler: str(metadata.sampler ?? request.sampler, "") || undefined, scheduler: str(metadata.scheduler ?? request.scheduler, "") || undefined,
     loraScale: numberOrUndefined(metadata.lora_scale ?? parameters.lora_scale), numImages: 1,
   };
+}
+export type GenerationReplay = {
+  context: Extract<GenerationContext, { kind: "model" }>;
+  modelVersionId: string;
+  parameters: Partial<NormalizedGenerationParameters>;
+};
+
+/** Returns a replay only when the image carries immutable model and provider evidence. */
+export function generationReplayFromMetadata(metadata: Record<string, unknown>): GenerationReplay | null {
+  const parameters = normalizedParametersFromMetadata(metadata);
+  const projectId = str(metadata.project_id, "");
+  const modelId = str(metadata.model_id, "");
+  const modelVersionId = str(metadata.model_version_id, "");
+  const checkpointRevisionId = str(metadata.checkpoint_revision_id, "");
+  const provider = str(metadata.provider ?? metadata.provider_id, "");
+  const endpoint = str(metadata.endpoint_id ?? metadata.endpoint ?? metadata.provider_endpoint, "");
+  if (!projectId || !modelId || !modelVersionId || !checkpointRevisionId || !provider || !endpoint || !parameters.prompt) return null;
+  return { context: { kind: "model", projectId, modelId, modelVersionId }, modelVersionId, parameters };
 }
 
 function numberOrUndefined(value: unknown) { const number = Number(value); return value === "" || value == null || !Number.isFinite(number) ? undefined : number; }

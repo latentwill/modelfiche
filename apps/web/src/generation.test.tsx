@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { falAdapter, generationModelFromRow, generatorHref, normalizedParametersFromMetadata } from "./generation";
+import { falAdapter, generationModelFromRow, generationModelUnavailableReason, generationReplayFromMetadata, generatorHref, normalizedParametersFromMetadata, pickerModeMultiple } from "./generation";
 import { GenerationQueue, ImageGeneratorScreen, ModelCheckpointPicker } from "./generator";
 import { api } from "./api";
 
@@ -42,6 +42,22 @@ describe("shared generation contracts", () => {
     rerender(<ModelCheckpointPicker multiple={false} models={models} selected={[]} onChange={onOne} />);
     fireEvent.change(screen.getByLabelText("Models and checkpoints"), { target: { value: "v2" } });
     expect(onOne).toHaveBeenCalledWith(["v2"]);
+  });
+
+  it("shares fixed and axis picker semantics with concrete disable reasons", () => {
+    expect(pickerModeMultiple("fixed")).toBe(false);
+    expect(pickerModeMultiple("axis")).toBe(true);
+    const unavailable = generationModelFromRow({ id: "v1", model_id: "m1", project_id: "p1", checkpoint_revision_id: "r1", readiness: {} });
+    expect(generationModelUnavailableReason(unavailable)).toMatch(/FAL|endpoint|unavailable/i);
+  });
+
+  it("only offers replay when immutable model and provider evidence exists", () => {
+    expect(generationReplayFromMetadata({ prompt: "portrait", project_id: "p1", model_id: "m1", model_version_id: "v1" })).toBeNull();
+    expect(generationReplayFromMetadata({ prompt: "portrait", project_id: "p1", model_id: "m1", model_version_id: "v1", checkpoint_revision_id: "r1", provider: "fal", endpoint_id: "fal-ai/test" })).toMatchObject({
+      context: { kind: "model", projectId: "p1", modelId: "m1", modelVersionId: "v1" },
+      modelVersionId: "v1",
+      parameters: { prompt: "portrait", numImages: 1 },
+    });
   });
 
   it("does not submit an admission when the Image Generator opens", () => {

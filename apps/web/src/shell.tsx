@@ -11,6 +11,7 @@ import {
   Database,
   Folder,
   Images,
+  ImagePlus,
   Italic,
   LayoutDashboard,
   List,
@@ -89,9 +90,10 @@ function Topbar({ section, id, projectId, workspaces, onOpenNavigation, onOpenIn
     <div className="vela-breadcrumbs"><strong>{workspace}</strong>{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}{section === "project" && id && <a className="vela-icon-button" href={`#/project/${id}?edit=1`} aria-label={`Edit ${projectName || "project"}`} title="Edit project"><Pencil size={13} /></a>}</div>
     <GlobalSearch />
     <div className="vela-create-wrap" onKeyDown={event => { if (event.key === "Escape") setCreateOpen(false); }}>
-      <button className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} /></button>
+      <button className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} aria-hidden="true" /></button>
       {createOpen && <div className="vela-create-menu" role="menu">
         <CreateLink href="#/dashboard?create=project" icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Project</CreateLink>
+        <CreateLink href="#/generate?workflow=image" icon={<ImagePlus size={15} />} onSelect={() => setCreateOpen(false)}>Image</CreateLink>
         <CreateLink href="#/transfers?mode=import&type=dataset" icon={<Images size={15} />} onSelect={() => setCreateOpen(false)}>Dataset</CreateLink>
         <CreateLink href="#/models" icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
         <CreateLink href="#/evals" icon={<Sparkles size={15} />} onSelect={() => setCreateOpen(false)}>Eval</CreateLink>
@@ -131,7 +133,7 @@ function Sidebar({ section, id, activeProjectId, projects, workspace, collapsed,
       <Notice empty={!shownProjects.length} />
       {shownProjects.map(project => <ProjectTree key={idOf(project)} project={project} section={section} activeId={id} activeProjectId={activeProjectId} />)}
       <div className="vela-nav-group">Operations</div>
-      <VelaNavLink href="#/generation-queue" active={section === "generation-queue"} icon={<List size={16} />}>Generation queue</VelaNavLink>
+      <VelaNavLink href="#/generation-queue" active={section === "generation-queue"} icon={<List size={16} />}>Queue</VelaNavLink>
       <VelaNavLink href="#/transfers" active={section === "transfers" || section === "import" || section === "jobs"} icon={<ArrowLeftRight size={16} />}>Transfers</VelaNavLink>
     </nav>
     <div className="vela-sidebar-footer" data-layout={SHELL_LAYOUT_CONTRACT.footer}>

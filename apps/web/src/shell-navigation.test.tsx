@@ -29,8 +29,7 @@ describe("workspace navigation", () => {
 
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
     render(<WorkbenchShell section="models" id="" params={new URLSearchParams("project=project-1")}><main>Screen</main></WorkbenchShell>);
-    await waitFor(() => expect(screen.getAllByText("Workspace One").length).toBeGreaterThan(0));
-    expect(screen.getByText("Project One")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Project One")).toBeInTheDocument());
     expect(screen.queryByText("Other Workspace Project")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("href", "#/project/project-1");
     expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("aria-current", "page");

@@ -3,16 +3,34 @@ import { ImagePlus } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
 import { Field, Form, Notice, Page, Panel, Status } from "./ui";
-import { falAdapter, generationModelFromRow, normalizedParametersFromMetadata, type GenerationContext, type GenerationModel, type NormalizedGenerationParameters } from "./generation";
+import { falAdapter, generationModelFromRow, generationModelUnavailableReason, pickerModeMultiple, normalizedParametersFromMetadata, type GenerationContext, type GenerationModel, type GenerationPickerMode, type NormalizedGenerationParameters } from "./generation";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
 
-export function ModelCheckpointPicker({ models, selected, onChange, multiple = true }: { models: GenerationModel[]; selected: string[]; onChange: (ids: string[]) => void; multiple?: boolean }) {
-  return <Field label={multiple ? "Models / checkpoints" : "Model / checkpoint"} hint="Only checkpoints in the selected context are shown. Unavailable provider registrations cannot be selected.">
-    <select className={multiple ? "vela-multi-select" : undefined} aria-label="Models and checkpoints" multiple={multiple} size={multiple ? Math.min(8, Math.max(3, models.length)) : undefined} value={multiple ? selected : selected[0] ?? ""} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
-      {!multiple && <option value="">Select...</option>}
-      {models.map(model => <option key={model.id} value={model.id} disabled={!model.available}>{model.name} · {model.checkpointLabel} · {model.available ? `${model.provider?.toUpperCase()} / ${model.endpoint}` : model.unavailableReason}</option>)}
+export type ModelCheckpointPickerProps = {
+  models: GenerationModel[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  /** `multiple` is retained as a compatibility alias for existing Eval/Grid callers. */
+  multiple?: boolean;
+  mode?: GenerationPickerMode;
+  label?: string;
+};
+
+/** Shared stable-ID checkpoint picker. Unavailable registrations remain visible and explain why. */
+export function ModelCheckpointPicker({ models, selected, onChange, multiple, mode, label = "Models / checkpoints" }: ModelCheckpointPickerProps) {
+  const pickerMode: GenerationPickerMode = mode ?? (multiple === false ? "single" : "multiple");
+  const isMultiple = pickerModeMultiple(pickerMode);
+  const selectedIds = selected.filter(id => models.some(model => model.id === id));
+  const ariaLabel = pickerMode === "fixed" ? "Fixed model and checkpoint" : pickerMode === "axis" ? "Axis model checkpoints" : "Models and checkpoints";
+  return <Field label={label} hint="Only real registered checkpoints in the selected context are shown. Unavailable registrations cannot be selected; their reason is shown.">
+    <select className={isMultiple ? "vela-multi-select" : undefined} aria-label={ariaLabel} multiple={isMultiple} size={isMultiple ? Math.min(8, Math.max(3, models.length)) : undefined} value={isMultiple ? selectedIds : selectedIds[0] ?? ""} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
+      {!isMultiple && <option value="">Select...</option>}
+      {models.map(model => {
+        const reason = generationModelUnavailableReason(model);
+        return <option key={model.id} value={model.id} disabled={Boolean(reason)} title={reason || undefined}>{model.name} · {model.checkpointLabel} · {reason || `${model.provider?.toUpperCase()} / ${model.endpoint}`}</option>;
+      })}
     </select>
   </Field>;
 }
@@ -48,18 +66,20 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
     if (!initialModel && enrichedModel) { setScope("model"); setModelId(enrichedModel); }
     if (versionId) setSelected([versionId]);
   }, [assetContext.data]);
-  useEffect(() => { setSelected(ids => ids.filter(id => generationModels.some(model => model.id === id))); }, [generationModels]);
+  // Do not clear route/replay IDs while the real version registration is loading.
+  useEffect(() => {
+    if (versions.data == null) return;
+    setSelected(ids => ids.filter(id => generationModels.some(model => model.id === id)));
+  }, [generationModels, versions.data]);
   const context: GenerationContext | null = projectId ? scope === "model" && modelId ? { kind: "model", projectId, modelId, modelVersionId: selected[0] } : { kind: "project", projectId } : null;
-
-  return <Page title="Image Generator" subtitle="Generate through the shared provider layer using a Project or Model/checkpoint context.">
+  return <Page title="Image Generator" subtitle="Generate through the shared provider layer using the selected project/model context.">
     <Notice error={projects.error || modelFamilies.error || versions.error || assetContext.error} loading={projects.loading || modelFamilies.loading || versions.loading || assetContext.loading} />
     {prefillAssetId && <div className="vela-notice" role="status"><strong>Settings loaded</strong><span>Supported settings from image {prefillAssetId} are prefilled. Nothing will run until you submit.</span></div>}
     <Panel title="Generation context"><div className="form-grid">
-      <Field label="Scope"><select value={scope} onChange={event => { setScope(event.target.value as "project" | "model"); setSelected([]); }}><option value="project">Project</option><option value="model">Model / checkpoint</option></select></Field>
       <Field label="Project"><select value={projectId} onChange={event => { setProjectId(event.target.value); setModelId(""); setSelected([]); }}><option value="">Select...</option>{rows(projects.data).map(project => <option value={idOf(project)} key={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field>
       {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelected([]); }} disabled={!projectId}><option value="">Select...</option>{rows(modelFamilies.data).map(model => <option value={idOf(model)} key={idOf(model)}>{str(model.name)}</option>)}</select></Field>}
     </div>
-    <ModelCheckpointPicker multiple={false} models={generationModels} selected={selected} onChange={setSelected} />
+    <ModelCheckpointPicker mode="single" models={generationModels} selected={selected} onChange={setSelected} label="Model / checkpoint" />
     {context && selected[0] && <p className="vela-meta">Provider and endpoint: {generationModels.find(model => model.id === selected[0])?.provider?.toUpperCase()} / {generationModels.find(model => model.id === selected[0])?.endpoint}</p>}
     </Panel>
     <Panel title="Image request"><Form submit="Generate image" onSubmit={async form => {
@@ -86,7 +106,7 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
 }
 
 export function GenerationQueue({ items, error, loading }: { items: Row[]; error?: string; loading?: boolean }) {
-  return <Panel title="Generation queue"><Notice error={error} loading={loading} empty={!loading && !items.length} />
+  return <Panel title="Queue"><Notice error={error} loading={loading} empty={!loading && !items.length} />
     {!!items.length && <div className="table-wrap"><table><thead><tr><th>Order</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th></tr></thead><tbody>{items.map((item, index) => {
       const progress = item.progress && typeof item.progress === "object" ? item.progress as Row : {};
       const request = item.request && typeof item.request === "object" ? item.request as Row : {};
@@ -105,7 +125,7 @@ export function GenerationQueue({ items, error, loading }: { items: Row[]; error
 
 export function GenerationQueueScreen() {
   const queue = useResource<unknown>("/api/generation-queue");
-  return <Page title="Generation queue" subtitle="One durable queue for Image, Eval, and Grid workflows."><GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} /></Page>;
+  return <Page title="Queue" subtitle="One durable queue for Image, Eval, and Grid workflows."><GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} /></Page>;
 }
 
 function optionalNumber(value: FormDataEntryValue | null) { if (value == null || value === "") return undefined; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
