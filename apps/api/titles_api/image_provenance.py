@@ -9,19 +9,24 @@ from uuid import UUID
 
 
 def fal_generated_at(raw: dict[str, Any]) -> datetime | None:
-    """Return explicit provider time, falling back to the FAL UUIDv7 clock."""
+    """Return FAL completion time in authoritative provider order."""
     history = raw.get("_history") if isinstance(raw.get("_history"), dict) else raw.get("history")
     candidates = [
-        *(history.get(key) for key in ("ended_at", "started_at", "sent_at") if isinstance(history, dict)),
-        *(raw.get(key) for key in ("ended_at", "completed_at", "created_at", "timestamp")),
+        *(history.get(key) for key in ("ended_at", "sent_at") if isinstance(history, dict)),
+        raw.get("generated_at"),
     ]
     for value in candidates:
         if not value:
             continue
         try:
+            if isinstance(value, datetime):
+                return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            if isinstance(value, (int, float)):
+                seconds = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
+                return datetime.fromtimestamp(seconds, timezone.utc)
             parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
             return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-        except ValueError:
+        except (ValueError, TypeError, OverflowError, OSError):
             continue
     try:
         identifier = UUID(str(raw.get("_request_id") or raw.get("fal_request_id")))

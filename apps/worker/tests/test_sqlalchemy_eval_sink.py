@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,6 +47,8 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         prompt.id,
         {
             "seed": 17,
+            "generated_at": "2026-03-01T00:00:00Z",
+            "_history": {"sent_at": "2026-04-01T00:00:00Z", "ended_at": "2026-05-01T12:30:00Z"},
             "timings": {"inference": 1.2},
             "images": [{"url": "https://fal.media/files/output.png", "content_type": "image/png", "width": 640, "height": 480, "file_size": 5}],
         },
@@ -61,6 +64,7 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         assert output.provider_metadata["source_url"] == "https://fal.media/files/output.png"
         assert output.provider_metadata["request_ids"] == ["request-123"]
         assert output.provider_metadata["response"]["timings"] == {"inference": 1.2}
+        assert output.generated_at == datetime(2026, 5, 1, 12, 30, tzinfo=timezone.utc)
         location = session.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset.id))
         assert location.workspace_id == workspace.id
         assert location.verification_state == "available"

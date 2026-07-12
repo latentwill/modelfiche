@@ -1,9 +1,12 @@
 import base64
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from titles_api import app as app_module, models
+from titles_api.routers import local_imports
+from titles_api.settings import get_settings
 
 
 def _project(client: TestClient):
@@ -34,6 +37,20 @@ def test_local_folder_import_preserves_paths_sidecars_duplicates_and_partial_fai
     assert len(items) == 1
     assert items[0]["caption"] == "first caption"
     assert all(item["origin_type"] == "DATASET" and item["availability"] == "available" for item in items)
+
+
+def test_local_folder_import_removes_written_files_when_database_work_fails(client: TestClient, monkeypatch):
+    _headers, project = _project(client)
+    monkeypatch.setattr(local_imports, "record_activity", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("forced persistence failure")))
+    with pytest.raises(RuntimeError, match="forced persistence failure"):
+        client.post("/api/local-imports", json={
+            "project_id": project["id"], "dataset_name": "Rollback dataset", "files": [
+                {"path": "folder/image.png", "content_base64": base64.b64encode(b"image").decode()},
+            ],
+        })
+    import_root = get_settings().asset_root.resolve() / "local-imports"
+    assert not import_root.exists() or not any(import_root.rglob("*"))
+    assert all(row["name"] != "Rollback dataset" for row in client.get("/api/datasets").json())
 
 
 def test_dataset_detail_exposes_explicit_training_run_and_empty_reason(client: TestClient):

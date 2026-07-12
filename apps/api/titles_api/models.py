@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -13,6 +14,28 @@ from .database import Base
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator[datetime]):
+    """Persist UTC and restore tzinfo on SQLite, whose DATETIME is naive."""
+
+    impl = DateTime
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        return dialect.type_descriptor(DateTime(timezone=True))
+
+    def process_bind_param(self, value: datetime | None, dialect):
+        if value is None:
+            return None
+        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        utc = aware.astimezone(timezone.utc)
+        return utc.replace(tzinfo=None) if dialect.name == "sqlite" else utc
+
+    def process_result_value(self, value: datetime | None, dialect):
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 class UUIDMixin:
@@ -261,7 +284,7 @@ class Sample(UUIDMixin, TimestampMixin, Base):
     prompt: Mapped[str | None] = mapped_column(Text)
     seed: Mapped[int | None] = mapped_column(Integer)
     generation_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    modified_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
 
 
 class Model(UUIDMixin, TimestampMixin, Base):
@@ -327,7 +350,7 @@ class EvalOutput(UUIDMixin, TimestampMixin, Base):
     asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"))
     seed: Mapped[int | None] = mapped_column(Integer)
     provider_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    generated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
 
 
 class GridDefinition(UUIDMixin, TimestampMixin, Base):
@@ -775,4 +798,3 @@ class FalArtifactReceipt(UUIDMixin, TimestampMixin, Base):
     stage_fence: Mapped[str] = mapped_column(String(128))
     transfer_id: Mapped[str | None] = mapped_column(ForeignKey("storage_transfers.id", ondelete="SET NULL"), index=True)
     eval_output_id: Mapped[str | None] = mapped_column(ForeignKey("eval_outputs.id", ondelete="SET NULL"), index=True)
-

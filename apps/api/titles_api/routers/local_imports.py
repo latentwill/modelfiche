@@ -76,45 +76,57 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
     db.flush()
     destination = get_settings().asset_root.resolve() / "local-imports" / dataset.id
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    written_targets: list[Path] = []
     imported = duplicates = 0
     dataset_items: dict[str, models.DatasetItem] = {}
-    for position, (path, data) in enumerate(sorted(images)):
-        digest = hashlib.sha256(data).hexdigest()
-        asset = db.scalar(select(models.Asset).where(models.Asset.project_id == project.id, models.Asset.sha256 == digest, models.Asset.kind == models.AssetKind.image))
-        if asset is not None:
-            duplicates += 1
-        else:
-            metadata: dict[str, Any] = {"category": "dataset_image", "relative_path": str(path), "origin": "local_folder"}
-            sidecar_json = decoded.get(path.with_suffix(".json"))
-            if sidecar_json:
-                try:
-                    parsed = json.loads(sidecar_json.decode("utf-8"))
-                    if isinstance(parsed, dict):
-                        metadata["sidecar"] = parsed
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    failures.append({"path": str(path.with_suffix('.json')), "error": f"invalid JSON metadata: {exc}"})
-            target = destination / f"{digest}{path.suffix.lower()}"
-            target.write_bytes(data)
-            target.chmod(0o600)
-            asset = models.Asset(workspace_id=workspace.id, project_id=project.id, kind=models.AssetKind.image, name=str(path), mime_type=mimetypes.guess_type(path.name)[0], sha256=digest, provenance_kind="local_import", metadata_=metadata)
-            db.add(asset)
-            db.flush()
-            db.add(models.AssetLocation(asset_id=asset.id, workspace_id=workspace.id, provider="local", uri=str(target), relative_path=str(target.relative_to(get_settings().asset_root.resolve())), size=len(data), verified_size=len(data), verified_sha256=digest, verification_state="verified", hydration_state="hydrated"))
-            imported += 1
-        caption_bytes = decoded.get(path.with_suffix(".txt"))
+    try:
+        for position, (path, data) in enumerate(sorted(images)):
+            digest = hashlib.sha256(data).hexdigest()
+            asset = db.scalar(select(models.Asset).where(models.Asset.project_id == project.id, models.Asset.sha256 == digest, models.Asset.kind == models.AssetKind.image))
+            if asset is not None:
+                duplicates += 1
+            else:
+                metadata: dict[str, Any] = {"category": "dataset_image", "relative_path": str(path), "origin": "local_folder"}
+                sidecar_json = decoded.get(path.with_suffix(".json"))
+                if sidecar_json:
+                    try:
+                        parsed = json.loads(sidecar_json.decode("utf-8"))
+                        if isinstance(parsed, dict):
+                            metadata["sidecar"] = parsed
+                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                        failures.append({"path": str(path.with_suffix('.json')), "error": f"invalid JSON metadata: {exc}"})
+                target = destination / f"{digest}{path.suffix.lower()}"
+                target.write_bytes(data)
+                written_targets.append(target)
+                target.chmod(0o600)
+                asset = models.Asset(workspace_id=workspace.id, project_id=project.id, kind=models.AssetKind.image, name=str(path), mime_type=mimetypes.guess_type(path.name)[0], sha256=digest, provenance_kind="local_import", metadata_=metadata)
+                db.add(asset)
+                db.flush()
+                db.add(models.AssetLocation(asset_id=asset.id, workspace_id=workspace.id, provider="local", uri=str(target), relative_path=str(target.relative_to(get_settings().asset_root.resolve())), size=len(data), verified_size=len(data), verified_sha256=digest, verification_state="verified", hydration_state="hydrated"))
+                imported += 1
+            caption_bytes = decoded.get(path.with_suffix(".txt"))
+            try:
+                caption = caption_bytes.decode("utf-8").strip() if caption_bytes is not None else ""
+            except UnicodeDecodeError as exc:
+                caption = ""
+                failures.append({"path": str(path.with_suffix('.txt')), "error": f"caption is not UTF-8: {exc}"})
+            existing_item = dataset_items.get(asset.id)
+            if existing_item is None:
+                existing_item = models.DatasetItem(dataset_version_id=version.id, asset_id=asset.id, caption=caption, position=position)
+                dataset_items[asset.id] = existing_item
+                db.add(existing_item)
+            elif caption and not existing_item.caption:
+                existing_item.caption = caption
+        actor = active_profile(db, None)
+        record_activity(db, action="dataset.local_imported", subject_type="dataset", subject_id=dataset.id, profile_id=actor.id, project_id=project.id, details={"imported": imported, "duplicates": duplicates, "failures": len(failures)})
+        db.commit()
+    except Exception:
+        db.rollback()
+        for target in written_targets:
+            target.unlink(missing_ok=True)
         try:
-            caption = caption_bytes.decode("utf-8").strip() if caption_bytes is not None else ""
-        except UnicodeDecodeError as exc:
-            caption = ""
-            failures.append({"path": str(path.with_suffix('.txt')), "error": f"caption is not UTF-8: {exc}"})
-        existing_item = dataset_items.get(asset.id)
-        if existing_item is None:
-            existing_item = models.DatasetItem(dataset_version_id=version.id, asset_id=asset.id, caption=caption, position=position)
-            dataset_items[asset.id] = existing_item
-            db.add(existing_item)
-        elif caption and not existing_item.caption:
-            existing_item.caption = caption
-    actor = active_profile(db, None)
-    record_activity(db, action="dataset.local_imported", subject_type="dataset", subject_id=dataset.id, profile_id=actor.id, project_id=project.id, details={"imported": imported, "duplicates": duplicates, "failures": len(failures)})
-    db.commit()
+            destination.rmdir()
+        except OSError:
+            pass
+        raise
     return {"state": "completed_with_errors" if failures else "completed", "dataset_id": dataset.id, "version_id": version.id, "total_images": len(images), "imported": imported, "duplicates": duplicates, "failures": failures}

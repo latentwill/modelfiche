@@ -127,11 +127,24 @@ def test_0007_backfills_canonical_origin_timestamps(tmp_path: Path) -> None:
     with sqlite3.connect(database_path) as connection:
         connection.execute("INSERT INTO samples(run_id, asset_id, generation_metadata, id, created_at, updated_at) VALUES('run', 'sample-asset', '{}', 'sample', '2026-01-01', '2026-01-01')")
         connection.execute("INSERT INTO asset_locations(asset_id, provider, uri, hydration_state, last_seen_at, id, created_at, updated_at, modified_at) VALUES('sample-asset', 's3', 's3://bucket/sample.png', 'remote', '2026-02-01', 'location', '2026-02-01', '2026-02-01', '2026-02-03T04:05:06+00:00')")
-        connection.execute("INSERT INTO eval_outputs(eval_run_id, asset_id, provider_metadata, id, created_at, updated_at) VALUES('eval-run', 'eval-asset', ?, 'output', '2026-01-01', '2026-01-01')", ('{"response":{"generated_at":"2026-03-04T05:06:07+00:00"}}',))
+        connection.executemany(
+            "INSERT INTO eval_outputs(eval_run_id, asset_id, provider_metadata, id, created_at, updated_at) VALUES('eval-run', 'eval-asset', ?, ?, ?, '2026-01-01')",
+            [
+                ('{"response":{"_history":{"ended_at":"2026-04-05T06:07:08+00:00","sent_at":"2026-04-05T05:00:00+00:00"},"generated_at":"2026-03-04T05:06:07+00:00"}}', "ended", "2026-01-01"),
+                ('{"response":{"_history":{"sent_at":"2026-04-05T05:00:00+00:00"},"generated_at":"2026-03-04T05:06:07+00:00"}}', "sent", "2026-01-02"),
+                ('{"response":{"generated_at":"2026-03-04T05:06:07+00:00"}}', "native", "2026-01-03"),
+                ("{}", "fallback", "2026-01-04"),
+            ],
+        )
     _upgrade_to_head(database_path)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT modified_at FROM samples WHERE id='sample'").fetchone() == ("2026-02-03T04:05:06+00:00",)
-        assert connection.execute("SELECT generated_at FROM eval_outputs WHERE id='output'").fetchone() == ("2026-03-04T05:06:07+00:00",)
+        assert connection.execute("SELECT id, generated_at FROM eval_outputs ORDER BY id").fetchall() == [
+            ("ended", "2026-04-05T06:07:08+00:00"),
+            ("fallback", "2026-01-04"),
+            ("native", "2026-03-04T05:06:07+00:00"),
+            ("sent", "2026-04-05T05:00:00+00:00"),
+        ]
         for table in (
             "content_blobs",
             "storage_feature_gates",

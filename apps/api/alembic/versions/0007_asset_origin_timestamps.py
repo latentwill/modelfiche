@@ -20,8 +20,11 @@ def upgrade() -> None:
     """)
     op.execute("""
         UPDATE eval_outputs SET generated_at = COALESCE(
+          json_extract(provider_metadata, '$.response._history.ended_at'),
+          json_extract(provider_metadata, '$.response._history.sent_at'),
           json_extract(provider_metadata, '$.response.generated_at'),
-          json_extract(provider_metadata, '$.generated_at'), created_at
+          json_extract(provider_metadata, '$.generated_at'),
+          created_at
         )
     """)
     op.create_index("ix_samples_modified_at", "samples", ["modified_at"])
