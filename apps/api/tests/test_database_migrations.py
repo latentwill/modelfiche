@@ -21,7 +21,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0009_inline_generation_prompts",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0010_generation_queue",)
 
 
 def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) -> None:
@@ -30,7 +30,7 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0009_inline_generation_prompts",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0010_generation_queue",)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)
@@ -67,7 +67,7 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0009_inline_generation_prompts",
+            "0010_generation_queue",
         )
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(eval_definitions)").fetchall()}
         assert columns["prompt_set_id"][3] == 0
@@ -92,7 +92,7 @@ def test_upgrade_installed_database_accepts_checkpoint_revision_head(tmp_path: P
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0009_inline_generation_prompts",
+            "0010_generation_queue",
         )
 
 

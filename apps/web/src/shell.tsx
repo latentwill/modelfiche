@@ -124,6 +124,7 @@ function Sidebar({ section, id, activeProjectId, projects, collapsed, mobileOpen
       <Notice empty={!shownProjects.length} />
       {shownProjects.map(project => <ProjectTree key={idOf(project)} project={project} section={section} activeId={id} activeProjectId={activeProjectId} />)}
       <div className="vela-nav-group">Operations</div>
+      <VelaNavLink href="#/generation-queue" active={section === "generation-queue"} icon={<List size={16} />}>Generation queue</VelaNavLink>
       <VelaNavLink href="#/transfers" active={section === "transfers" || section === "import" || section === "jobs"} icon={<ArrowLeftRight size={16} />}>Transfers</VelaNavLink>
     </nav>
     <div className="vela-sidebar-footer" data-layout={SHELL_LAYOUT_CONTRACT.footer}>

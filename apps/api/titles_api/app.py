@@ -14,6 +14,7 @@ from .routers import (
     core,
     datasets,
     fal_admissions,
+    generation_queue,
     integrations,
     local_imports,
     operator,
@@ -177,6 +178,7 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
         storage_policy.router,
         asset_delivery.router,
         fal_admissions.router,
+        generation_queue.router,
     ):
         app.include_router(api_router, prefix="/api")
     app.include_router(compat.router, prefix="/api")

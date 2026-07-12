@@ -75,6 +75,12 @@ export type GenerationQueueEnvelope = {
   result?: NormalizedGenerationResult;
 };
 
+export type QueueOwnership = "dam" | "provider";
+export const generationQueueCapabilities = {
+  fal: { owner: "dam" as QueueOwnership, dispatch: "internal" as const },
+  comfyui: { owner: "provider" as QueueOwnership, dispatch: "provider_native" as const },
+};
+
 export interface GenerationProviderAdapter {
   readonly id: GenerationProviderId;
   resolveModel(row: Record<string, unknown>): GenerationModel;
@@ -133,8 +139,14 @@ export const falAdapter: GenerationProviderAdapter = {
     }));
     const admission = record(projection.admission);
     if (str(admission.state, "") !== "ready") throw new Error(`FAL admission is ${str(admission.state, "unavailable")}.`);
-    const accepted = await api<Record<string, unknown>>(`/api/fal-admissions/${str(admission.id, "")}/admit`, jsonBody({ expected_version: Number(admission.version), billing_acknowledgement: admission.required_acknowledgement ?? undefined }));
-    return { provider: "fal", providerRequestId: str(accepted.job_id ?? accepted.eval_run_id, "") || undefined, status: "queued", assetIds: [], raw: accepted };
+    const queued = await api<Record<string, unknown>>("/api/generation-queue", jsonBody({
+      workflow: request.workflow, provider: "fal",
+      context: { kind: request.context.kind, project_id: request.context.projectId, model_id: request.context.kind === "model" ? request.context.modelId : undefined },
+      model_version_ids: [model.id], compiled_request_id: request.clientRequestId,
+      admission_id: admission.id, client_request_id: request.clientRequestId,
+      request: { workflow: request.workflow, context: request.context, model, parameters: request.parameters },
+    }));
+    return { provider: "fal", providerRequestId: str(queued.id, "") || undefined, status: "queued", assetIds: [], raw: queued };
   },
   normalizeStatus(raw) {
     const state = str(record(raw).status ?? record(raw).state, "").toLowerCase();

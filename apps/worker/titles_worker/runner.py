@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from titles_api.models import ImportJob, Job, JobState
+from titles_api.models import GenerationQueueItem, ImportJob, Job, JobState
 
 logger = logging.getLogger("titles.worker")
 JobHandler = Callable[["JobContext", dict[str, Any]], dict[str, Any] | None]
@@ -36,6 +36,9 @@ class JobContext:
             job.progress = value
             if result_patch:
                 job.result = {**job.result, **result_patch}
+            queue_item = session.scalar(select(GenerationQueueItem).where(GenerationQueueItem.job_id == job.id))
+            if queue_item:
+                queue_item.state = "running"; queue_item.progress = {"fraction": value}; queue_item.result = dict(job.result or {})
             import_job = session.scalar(select(ImportJob).where(ImportJob.job_id == job.id))
             if import_job:
                 import_job.state = JobState.running.value
@@ -72,7 +75,7 @@ class JobRunner:
     def recover_interrupted(self) -> int:
         """Single-host recovery: running jobs are safe to reclaim on process start."""
         with self.session_factory.begin() as session:
-            running_ids = select(Job.id).where(Job.state == JobState.running)
+            running_ids = list(session.scalars(select(Job.id).where(Job.state == JobState.running)))
             session.execute(
                 update(ImportJob)
                 .where(ImportJob.job_id.in_(running_ids))
@@ -83,6 +86,7 @@ class JobRunner:
                 .where(Job.state == JobState.running)
                 .values(state=JobState.queued, error="worker interrupted; resuming")
             )
+            session.execute(update(GenerationQueueItem).where(GenerationQueueItem.job_id.in_(running_ids)).values(state="queued", error="worker interrupted; resuming"))
             return int(result.rowcount or 0)
 
     def claim(self) -> Job | None:
@@ -108,6 +112,11 @@ class JobRunner:
             return candidate
 
     def run_one(self) -> bool:
+        # Materialize one DAM-owned generation item into the existing FAL job queue.
+        # Provider-owned queues are excluded by the queue claim contract.
+        with self.session_factory() as session:
+            from titles_api.routers.generation_queue import claim_next
+            claim_next(session)
         job = self.claim()
         if job is None:
             return False
@@ -161,6 +170,10 @@ class JobRunner:
                 raise LookupError(job_id)
             job.state = state
             job.error = error
+            queue_item = session.scalar(select(GenerationQueueItem).where(GenerationQueueItem.job_id == job.id))
+            if queue_item:
+                queue_item.state = "completed" if state == JobState.succeeded else "queued" if state == JobState.queued else "failed"
+                queue_item.progress = {"fraction": progress}; queue_item.result = dict(result or job.result or {}); queue_item.error = error
             if result is not None:
                 job.result = result
             if progress is not None:

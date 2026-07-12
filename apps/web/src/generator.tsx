@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ImagePlus } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
-import { Field, Form, Notice, Page, Panel } from "./ui";
+import { Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { falAdapter, generationModelFromRow, normalizedParametersFromMetadata, type GenerationContext, type GenerationModel, type NormalizedGenerationParameters } from "./generation";
 
 type Row = Record<string, unknown>;
@@ -33,6 +33,7 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
   const assetContext = useResource<Row>(prefillAssetId ? `/api/assets/${prefillAssetId}/context` : null);
   const [prefill, setPrefill] = useState<Partial<NormalizedGenerationParameters>>({ numImages: 1 });
   const [queued, setQueued] = useState("");
+  const queue = useResource<unknown>("/api/generation-queue");
   const generationModels = useMemo(() => rows(versions.data).map(generationModelFromRow).filter(model => model.projectId === projectId && (scope !== "model" || !modelId || model.modelId === modelId)), [versions.data, projectId, scope, modelId]);
   useEffect(() => {
     if (!assetContext.data) return;
@@ -67,7 +68,7 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
       if (!model) throw new Error("Select an available model checkpoint.");
       const parameters: NormalizedGenerationParameters = { prompt: String(form.get("prompt") ?? ""), negativePrompt: String(form.get("negative_prompt") ?? "") || undefined, seed: optionalNumber(form.get("seed")), width: optionalNumber(form.get("width")), height: optionalNumber(form.get("height")), guidance: optionalNumber(form.get("guidance")), steps: optionalNumber(form.get("steps")), sampler: String(form.get("sampler") ?? "") || undefined, scheduler: String(form.get("scheduler") ?? "") || undefined, loraScale: optionalNumber(form.get("lora_scale")), numImages: 1 };
       const result = await falAdapter.submit({ workflow: "image", context, model, parameters, clientRequestId: crypto.randomUUID() });
-      setQueued(result.providerRequestId ? `Queued as ${result.providerRequestId}.` : "Generation queued.");
+      setQueued(result.providerRequestId ? `Queued as ${result.providerRequestId}.` : "Generation queued."); await queue.reload();
     }}><div className="form-grid">
       <Field label="Prompt"><textarea name="prompt" required key={`prompt-${prefill.prompt}`} defaultValue={prefill.prompt ?? ""} /></Field>
       <Field label="Negative prompt"><textarea name="negative_prompt" key={`negative-${prefill.negativePrompt}`} defaultValue={prefill.negativePrompt ?? ""} /></Field>
@@ -80,7 +81,23 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
       <Field label="Scheduler"><input name="scheduler" key={`scheduler-${prefill.scheduler}`} defaultValue={prefill.scheduler} /></Field>
       <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" key={`scale-${prefill.loraScale}`} defaultValue={prefill.loraScale ?? 1} /></Field>
     </div></Form>{queued && <div className="vela-notice" role="status"><ImagePlus size={16} /><span>{queued}</span></div>}</Panel>
+    <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />
   </Page>;
+}
+
+export function GenerationQueue({ items, error, loading }: { items: Row[]; error?: string; loading?: boolean }) {
+  return <Panel title="Generation queue"><Notice error={error} loading={loading} empty={!loading && !items.length} />
+    {!!items.length && <div className="table-wrap"><table><thead><tr><th>Order</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th></tr></thead><tbody>{items.map((item, index) => {
+      const progress = item.progress && typeof item.progress === "object" ? item.progress as Row : {};
+      const modelIds = Array.isArray(item.model_version_ids) ? item.model_version_ids.map(String) : [];
+      return <tr key={idOf(item)}><td>{index + 1}</td><td>{str(item.workflow)}</td><td>{str(item.project_id)}{item.model_id ? ` / ${str(item.model_id)}` : ""}</td><td>{modelIds.join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td></tr>;
+    })}</tbody></table></div>}
+  </Panel>;
+}
+
+export function GenerationQueueScreen() {
+  const queue = useResource<unknown>("/api/generation-queue");
+  return <Page title="Generation queue" subtitle="One durable queue for Image, Eval, and Grid workflows."><GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} /></Page>;
 }
 
 function optionalNumber(value: FormDataEntryValue | null) { if (value == null || value === "") return undefined; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }

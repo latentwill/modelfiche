@@ -760,6 +760,29 @@ class FalAdmission(UUIDMixin, TimestampMixin, Base):
     dispatch_fence: Mapped[str] = mapped_column(String(128))
 
 
+class GenerationQueueItem(UUIDMixin, TimestampMixin, Base):
+    """Provider-neutral durable queue record; provider payloads remain adapter-owned."""
+    __tablename__ = "generation_queue_items"
+    __table_args__ = (UniqueConstraint("workspace_id", "client_request_id", name="uq_generation_queue_client_request"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    client_request_id: Mapped[str] = mapped_column(String(36))
+    workflow: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    queue_owner: Mapped[str] = mapped_column(String(32), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    model_id: Mapped[str | None] = mapped_column(ForeignKey("models.id", ondelete="SET NULL"), index=True)
+    model_version_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    compiled_request_id: Mapped[str] = mapped_column(String(36), index=True)
+    admission_id: Mapped[str | None] = mapped_column(ForeignKey("fal_admissions.id", ondelete="SET NULL"), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    progress: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    request_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    provider_job_id: Mapped[str | None] = mapped_column(String(500), index=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+
+
 class FalSubject(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "fal_subjects"
     __table_args__ = (
