@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ... import models
+from ...checkpoint_revisions import establish_checkpoint_revision
 from ...storage.repository import StorageRepository
 from .detection import PrefixKind
 from .importer import ImportContext, ImportResult
@@ -406,6 +407,7 @@ class SQLAlchemyImportSink:
             checkpoint = models.Checkpoint(run_id=run.id, stage_id=stage_id, step=step, asset_id=asset_id, state="available")
             self.session.add(checkpoint)
             self.session.flush()
+            establish_checkpoint_revision(self.session, checkpoint)
             checkpoints[identity] = checkpoint
         existing_sample_assets = set(self.session.scalars(select(models.Sample.asset_id).where(models.Sample.run_id == run.id)))
         for key, asset_id in self._assets.items():

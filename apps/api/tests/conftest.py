@@ -31,7 +31,7 @@ def _install_model_test_foundation(engine) -> None:
         gates.verify_storage_contract(
             GateEvidence(
                 run_lease_id="model-test-lease",
-                alembic_head="0007_asset_origin_timestamps",
+                alembic_head="0008_checkpoint_revisions",
                 marker=1,
                 binding_digest="model-test-binding",
                 contract_version=1,
@@ -51,6 +51,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TITLES_ASSET_ROOT", str(tmp_path / "assets"))
     monkeypatch.setenv("TITLES_CACHE_ROOT", str(tmp_path / "cache"))
     monkeypatch.setenv("TITLES_EXPORT_ROOT", str(tmp_path / "exports"))
+    monkeypatch.setenv("TITLES_CONFIG_ROOT", str(tmp_path / "config"))
     engine = build_engine(database_url)
     TestingSession = sessionmaker(bind=engine, expire_on_commit=False)
     Base.metadata.create_all(engine)

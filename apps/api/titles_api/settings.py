@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     asset_root: Path = Path("var/assets")
     cache_root: Path = Path("var/cache")
     export_root: Path = Path("var/exports")
+    config_root: Path = Path("var/config")
     asset_root_quota_bytes: int = 100 * 1024**3
     cache_root_quota_bytes: int = 10 * 1024**3
     temporary_quota_bytes: int = 10 * 1024**3
@@ -64,7 +65,7 @@ class Settings(BaseSettings):
         return value
 
     def ensure_runtime_dirs(self) -> None:
-        for root in (self.asset_root, self.cache_root, self.export_root):
+        for root in (self.asset_root, self.cache_root, self.export_root, self.config_root):
             root.mkdir(parents=True, exist_ok=True, mode=0o700)
             root.chmod(0o700)
         if self.database_url.startswith("sqlite:///./"):

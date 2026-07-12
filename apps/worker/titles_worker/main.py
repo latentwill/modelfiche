@@ -32,16 +32,26 @@ def main() -> None:
         "checkpoint.hydrate": CheckpointHydrationHandler(SessionLocal, cache),
         "export.package": ExportPackageHandler(SessionLocal, settings.export_root, (settings.asset_root, settings.cache_root)),
     }
-    if os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"):
-        client = FalQueueClient(FalSettings.from_env())
-        sink = SQLAlchemyEvalOutputSink(SessionLocal, cache)
-        resolver = SQLAlchemyFalRequestResolver(SessionLocal)
-        handlers["fal.eval"] = FalEvalHandler(client, sink, request_resolver=resolver)
-        handlers["fal.eval_batch"] = FalEvalBatchHandler(SessionLocal, client, sink, resolver)
-        handlers["fal.eval_admission"] = handlers["fal.eval_batch"]
-        handlers["fal.grid_batch"] = FalGridBatchHandler(SessionLocal, client, sink, resolver)
-        handlers["fal_eval"] = handlers["fal.eval_batch"]
-        handlers["fal.grid_cell"] = handlers["fal.eval"]
+    # Resolve credentials for every claimed FAL job so saves, replacements, and
+    # environment changes take effect without restarting the worker.
+    sink = SQLAlchemyEvalOutputSink(SessionLocal, cache)
+    resolver = SQLAlchemyFalRequestResolver(SessionLocal)
+
+    def fal_eval(context, payload):
+        return FalEvalHandler(FalQueueClient(FalSettings.from_env()), sink, request_resolver=resolver)(context, payload)
+
+    def fal_batch(context, payload):
+        return FalEvalBatchHandler(SessionLocal, FalQueueClient(FalSettings.from_env()), sink, resolver)(context, payload)
+
+    def fal_grid(context, payload):
+        return FalGridBatchHandler(SessionLocal, FalQueueClient(FalSettings.from_env()), sink, resolver)(context, payload)
+
+    handlers["fal.eval"] = fal_eval
+    handlers["fal.eval_batch"] = fal_batch
+    handlers["fal.eval_admission"] = fal_batch
+    handlers["fal.grid_batch"] = fal_grid
+    handlers["fal_eval"] = fal_batch
+    handlers["fal.grid_cell"] = fal_eval
     JobRunner(SessionLocal, handlers).run_forever()
 
 

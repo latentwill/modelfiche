@@ -21,9 +21,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0007_asset_origin_timestamps",
-        )
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0008_checkpoint_revisions",)
 
 
 def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) -> None:
@@ -32,9 +30,7 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0007_asset_origin_timestamps",
-        )
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0008_checkpoint_revisions",)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)

@@ -15,6 +15,7 @@ from .. import models
 from ..database import get_db
 from ..integrations.config import S3Settings
 from ..integrations.fal.adapters import LoraInput, ValidationError, get_adapter, list_adapters
+from ..integrations.fal.credentials import fal_secret_store, resolve_fal_credential
 from ..integrations.s3.browser import PrefixAccessError, S3Browser, normalize_prefix
 from ..integrations.s3.detection import detect_prefix
 from ..services import active_profile, current_workspace
@@ -92,14 +93,14 @@ def list_connections(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     source = db.scalar(select(models.ImportSource).where(models.ImportSource.is_active.is_(True)).order_by(models.ImportSource.created_at))
     return [
         {"provider": "s3", "configured": source is not None, "source_id": source.id if source else None, "bucket": source.bucket if source else None},
-        {"provider": "fal", "configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"))},
+        {"provider": "fal", "configured": resolve_fal_credential() is not None},
     ]
 
 
 @router.post("/api/connections/{provider}/test")
 def test_connection(provider: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     if provider == "fal":
-        configured = bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"))
+        configured = resolve_fal_credential() is not None
         if not configured:
             raise HTTPException(status_code=409, detail="FAL_KEY or FAL_API_KEY is not configured")
         return {"provider": "fal", "ok": True, "network_tested": False}
@@ -277,7 +278,7 @@ def fal_endpoints() -> list[dict[str, Any]]:
             "endpoint_id": adapter.endpoint_id,
             "defaults": adapter.defaults,
             "grid_axes": sorted(adapter.allowed_axes),
-            "configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")),
+            "configured": resolve_fal_credential() is not None,
         }
         for adapter in list_adapters()
     ]
@@ -286,13 +287,14 @@ def fal_endpoints() -> list[dict[str, Any]]:
 @router.get("/api/providers/fal/test")
 def test_fal_configuration() -> dict[str, Any]:
     """Non-billable check; intentionally does not submit or enqueue a generation."""
-    key = os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")
-    if not key:
+    credential = resolve_fal_credential()
+    if not credential:
         return {"ok": False, "configured": False, "validation": "missing"}
     return {
         "ok": True,
         "configured": True,
-        "validation": "configuration_only",
+        "source": credential.source,
+        "validation": (fal_secret_store().status().get("last_validation") or {}).get("state", "configuration_only"),
         "endpoints": [adapter.endpoint_id for adapter in list_adapters()],
     }
 

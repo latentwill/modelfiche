@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
 from ..integrations.fal.adapters import get_adapter, list_adapters
+from ..integrations.fal.credentials import resolve_fal_credential
 from ..services import active_profile, current_workspace, get_or_404, record_activity
 from ..settings import get_settings
 from .collaboration import create_eval_run, dump, enqueue_grid, grid_definition
@@ -27,7 +28,7 @@ def public_config(db: DB):
         "asset_root": str(settings.asset_root),
         "cache_root": str(settings.cache_root),
         "authentication": False,
-        "fal_configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")),
+        "fal_configured": resolve_fal_credential() is not None,
         "import_sources": [{"id": source.id, "name": source.name, "provider": source.provider, "bucket": source.bucket, "allowed_prefixes": source.allowed_prefixes} for source in sources],
     }
 
@@ -42,7 +43,7 @@ def endpoint_row(adapter) -> dict[str, Any]:
         "fields": adapter.field_schema,
         "grid_axes": sorted(adapter.allowed_axes),
         "request_fields": sorted(adapter.allowed_request_fields),
-        "configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")),
+        "configured": resolve_fal_credential() is not None,
     }
 
 

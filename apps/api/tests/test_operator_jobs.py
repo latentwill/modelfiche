@@ -225,6 +225,7 @@ def test_durable_export_history_manifest_and_download(client: TestClient):
 
 def test_operator_settings_are_nonsecret_and_storage_policy_is_not_legacy_config(client: TestClient, monkeypatch):
     monkeypatch.setenv("FAL_KEY", "not-a-real-key")
+    monkeypatch.setattr("titles_api.routers.operator_config.validate_fal_connection", lambda _key: None)
 
     updated = client.patch(
         "/api/operator-settings",
@@ -242,5 +243,5 @@ def test_operator_settings_are_nonsecret_and_storage_policy_is_not_legacy_config
 
     fal = client.post("/api/operator-settings/test/fal").json()
     storage = client.post("/api/operator-settings/test/storage").json()
-    assert fal["ok"] is True and fal["network_called"] is False
+    assert fal["ok"] is True and fal["network_called"] is True
     assert storage["ok"] is True and storage["network_called"] is False

@@ -49,6 +49,15 @@ class SQLAlchemyFalRequestResolver:
         )
 
     def _fal_handoff_url(self, session: Session, checkpoint: models.Checkpoint, payload: dict[str, Any]) -> str:
+        versions = session.scalars(
+            select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id)
+        ).all()
+        if len(versions) > 1:
+            raise ValueError("checkpoint has ambiguous model-version FAL configuration")
+        if versions:
+            readiness = versions[0].readiness or {}
+            if readiness.get("fal_url") is not None:
+                return _validate_handoff_url(readiness.get("fal_url"))
         handoff = payload.get("checkpoint_handoff")
         if isinstance(handoff, dict):
             url = _validate_handoff_url(handoff.get("url"))

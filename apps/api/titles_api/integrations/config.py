@@ -101,7 +101,9 @@ class FalSettings:
 
     @classmethod
     def from_env(cls) -> "FalSettings":
-        key = os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")
-        if not key:
-            raise ValueError("FAL_KEY or FAL_API_KEY is required")
-        return cls(api_key=key, base_url=os.getenv("FAL_QUEUE_URL", "https://queue.fal.run").rstrip("/"))
+        from .fal.credentials import resolve_fal_credential
+
+        credential = resolve_fal_credential()
+        if not credential:
+            raise ValueError("FAL credential is not configured")
+        return cls(api_key=credential.key, base_url=os.getenv("FAL_QUEUE_URL", "https://queue.fal.run").rstrip("/"))

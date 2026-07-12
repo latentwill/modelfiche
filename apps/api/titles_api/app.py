@@ -24,6 +24,7 @@ from .routers import (
 from .settings import get_settings
 from .integrations.config import S3Settings
 from .integrations.fal.adapters import list_adapters
+from .integrations.fal.credentials import resolve_fal_credential
 from .security_middleware import LocalLaunchContract, TrustedLocalBoundary
 
 
@@ -163,7 +164,7 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
                     or os.getenv("MEGA_BUCKET")
                 )
             },
-            "fal": {"configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"))},
+            "fal": {"configured": resolve_fal_credential() is not None},
         }
 
     for api_router in (

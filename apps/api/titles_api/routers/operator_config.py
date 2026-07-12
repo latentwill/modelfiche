@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
-from ..integrations.fal.adapters import get_adapter
+from ..integrations.fal.credentials import fal_secret_store
+from ..integrations.fal.validation import validate_fal_connection
 from ..integrations.llm import LLMConfigurationError, LLMResponseError, PromptGenerator
 from ..services import active_profile, current_workspace, get_or_404, record_activity
 from ..settings import get_settings
@@ -23,7 +24,7 @@ DB = Annotated[Session, Depends(get_db)]
 
 DEFAULT_OPERATOR_SETTINGS = {
     "llm": {"provider": "openai", "model": "", "base_url": None},
-    "fal": {"default_endpoint": "ideogram/v4/lora", "max_parallel_jobs": 4},
+    "fal": {"max_parallel_jobs": 4},
 }
 
 
@@ -31,6 +32,11 @@ class OperatorSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     llm: dict[str, Any] | None = None
     fal: dict[str, Any] | None = None
+
+
+class FalKeySave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=4096)
 
 
 class TransferCreate(BaseModel):
@@ -76,7 +82,10 @@ def _preference(db: Session) -> models.LocalPreference:
 
 
 def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> dict[str, Any]:
-    result = {section: dict(current.get(section, defaults)) for section, defaults in DEFAULT_OPERATOR_SETTINGS.items()}
+    result = {
+        section: {key: dict(current.get(section, {})).get(key, default) for key, default in defaults.items()}
+        for section, defaults in DEFAULT_OPERATOR_SETTINGS.items()
+    }
     for section, values in patch.model_dump(exclude_none=True).items():
         allowed = set(DEFAULT_OPERATOR_SETTINGS[section])
         unknown = set(values) - allowed
@@ -91,11 +100,6 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
         raise HTTPException(status_code=422, detail="unsupported llm.provider")
     if llm_provider in {"openai-compatible", "openai_compatible"} and not result["llm"].get("base_url"):
         raise HTTPException(status_code=422, detail="llm.base_url is required for openai-compatible")
-    endpoint = result["fal"].get("default_endpoint")
-    try:
-        get_adapter(str(endpoint))
-    except KeyError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return result
 
 
@@ -104,13 +108,15 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
 def operator_settings(db: DB):
     values = _preference(db).value
     settings = get_settings()
+    fal_status = fal_secret_store().status()
     return {
         **values,
         "credentials": {
             "llm_configured": bool(os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
-            "fal_configured": bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")),
+            "fal_configured": fal_status["configured"],
             "storage_credentials_stored": False,
         },
+        "fal_connection": fal_status,
         "paths": {"asset_root": str(settings.asset_root), "cache_root": str(settings.cache_root), "export_root": str(settings.export_root)},
     }
 
@@ -136,17 +142,40 @@ def test_operator_configuration(provider: Literal["llm", "fal", "storage"], db: 
         key_present = bool(os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
         return {"provider": provider, "ok": configured and key_present, "mode": "configuration_only", "configured": configured, "credential_present": key_present, "network_called": False}
     if provider == "fal":
-        endpoint = values.get("fal", {}).get("default_endpoint")
+        store = fal_secret_store()
+        credential = store.resolve()
+        if not credential:
+            raise HTTPException(status_code=409, detail="Configure a FAL key before validating the connection")
         try:
-            get_adapter(str(endpoint))
-            adapter_ok = True
-        except KeyError:
-            adapter_ok = False
-        key_present = bool(os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY"))
-        return {"provider": provider, "ok": adapter_ok and key_present, "mode": "configuration_only", "endpoint": endpoint, "credential_present": key_present, "network_called": False}
+            validate_fal_connection(credential.key)
+        except ValueError as exc:
+            store.record_validation("rejected", str(exc))
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        except Exception as exc:
+            message = f"Could not reach FAL for validation: {exc}"
+            store.record_validation("network_error", message)
+            raise HTTPException(status_code=502, detail=message) from exc
+        store.record_validation("validated", None)
+        return {"provider": provider, "ok": True, "mode": "network_validated", "configured": True, "source": credential.source, "network_called": True}
     settings = get_settings()
     local_ok = all(path.exists() and path.is_dir() for path in (settings.asset_root, settings.cache_root, settings.export_root))
     return {"provider": provider, "ok": local_ok, "mode": "configuration_only", "local_paths_ok": local_ok, "network_called": False}
+
+
+@router.put("/operator-settings/fal-key")
+@router.put("/settings/operator/fal-key")
+def save_fal_key(body: FalKeySave):
+    store = fal_secret_store()
+    store.save(body.key)
+    return store.status()
+
+
+@router.delete("/operator-settings/fal-key")
+@router.delete("/settings/operator/fal-key")
+def clear_fal_key():
+    store = fal_secret_store()
+    store.clear()
+    return store.status()
 
 
 @router.post("/prompt-sets/generate", response_model=PromptSetGenerateResponse)

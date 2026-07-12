@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from titles_api import models
 from titles_api.asset_cache import AssetCache
+from titles_api.checkpoint_revisions import establish_checkpoint_revision
 from titles_api.storage.repository import StorageRepository
 from titles_api.integrations.config import S3Settings
 from titles_api.integrations.s3.browser import S3Browser
@@ -34,6 +35,8 @@ class CheckpointHydrationHandler:
                 models.AssetLocation.hydration_state == "hydrated",
             ))
             if existing:
+                establish_checkpoint_revision(session, checkpoint, location=existing, force_new=True)
+                session.commit()
                 return {"checkpoint_id": checkpoint.id, "asset_id": asset.id, "path": existing.uri, "already_hydrated": True}
             remote = session.scalar(select(models.AssetLocation).where(
                 models.AssetLocation.asset_id == asset.id,
@@ -107,12 +110,13 @@ class CheckpointHydrationHandler:
             asset = session.get(models.Asset, checkpoint.asset_id)
             if asset is None:
                 raise LookupError("checkpoint asset was removed during hydration")
-            StorageRepository(session, asset.workspace_id).attach_verified_local_location(
+            location = StorageRepository(session, asset.workspace_id).attach_verified_local_location(
                 asset_id=asset.id,
                 uri=str(entry.path),
                 size=entry.size,
                 sha256=entry.sha256,
                 mime_type=asset.mime_type or "application/octet-stream",
             )
+            establish_checkpoint_revision(session, checkpoint, location=location, force_new=True)
             checkpoint.state = "hydrated"
         return {"checkpoint_id": checkpoint_id, "asset_id": asset.id, "path": str(entry.path), "size": entry.size, "sha256": entry.sha256}

@@ -29,6 +29,25 @@ def test_run_metrics_endpoint_returns_sorted_loss_points(client: TestClient):
     }
 
 
+def test_checkpoint_and_model_version_establish_revision_for_fal_admission(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Revision"}).json()
+    run = client.post("/api/runs", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "run"}).json()
+    asset = client.post("/api/assets", json={"project_id": project["id"], "kind": "model", "name": "model.safetensors"}).json()
+    with app_module.SessionLocal.begin() as session:
+        workspace = session.get(models.Project, project["id"]).workspace_id
+        session.add(models.AssetLocation(asset_id=asset["id"], workspace_id=workspace, provider="s3", uri="s3://bucket/model.safetensors", bucket="bucket", object_key="model.safetensors", version_id="v1", verification_state="available", hydration_state="remote"))
+    checkpoint = client.post(f"/api/runs/{run['id']}/checkpoints", headers={"X-Profile-ID": profile["id"]}, json={"asset_id": asset["id"], "step": 100, "state": "available"}).json()
+    model = client.post("/api/models", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "model"}).json()
+    version = client.post("/api/model-versions", headers={"X-Profile-ID": profile["id"]}, json={"model_id": model["id"], "checkpoint_id": checkpoint["id"], "name": "v1"}).json()
+
+    detail = client.get(f"/api/model-versions/{version['id']}").json()
+    assert detail["checkpoint_revision_id"]
+    with app_module.SessionLocal() as session:
+        stored_checkpoint = session.get(models.Checkpoint, checkpoint["id"])
+        assert stored_checkpoint.current_revision_id == detail["checkpoint_revision_id"]
+
+
 def test_project_dataset_draft_and_profile_attribution(client: TestClient):
     profile = client.get("/api/profiles").json()[0]
     project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Test", "trigger_words": ["tok"]}).json()

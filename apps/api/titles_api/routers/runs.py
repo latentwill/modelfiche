@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..checkpoint_revisions import establish_checkpoint_revision
 from ..database import get_db
 from ..services import active_profile, get_or_404, record_activity
 
@@ -205,6 +206,7 @@ def create_checkpoint(run_id: str, body: schemas.CheckpointCreate, db: DB, x_pro
     checkpoint = models.Checkpoint(run_id=run.id, **body.model_dump())
     db.add(checkpoint)
     db.flush()
+    establish_checkpoint_revision(db, checkpoint)
     record_activity(db, action="checkpoint.registered", subject_type="checkpoint", subject_id=checkpoint.id, profile_id=active_profile(db, x_profile_id).id, project_id=run.project_id, details={"step": checkpoint.step})
     db.commit()
     return dump(checkpoint)
@@ -355,6 +357,7 @@ def create_model_version(body: schemas.ModelVersionCreate, db: DB, x_profile_id:
     if run.project_id != model.project_id:
         raise HTTPException(status_code=400, detail="checkpoint and model must belong to the same project")
     version = models.ModelVersion(**body.model_dump())
+    version.checkpoint_revision_id = checkpoint.current_revision_id
     db.add(version)
     db.flush()
     record_activity(db, action="model_version.registered", subject_type="model_version", subject_id=version.id, profile_id=active_profile(db, x_profile_id).id, project_id=model.project_id, details={"checkpoint_id": checkpoint.id, "step": checkpoint.step})

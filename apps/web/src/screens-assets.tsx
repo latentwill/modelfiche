@@ -574,6 +574,7 @@ function ModelTrainingRun({ run }: { run: Row }) {
   const runId = idOf(run);
   const samples = useResource<unknown>(expanded ? `/api/runs/${runId}/samples` : null);
   const metrics = useResource<LossMetrics>(expanded ? `/api/runs/${runId}/metrics?name=loss` : null);
+  const config = useResource<Row>(expanded ? `/api/runs/${runId}/config` : null);
   const sampleRows = rows(samples.data);
   return <details className="training-run" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary><strong>{str(run.name, "Training run")}</strong><span>{str(run.dataset_version_name, "No linked dataset")}</span><Status value={run.status} /></summary>
@@ -583,9 +584,34 @@ function ModelTrainingRun({ run }: { run: Row }) {
       {expanded && <>
         <section className="vela-section"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <AssetGrid assets={sampleRows.slice(0, 8)} />}</section>
         <section className="vela-section"><div className="vela-section-heading"><h3>Loss graph</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
+        <section className="vela-section"><div className="vela-section-heading"><h3>Training configuration</h3></div><Notice error={config.error} loading={config.loading} />{config.data && <details className="config-disclosure"><summary>Show stored training configuration</summary><ModelConfigDetails value={(config.data.normalized ?? {}) as Row} raw={(config.data.raw ?? {}) as Row} datasetName={str(run.dataset_version_name, "Not linked")} /></details>}</section>
       </>}
     </div>
   </details>;
+}
+
+function ModelConfigDetails({ value, raw, datasetName }: { value: Row; raw: Row; datasetName: string }) {
+  const aliases: Array<[string, string[]]> = [
+    ["Dataset", ["dataset", "dataset_name", "dataset_sources"]],
+    ["Learning rate", ["learning_rate"]],
+    ["Rank", ["lora_rank", "rank", "network_dim"]],
+    ["Steps", ["steps", "max_train_steps"]],
+    ["Scheduler", ["scheduler", "lr_scheduler"]],
+    ["Optimizer", ["optimizer", "optimizer_type"]],
+    ["Resolution", ["resolution"]],
+    ["Batch", ["batch", "batch_size", "train_batch_size"]],
+    ["Seed", ["seed"]],
+    ["Base model", ["base_model", "pretrained_model_name_or_path"]],
+  ];
+  const used = new Set<string>();
+  const primary = aliases.map(([label, keys]) => {
+    const key = keys.find(candidate => Object.prototype.hasOwnProperty.call(value, candidate));
+    if (key) used.add(key);
+    return [label, key ? value[key] : label === "Dataset" ? datasetName : "Not recorded"] as const;
+  });
+  const other = Object.entries(value).filter(([key]) => !used.has(key) && key !== "training_config");
+  const display = (label: string, item: unknown) => label === "Learning rate" ? scientificNotation(item) : typeof item === "object" ? JSON.stringify(item) : str(item);
+  return <><dl className="details">{primary.map(([label, item]) => <Fragment key={label}><dt>{label}</dt><dd>{display(label, item)}</dd></Fragment>)}{other.map(([key, item]) => <Fragment key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{display(key, item)}</dd></Fragment>)}</dl>{value.training_config ? <><h4>Nested training config</h4><Json value={value.training_config} /></> : null}<h4>Imported source config</h4><Json value={raw} /></>;
 }
 
 type GalleryFilters = {
