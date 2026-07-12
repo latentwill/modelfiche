@@ -389,11 +389,13 @@ def create_eval_run(body: schemas.EvalRunCreate, db: DB, x_profile_id: Annotated
 def eval_run(run_id: str, db: DB):
     run = get_or_404(db, models.EvalRun, run_id)
     definition = get_or_404(db, models.EvalDefinition, run.definition_id)
-    outputs = db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run.id)).all()
+    outputs = db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run.id).order_by(models.EvalOutput.created_at)).all()
     jobs = db.scalars(select(models.Job).where(models.Job.payload["eval_run_id"].as_string() == run.id).order_by(models.Job.created_at.desc())).all()
     latest_job = jobs[0] if jobs else None
     output_rows = []
     for output in outputs:
+        inline_id = str((output.provider_metadata or {}).get("inline_prompt_id") or output.prompt_id or "")
+        inline = next((item for item in (definition.inline_prompts or []) if str(item.get("id")) == inline_id), None)
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
         asset = db.get(models.Asset, output.asset_id)
         image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == output.asset_id))
@@ -401,7 +403,8 @@ def eval_run(run_id: str, db: DB):
             {
                 **dump(output),
                 "asset_revision_id": output.asset_id,
-                "prompt": prompt.text if prompt else None,
+                "prompt_id": inline_id or output.prompt_id,
+                "prompt": prompt.text if prompt else (inline or {}).get("text"),
                 "filename": asset.name if asset else None,
                 "mime_type": asset.mime_type if asset else None,
                 "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
@@ -409,7 +412,13 @@ def eval_run(run_id: str, db: DB):
                 "height": image.height if image else None,
             }
         )
-    return {**dump(run), "name": definition.name, "endpoint_adapter": definition.endpoint, "model_version_id": definition.model_version_id, "prompt_set_id": definition.prompt_set_id, "parameters": run.parameters_snapshot, "progress": latest_job.progress if latest_job else (1 if run.status == "succeeded" else 0), "job_id": latest_job.id if latest_job else None, "outputs": output_rows}
+    version = db.get(models.ModelVersion, definition.model_version_id) if definition.model_version_id else None
+    model = db.get(models.Model, version.model_id) if version else None
+    return {**dump(run), "name": definition.name, "project_id": definition.project_id, "endpoint_adapter": definition.endpoint,
+        "model_version_id": definition.model_version_id, "model_version_name": version.name if version else None,
+        "model_name": model.name if model else None, "prompt_set_id": definition.prompt_set_id,
+        "inline_prompts": definition.inline_prompts, "prompt_count": len(definition.inline_prompts or []),
+        "parameters": run.parameters_snapshot, "progress": latest_job.progress if latest_job else (1 if run.status == "succeeded" else 0), "job_id": latest_job.id if latest_job else None, "outputs": output_rows}
 
 
 @router.get("/eval-runs")
@@ -427,15 +436,22 @@ def eval_runs(db: DB, definition_id: str | None = None, project_id: str | None =
         version = db.get(models.ModelVersion, definition.model_version_id) if definition and definition.model_version_id else None
         prompt_set = db.get(models.PromptSet, definition.prompt_set_id) if definition else None
         job = db.scalar(select(models.Job).where(models.Job.payload["eval_run_id"].as_string() == row.id).order_by(models.Job.created_at.desc()))
-        rows.append({**dump(row), "name": definition.name if definition else None, "endpoint_adapter": definition.endpoint if definition else None, "model_version_id": definition.model_version_id if definition else None, "model_version_name": version.name if version else None, "prompt_set_id": definition.prompt_set_id if definition else None, "prompt_set_name": prompt_set.name if prompt_set else None, "parameters": row.parameters_snapshot, "progress": job.progress if job else (1 if row.status == "succeeded" else 0), "job_id": job.id if job else None})
+        outputs = list(db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == row.id).order_by(models.EvalOutput.created_at)))
+        rows.append({**dump(row), "name": definition.name if definition else None, "endpoint_adapter": definition.endpoint if definition else None, "model_version_id": definition.model_version_id if definition else None, "model_version_name": version.name if version else None, "prompt_set_id": definition.prompt_set_id if definition else None, "prompt_set_name": prompt_set.name if prompt_set else None,
+            "prompt_count": len(definition.inline_prompts or []) if definition else 0, "output_count": len(outputs),
+            "outputs": [{"asset_id": output.asset_id, "asset_revision_id": output.asset_id} for output in outputs[:4]],
+            "parameters": row.parameters_snapshot, "progress": job.progress if job else (1 if row.status == "succeeded" else 0), "job_id": job.id if job else None})
     return rows
 
 
 @router.get("/eval-runs/{run_id}/outputs")
 def eval_outputs(run_id: str, db: DB):
-    get_or_404(db, models.EvalRun, run_id)
+    run = get_or_404(db, models.EvalRun, run_id)
+    definition = get_or_404(db, models.EvalDefinition, run.definition_id)
     rows = []
     for output in db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run_id).order_by(models.EvalOutput.created_at)).all():
+        inline_id = str((output.provider_metadata or {}).get("inline_prompt_id") or output.prompt_id or "")
+        inline = next((item for item in (definition.inline_prompts or []) if str(item.get("id")) == inline_id), None)
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
         asset = db.get(models.Asset, output.asset_id)
         image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == output.asset_id))
@@ -443,7 +459,8 @@ def eval_outputs(run_id: str, db: DB):
             {
                 **dump(output),
                 "asset_revision_id": output.asset_id,
-                "prompt": prompt.text if prompt else None,
+                "prompt_id": inline_id or output.prompt_id,
+                "prompt": prompt.text if prompt else (inline or {}).get("text"),
                 "filename": asset.name if asset else None,
                 "mime_type": asset.mime_type if asset else None,
                 "asset_metadata": dict(asset.metadata_ or {}) if asset else {},

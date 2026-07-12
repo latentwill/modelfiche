@@ -26,6 +26,13 @@ describe("gallery navigation contracts", () => {
     expect(Object.fromEntries(params)).toMatchObject({ project: "project-1", category: "sample", asset: "sample-1", return: "samples/run-1?step=400" });
   });
 
+  it("constrains Eval viewer lightboxes to the owning run and returns exactly", () => {
+    location.hash = "#/eval/run-7?model=model-2";
+    const href = galleryOpenHref({ asset_id: "eval-asset", project_id: "project-1", eval_run_id: "run-7", origin_type: "EVAL" });
+    const params = new URLSearchParams(href.split("?", 2)[1]);
+    expect(Object.fromEntries(params)).toMatchObject({ project: "project-1", eval: "run-7", category: "eval_output", asset: "eval-asset", return: "eval/run-7?model=model-2" });
+  });
+
   it("suppresses gallery shortcuts while the operator is typing", () => {
     const input = document.createElement("input");
     const button = document.createElement("button");

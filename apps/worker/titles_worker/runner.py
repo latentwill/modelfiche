@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from titles_api.models import GenerationQueueItem, ImportJob, Job, JobState
+from titles_api.models import GenerationQueueChild, GenerationQueueItem, ImportJob, Job, JobState
 
 logger = logging.getLogger("titles.worker")
 JobHandler = Callable[["JobContext", dict[str, Any]], dict[str, Any] | None]
@@ -37,8 +37,20 @@ class JobContext:
             if result_patch:
                 job.result = {**job.result, **result_patch}
             queue_item = session.scalar(select(GenerationQueueItem).where(GenerationQueueItem.job_id == job.id))
+            queue_child = session.scalar(select(GenerationQueueChild).where(GenerationQueueChild.job_id == job.id))
+            if queue_child:
+                queue_item = session.get(GenerationQueueItem, queue_child.queue_item_id)
+                queue_child.state = "running"; queue_child.progress = {**dict(queue_child.progress or {}), "fraction": value}; queue_child.result = dict(job.result or {})
             if queue_item:
-                queue_item.state = "running"; queue_item.progress = {"fraction": value}; queue_item.result = dict(job.result or {})
+                queue_item.state = "running"
+                children = list(session.scalars(select(GenerationQueueChild).where(GenerationQueueChild.queue_item_id == queue_item.id)))
+                if children:
+                    totals = [float((child.progress or {}).get("total", 1)) for child in children]
+                    completed = [total if child.state == "completed" else float((child.progress or {}).get("fraction", 0)) * total for child, total in zip(children, totals)]
+                    queue_item.progress = {"completed": sum(completed), "total": sum(totals), "fraction": sum(completed) / sum(totals)}
+                else:
+                    queue_item.progress = {"fraction": value}
+                queue_item.result = dict(job.result or {})
             import_job = session.scalar(select(ImportJob).where(ImportJob.job_id == job.id))
             if import_job:
                 import_job.state = JobState.running.value
@@ -87,6 +99,7 @@ class JobRunner:
                 .values(state=JobState.queued, error="worker interrupted; resuming")
             )
             session.execute(update(GenerationQueueItem).where(GenerationQueueItem.job_id.in_(running_ids)).values(state="queued", error="worker interrupted; resuming"))
+            session.execute(update(GenerationQueueChild).where(GenerationQueueChild.job_id.in_(running_ids)).values(state="queued", error="worker interrupted; resuming"))
             return int(result.rowcount or 0)
 
     def claim(self) -> Job | None:
@@ -171,9 +184,27 @@ class JobRunner:
             job.state = state
             job.error = error
             queue_item = session.scalar(select(GenerationQueueItem).where(GenerationQueueItem.job_id == job.id))
+            queue_child = session.scalar(select(GenerationQueueChild).where(GenerationQueueChild.job_id == job.id))
+            if queue_child:
+                queue_item = session.get(GenerationQueueItem, queue_child.queue_item_id)
+                queue_child.state = "completed" if state == JobState.succeeded else "queued" if state == JobState.queued else "failed"
+                queue_child.progress = {**dict(queue_child.progress or {}), "fraction": progress}; queue_child.result = dict(result or job.result or {}); queue_child.error = error
             if queue_item:
-                queue_item.state = "completed" if state == JobState.succeeded else "queued" if state == JobState.queued else "failed"
-                queue_item.progress = {"fraction": progress}; queue_item.result = dict(result or job.result or {}); queue_item.error = error
+                children = list(session.scalars(select(GenerationQueueChild).where(GenerationQueueChild.queue_item_id == queue_item.id).order_by(GenerationQueueChild.ordinal)))
+                if children:
+                    totals = [float((child.progress or {}).get("total", 1)) for child in children]
+                    completed_children = sum(child.state == "completed" for child in children)
+                    completed = sum(total if child.state == "completed" else 0 for child, total in zip(children, totals))
+                    failed = [child for child in children if child.state == "failed"]
+                    queue_item.state = "failed" if failed else "completed" if completed_children == len(children) else "queued"
+                    queue_item.progress = {"completed": completed, "total": sum(totals), "fraction": completed / sum(totals)}
+                    queue_item.result = dict(children[0].result or {}) if len(children) == 1 else {"children": [{"model_version_id": child.model_version_id, "status": child.state, "result": child.result} for child in children]}
+                    queue_item.error = failed[0].error if failed else None
+                    if queue_item.state == "queued":
+                        queue_item.job_id = None; queue_item.provider_job_id = None
+                else:
+                    queue_item.state = "completed" if state == JobState.succeeded else "queued" if state == JobState.queued else "failed"
+                    queue_item.progress = {"fraction": progress}; queue_item.result = dict(result or job.result or {}); queue_item.error = error
             if result is not None:
                 job.result = result
             if progress is not None:

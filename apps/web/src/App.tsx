@@ -1,7 +1,7 @@
 import { useHashRoute } from "./hooks";
 import { ImportScreen, JobScreen, ProjectScreen, ProjectsScreen, SettingsScreen } from "./screens-core";
 import { CheckpointScreen, DatasetScreen, DatasetsScreen, GalleryScreen, ModelScreen, ModelsScreen, RunScreen, RunsScreen } from "./screens-assets";
-import { EvalScreen, EvalsScreen, GridScreen, GridsScreen, PromptSetsScreen, ReviewsScreen } from "./screens-evals";
+import { EvalComparisonScreen, EvalScreen, EvalsScreen, GridScreen, GridsScreen, PromptSetsScreen, ReviewsScreen } from "./screens-evals";
 import { WorkbenchShell } from "./shell";
 import { DashboardScreen, ImageReviewScreen, SampleViewerScreen, TransfersScreen } from "./screens-wireframe";
 import { GenerationQueueScreen, ImageGeneratorScreen } from "./generator";
@@ -17,6 +17,7 @@ export function App() {
   if (section === "image") content = <ImageReviewScreen id={id} />;
   else if (section === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
   else if (section === "eval") content = <EvalScreen id={id} />;
+  else if (section === "eval-comparison") content = <EvalComparisonScreen id={id} />;
   else if (section === "grid") content = <GridScreen id={id} />;
   else content = <WorkbenchShell section={section} id={id} params={params}>{renderScreen(section, id, params)}</WorkbenchShell>;
   return <div className="vela-theme">{content}</div>;
@@ -43,6 +44,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "prompt-sets": return <PromptSetsScreen projectId={projectId} promptSetId={id} />;
     case "evals": return <EvalsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
     case "eval": return <EvalScreen id={id} />;
+    case "eval-comparison": return <EvalComparisonScreen id={id} />;
     case "grids": return <GridsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
     case "grid": return <GridScreen id={id} />;
     case "reviews": return <ReviewsScreen projectId={projectId} subject={params.get("subject") ?? ""} />;

@@ -97,3 +97,44 @@ def test_enqueue_rejects_model_or_compiled_binding_tampering(client):
     response = client.post("/api/generation-queue", json=body)
     assert response.status_code == 409
     assert "compiled FAL admission" in response.json()["detail"]
+
+
+def test_multi_model_eval_is_one_ordered_parent_with_exactly_once_children_and_results(client):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Comparison"}).json()
+    model_a, version_a = _registered_checkpoint(client, project["id"])
+    model_b, version_b = _registered_checkpoint(client, project["id"])
+    prompts = [{"prompt_id": "prompt-a", "prompt": "first prompt"}, {"prompt_id": "prompt-b", "prompt": "second prompt"}]
+    children = []
+    for model, version in ((model_a, version_a), (model_b, version_b)):
+        request_id = str(uuid4())
+        compiled = client.post("/api/eval-generation-requests/compile", json={
+            "workflow": "eval", "provider": "fal", "context": {"kind": "project", "project_id": project["id"]},
+            "model_version_id": version["id"], "checkpoint_revision_id": version["checkpoint_revision_id"],
+            "prompts": prompts, "parameters": {"endpoint_id": "fal-ai/krea-2/turbo/lora", "lora_scale": 1, "num_images": 1},
+            "client_request_id": request_id,
+        })
+        assert compiled.status_code == 200, compiled.text
+        children.append({"model_version_id": version["id"], "compiled_request_id": request_id, "admission_id": compiled.json()["admission"]["id"]})
+    parent_id = str(uuid4())
+    queued = client.post("/api/generation-queue", json={"workflow": "eval", "provider": "fal",
+        "context": {"kind": "project", "project_id": project["id"]},
+        "model_version_ids": [version_a["id"], version_b["id"]], "compiled_request_id": parent_id,
+        "client_request_id": parent_id, "request": {"prompts": prompts}, "children": children})
+    assert queued.status_code == 202, queued.text
+    assert [child["model_version_id"] for child in queued.json()["children"]] == [version_a["id"], version_b["id"]]
+    first = client.post("/api/generation-queue/claim").json()
+    assert first["children"][0]["status"] == "running" and first["children"][1]["status"] == "queued"
+    with app_module.SessionLocal.begin() as db:
+        job = db.get(models.Job, first["job_id"]); job.state = models.JobState.running
+    runner = JobRunner(app_module.SessionLocal, {"fal.eval_admission": lambda context, payload: {"asset_ids": []}})
+    assert runner.recover_interrupted() == 1
+    assert runner.run_one() and runner.run_one()
+    terminal = client.get(f"/api/generation-queue/{queued.json()['id']}").json()
+    assert terminal["status"] == "completed"
+    assert [child["status"] for child in terminal["children"]] == ["completed", "completed"]
+    with app_module.SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(models.Job).where(models.Job.kind == "fal.eval_admission")) == 2
+    comparison = client.get(f"/api/generation-queue/{queued.json()['id']}/eval-results").json()
+    assert [run["model_version_id"] for run in comparison["runs"]] == [version_a["id"], version_b["id"]]
+    assert [[prompt["id"] for prompt in run["prompts"]] for run in comparison["runs"]] == [["prompt-a", "prompt-b"], ["prompt-a", "prompt-b"]]

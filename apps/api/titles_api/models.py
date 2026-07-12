@@ -783,6 +783,26 @@ class GenerationQueueItem(UUIDMixin, TimestampMixin, Base):
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
 
 
+class GenerationQueueChild(UUIDMixin, TimestampMixin, Base):
+    """One ordered provider request within a visible workflow queue item."""
+    __tablename__ = "generation_queue_children"
+    __table_args__ = (
+        UniqueConstraint("queue_item_id", "ordinal", name="uq_generation_queue_child_ordinal"),
+        UniqueConstraint("queue_item_id", "compiled_request_id", name="uq_generation_queue_child_request"),
+    )
+    queue_item_id: Mapped[str] = mapped_column(ForeignKey("generation_queue_items.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    model_version_id: Mapped[str] = mapped_column(ForeignKey("model_versions.id", ondelete="RESTRICT"), index=True)
+    compiled_request_id: Mapped[str] = mapped_column(String(36), index=True)
+    admission_id: Mapped[str | None] = mapped_column(ForeignKey("fal_admissions.id", ondelete="SET NULL"), index=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    provider_job_id: Mapped[str | None] = mapped_column(String(500), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    progress: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
 class FalSubject(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "fal_subjects"
     __table_args__ = (

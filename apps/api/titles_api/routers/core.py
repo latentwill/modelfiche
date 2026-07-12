@@ -174,6 +174,7 @@ def _gallery_query(
     rating: int | None = None,
     model_id: str | None = None,
     dataset_id: str | None = None,
+    eval_run_id: str | None = None,
     category: str | None = None,
     provider: str | None = None,
     include_dataset_assets: bool = False,
@@ -239,6 +240,8 @@ def _gallery_query(
             .where(models.DatasetVersion.dataset_id == dataset_id)
         )
         query = query.where(models.Asset.id.in_(dataset_asset_ids.union(sample_asset_ids)))
+    if eval_run_id:
+        query = query.where(models.Asset.id.in_(select(models.EvalOutput.asset_id).where(models.EvalOutput.eval_run_id == eval_run_id)))
     if kind:
         query = query.where(models.Asset.kind == kind)
         if kind == "image":
@@ -306,12 +309,13 @@ def gallery_context(
     rating: int | None = Query(None, ge=1, le=5),
     model_id: str | None = None,
     dataset_id: str | None = None,
+    eval_run_id: str | None = None,
     category: str | None = None,
     provider: str | None = None,
     include_dataset_assets: bool = False,
     sort: str = Query("origin_time_desc", pattern="^origin_time_(asc|desc)$"),
 ):
-    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets, sort)
+    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, eval_run_id, category, provider, include_dataset_assets, sort)
     ordered_ids = db.scalars(query.with_only_columns(models.Asset.id)).all()
     try:
         selected_index = ordered_ids.index(asset_id)
@@ -345,6 +349,7 @@ def gallery(
     rating: int | None = Query(None, ge=1, le=5),
     model_id: str | None = None,
     dataset_id: str | None = None,
+    eval_run_id: str | None = None,
     category: str | None = None,
     provider: str | None = None,
     include_dataset_assets: bool = False,
@@ -353,7 +358,7 @@ def gallery(
     offset: int = Query(0, ge=0),
     sort: str = Query("origin_time_desc", pattern="^origin_time_(asc|desc)$"),
 ):
-    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, category, provider, include_dataset_assets, sort)
+    query = _gallery_query(db, project_id, kind, q, decision, rating, model_id, dataset_id, eval_run_id, category, provider, include_dataset_assets, sort)
     total = int(db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0)
     rows = db.scalars(query.options(selectinload(models.Asset.locations)).offset(offset).limit(limit)).all()
     result = _gallery_rows(db, rows)

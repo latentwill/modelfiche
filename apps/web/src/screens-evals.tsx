@@ -15,7 +15,7 @@ import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
-import { ModelCheckpointPicker } from "./generator";
+import { GenerationQueue, ModelCheckpointPicker } from "./generator";
 import { generationModelFromRow } from "./generation";
 import { galleryOpenHref } from "./screens-assets";
 
@@ -210,30 +210,26 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
 }
 
 export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { projectId?: string; initialModelVersionId?: string }) {
-  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: projectId })}`);
-  const models = useResource<unknown>(`/api/model-versions${query({ project_id: projectId })}`);
-  const promptSets = useResource<unknown>(`/api/prompt-sets${query({ project_id: projectId })}`);
+  const initialParams = new URLSearchParams(location.hash.split("?")[1] ?? "");
+  const [scope, setScope] = useState<"project" | "model">(initialParams.get("scope") === "model" ? "model" : "project");
+  const [project, setProject] = useState(projectId);
+  const [modelId, setModelId] = useState(initialParams.get("model") ?? "");
+  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: project })}`);
+  const models = useResource<unknown>(project ? `/api/model-versions${query({ project_id: project })}` : null);
+  const modelFamilies = useResource<unknown>(project ? `/api/models${query({ project_id: project })}` : null);
   const projects = useResource<unknown>("/api/projects?limit=100");
-  const endpoints = useResource<unknown>("/api/eval-endpoints");
-  const [modelVersionId, setModelVersionId] = useState(initialModelVersionId);
-  const [selectedPromptSet, setSelectedPromptSet] = useState("");
+  const queue = useResource<unknown>(`/api/generation-queue${query({ project_id: project })}`);
+  const [selectedModels, setSelectedModels] = useState<string[]>(initialModelVersionId ? [initialModelVersionId] : []);
+  const [prompts, setPrompts] = useState(() => [newInlinePrompt(""), newInlinePrompt("")]);
   const [message, setMessage] = useState("");
-  const [billingAck, setBillingAck] = useState(false);
-  const endpointRows = rows(endpoints.data);
-  const generationModels = rows(models.data).map(generationModelFromRow).filter(model => !projectId || model.projectId === projectId);
-  const generationModel = generationModels.find(model => model.id === modelVersionId);
-  const endpointId = generationModel?.endpoint ?? "";
-  const selectedEndpoint = endpointRows.find(row => idOf(row) === endpointId || row.endpoint_id === endpointId);
-  const endpointSchema = useResource<Row>(endpointId ? `/api/eval-endpoints/${endpointId}/schema` : null);
-  const activeSchema = endpointSchema.data ?? selectedEndpoint;
-  const selectedModel = rows(models.data).find(row => idOf(row) === modelVersionId);
-  const selectedPromptSetResource = useResource<Row>(selectedPromptSet ? `/api/prompt-sets/${selectedPromptSet}` : null);
+  const generationModels = rows(models.data).map(generationModelFromRow).filter(model => model.projectId === project && (scope !== "model" || !modelId || model.modelId === modelId));
   const latestEval = rows(evals.data)[0];
+  useEffect(() => setSelectedModels(ids => ids.filter(id => generationModels.some(model => model.id === id))), [models.data, project, scope, modelId]);
 
   return (
     <Page
       title="Eval generator"
-      subtitle="Run a saved prompt set against one registered checkpoint with endpoint-specific FAL controls."
+      subtitle="Compare the same ordered prompts across one or more provider-registered checkpoints."
       actions={
         <>
           <a className="vela-button" href={`#/grids?project=${projectId}`}><Grid3X3 size={15} /> Grid generator</a>
@@ -241,75 +237,61 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
         </>
       }
     >
-      <Notice error={models.error || promptSets.error || endpoints.error} loading={models.loading || promptSets.loading || endpoints.loading} />
-      <Panel title="Model readiness">
-        <div className="readiness-grid">
-          <ModelCheckpointPicker multiple={false} models={generationModels} selected={modelVersionId ? [modelVersionId] : []} onChange={ids => setModelVersionId(ids[0] ?? "")} />
-          <dl className="details">
-            <dt>Checkpoint</dt><dd>{str(selectedModel?.checkpoint_step, "Select a model")}</dd>
-            <dt>FAL uploaded</dt><dd><Status value={selectedModel?.fal_status ?? selectedModel?.readiness_status ?? "unknown"} /></dd>
-            <dt>LoRA path</dt><dd>{str((selectedModel?.readiness as Row | undefined)?.fal_path ?? selectedModel?.fal_path, "Resolved at execution")}</dd>
-          </dl>
-        </div>
-      </Panel>
-      <Panel title="Endpoint settings">
-        <Notice error={endpointSchema.error} loading={endpointSchema.loading} />
-        {selectedEndpoint?.configured === false && (
-          <div className="vela-notice vela-notice-error" role="alert"><strong>FAL is not configured</strong><span>Add the local FAL API key before submitting a generation.</span></div>
-        )}
+      <Notice error={models.error || modelFamilies.error || projects.error} loading={models.loading || modelFamilies.loading || projects.loading} />
+      <Panel title="Evaluation context"><div className="form-grid">
+        <Field label="Scope"><select value={scope} onChange={event => { setScope(event.target.value as "project" | "model"); setSelectedModels([]); }}><option value="project">Project</option><option value="model">Model / checkpoint</option></select></Field>
+        <Field label="Project"><select value={project} onChange={event => { setProject(event.target.value); setModelId(""); setSelectedModels([]); }}><option value="">Select…</option>{rows(projects.data).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.title ?? row.name)}</option>)}</select></Field>
+        {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelectedModels([]); }}><option value="">Select…</option>{rows(modelFamilies.data).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.name)}</option>)}</select></Field>}
+      </div><ModelCheckpointPicker models={generationModels} selected={selectedModels} onChange={setSelectedModels} />
+      {selectedModels.map(id => { const model = generationModels.find(item => item.id === id); return model && !model.available ? <div className="vela-notice vela-notice-error" role="alert" key={id}>{model.name} / {model.checkpointLabel}: {model.unavailableReason}</div> : null; })}</Panel>
+      <Panel title="Ordered manual prompts"><div className="prompt-editor">
+        {prompts.map((prompt, index) => <div className="prompt-editor-row" key={prompt.id}><span>{index + 1}</span><textarea aria-label={`Prompt ${index + 1}`} value={prompt.text} onChange={event => setPrompts(items => items.map(item => item.id === prompt.id ? { ...item, text: event.target.value } : item))} /><button type="button" aria-label={`Move prompt ${index + 1} up`} disabled={!index} onClick={() => setPrompts(moveItem(prompts, index, index - 1))}><ArrowUp size={14} /></button><button type="button" aria-label={`Move prompt ${index + 1} down`} disabled={index === prompts.length - 1} onClick={() => setPrompts(moveItem(prompts, index, index + 1))}><ArrowDown size={14} /></button><button type="button" aria-label={`Remove prompt ${index + 1}`} disabled={prompts.length === 1} onClick={() => setPrompts(items => items.filter(item => item.id !== prompt.id))}><X size={14} /></button></div>)}
+        <button type="button" className="vela-button" onClick={() => setPrompts(items => [...items, newInlinePrompt("")])}>Add prompt</button>
+      </div></Panel>
+      <Panel title="Generation settings">
         <Form
-          submit="Generate selected"
+          submit="Queue evaluation"
           onSubmit={async form => {
-            if (!endpointId) throw new Error("Select an endpoint.");
-            if (!modelVersionId || !selectedPromptSet) throw new Error("Select a model version and prompt set.");
-            if (!billingAck) throw new Error("A billing acknowledgement is required.");
-            if (selectedEndpoint?.configured === false) throw new Error("FAL is not configured for this local server.");
-            const checkpointRevisionId = str(selectedModel?.checkpoint_revision_id, "");
-            const project = str(selectedModel?.project_id ?? projectId, "");
-            if (!checkpointRevisionId || !project) throw new Error("The selected model version has no immutable checkpoint revision.");
-            const prompts = rows(selectedPromptSetResource.data).map((prompt, index) => ({ prompt_id: str(prompt.id, `prompt-${index}`), prompt: str(prompt.text, "") })).filter(prompt => prompt.prompt);
-            if (!prompts.length) throw new Error("The selected prompt set is empty.");
-            const parameters = parametersFromForm(form, activeSchema);
-            parameters.lora_scale = Number(form.get("lora_scale") ?? 1);
-            const definition = await api<Row>("/api/eval-definitions", jsonBody({ project_id: project, name: `${str(selectedModel?.name, "Model")} / ${str(selectedPromptSetResource.data?.name, "Prompt set")}`, endpoint: endpointId, model_version_id: modelVersionId, prompt_set_id: selectedPromptSet, parameters }));
-            const projection = await api<Row>("/api/fal-admissions", jsonBody({ kind: "eval", mode: prompts.length === 1 ? "single" : "prompt_batch", project_id: project, model_version_id: modelVersionId, checkpoint_revision_id: checkpointRevisionId, prompts, parameters, client_request_id: crypto.randomUUID() }));
-            if (projection.kind !== "projection" || !projection.admission) throw new Error(str(projection.detail, "FAL admission is not ready."));
-            const admission = projection.admission as Row;
-            if (str(admission.state) !== "ready") throw new Error(`FAL admission is ${str(admission.state)}; review storage and checkpoint readiness.`);
-            const accepted = await api<Row>(`/api/fal-admissions/${str(admission.id)}/admit`, jsonBody({ expected_version: Number(admission.version), billing_acknowledgement: "I understand FAL may bill this run even if checkpoint fetch fails" }));
-            setMessage(`${str(accepted.eval_run_id, str(definition.id))} admitted; provider work is queued.`);
-            await evals.reload();
+            if (!project) throw new Error("Select a project context.");
+            const chosen = selectedModels.map(id => generationModels.find(model => model.id === id)).filter(Boolean);
+            if (!chosen.length) throw new Error("Select at least one available model checkpoint.");
+            if (chosen.some(model => !model?.available)) throw new Error("Remove checkpoints without a usable provider registration.");
+            const orderedPrompts = prompts.map(item => ({ prompt_id: item.id, prompt: item.text.trim() })).filter(item => item.prompt);
+            if (!orderedPrompts.length) throw new Error("Add at least one prompt.");
+            const parameters = { seed: optionalNumber(form.get("seed")), image_size: { width: Number(form.get("width") ?? 1024), height: Number(form.get("height") ?? 1024) }, guidance_scale: optionalNumber(form.get("guidance")), num_inference_steps: optionalNumber(form.get("steps")), lora_scale: Number(form.get("lora_scale") ?? 1) };
+            const compiled = [] as Array<{ model: NonNullable<typeof chosen[number]>; requestId: string; admission: Row }>;
+            for (const model of chosen) {
+              if (!model?.checkpointRevisionId) throw new Error(`${model?.name} has no immutable checkpoint revision.`);
+              const requestId = crypto.randomUUID();
+              const result = await api<Row>("/api/eval-generation-requests/compile", jsonBody({ workflow: "eval", provider: model.provider, context: scope === "model" ? { kind: "model", project_id: project, model_id: modelId } : { kind: "project", project_id: project }, model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId, prompts: orderedPrompts, parameters, client_request_id: requestId }));
+              compiled.push({ model, requestId, admission: result.admission as Row });
+            }
+            const parentId = crypto.randomUUID();
+            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: scope, project_id: project, model_id: scope === "model" ? modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", context: { kind: scope, projectId: project, modelId }, models: compiled.map(item => item.model), prompts: orderedPrompts, parameters }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
+            setMessage(`One evaluation job queued as ${idOf(queued)} for ${compiled.length} checkpoint${compiled.length === 1 ? "" : "s"}.`);
+            await queue.reload();
           }}
         >
           <div className="form-grid">
-            <Field label="Provider / endpoint"><input readOnly value={endpointId ? `FAL / ${endpointId}` : "Select a provider-registered model"} /></Field>
-            <Field label="Prompt set"><SelectRecords name="prompt_set_id" records={rows(promptSets.data)} value={selectedPromptSet} onChange={setSelectedPromptSet} required /></Field>
+            <Field label="Seed"><input name="seed" type="number" /></Field><Field label="Width"><input name="width" type="number" min="1" defaultValue="1024" /></Field><Field label="Height"><input name="height" type="number" min="1" defaultValue="1024" /></Field><Field label="Guidance"><input name="guidance" type="number" step="0.1" /></Field><Field label="Steps"><input name="steps" type="number" min="1" /></Field>
             <Field label="LoRA scale" hint="Applied to the selected checkpoint."><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
-            <EndpointFields key={endpointId} schema={activeSchema} />
-            <label className="field"><span>Billing acknowledgement</span><span><input type="checkbox" checked={billingAck} onChange={event => setBillingAck(event.target.checked)} required /> I understand FAL may bill this run even if checkpoint fetch fails.</span></label>
           </div>
         </Form>
         {message && <div className="vela-notice" role="status"><strong>Eval queued</strong><span>{message}</span></div>}
       </Panel>
-      <PromptSetBuilder
-        projects={rows(projects.data)}
-        resource={promptSets}
-        selected={selectedPromptSetResource}
-        selectedId={selectedPromptSet}
-        onSelect={setSelectedPromptSet}
-        initialProject={projectId}
-      />
-      <Panel title="Generation queue">
+      <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />
+      <Panel title="Eval Runs">
         <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
-        <DataTable
-          rows={rows(evals.data)}
-          columns={[["name", "Name"], ["endpoint_adapter", "Endpoint"], ["model_version_name", "Model"], ["prompt_set_name", "Prompt set"], ["status", "Status"], ["progress", "Progress"]]}
-          onRow={row => { location.hash = `eval/${idOf(row)}`; }}
-        />
+        {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(run => <a href={`#/eval/${idOf(run)}`} key={idOf(run)}><div className="eval-thumbs">{rows(run.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt="Eval output preview" loading="lazy" />)}</div><strong>{str(run.name, "Eval run")}</strong><span>{str(run.model_version_name, "Checkpoint")} · {str(run.prompt_count, "0")} prompts · {str(run.output_count, "0")} outputs</span><Status value={run.status} /></a>)}</div>}
       </Panel>
     </Page>
   );
 }
+
+type InlinePrompt = { id: string; text: string };
+function newInlinePrompt(text: string): InlinePrompt { return { id: crypto.randomUUID(), text }; }
+export function moveItem<T>(items: T[], from: number, to: number): T[] { const next = [...items]; const [item] = next.splice(from, 1); next.splice(to, 0, item); return next; }
+function optionalNumber(value: FormDataEntryValue | null) { if (value == null || value === "") return undefined; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
 
 function EndpointFields({ schema }: { schema?: Row }) {
   const defaults = (schema?.defaults ?? {}) as Row;
@@ -369,7 +351,7 @@ export function EvalScreen({ id }: { id: string }) {
       <header className="viewer-topbar">
         <div>
           <strong>{str(resource.data?.name, "Eval viewer")}</strong>
-          <span>{str(resource.data?.prompt_set_name, "Prompt set")} · {str(resource.data?.endpoint_adapter ?? resource.data?.endpoint, "Endpoint")}</span>
+          <span>{resource.data?.prompt_set_name ? str(resource.data.prompt_set_name) : `${str(resource.data?.prompt_count, "0")} inline prompts`} · {str(resource.data?.model_name, "Model")} / {str(resource.data?.model_version_name, "Checkpoint")}</span>
         </div>
         <div className="viewer-actions">
           <a className="vela-button" href="#/models"><ArrowLeft size={15} /> Models</a>
@@ -426,6 +408,26 @@ export function EvalScreen({ id }: { id: string }) {
       </main>
     </div>
   );
+}
+
+export function EvalComparisonScreen({ id }: { id: string }) {
+  const resource = useResource<Row>(`/api/generation-queue/${id}/eval-results`);
+  const runs = rows(resource.data?.runs);
+  const request = resource.data?.request && typeof resource.data.request === "object" ? resource.data.request as Row : {};
+  const orderedPrompts = rows(request.prompts);
+  const [queryText, setQueryText] = useState("");
+  const [visibleModels, setVisibleModels] = useState<string[]>([]);
+  useEffect(() => { if (!visibleModels.length && runs.length) setVisibleModels(runs.map(run => str(run.model_version_id))); }, [resource.data]);
+  const shownRuns = runs.filter(run => visibleModels.includes(str(run.model_version_id)));
+  const shownPrompts = orderedPrompts.filter(prompt => !queryText || str(prompt.prompt).toLowerCase().includes(queryText.toLowerCase()));
+  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href="#/evals"><ArrowLeft size={15} /> Eval Runs</a>}>
+    <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !runs.length} />
+    <Panel title="Comparison filters"><div className="form-grid"><Field label="Prompt contains"><input value={queryText} onChange={event => setQueryText(event.target.value)} /></Field><Field label="Model checkpoints"><select multiple value={visibleModels} onChange={event => setVisibleModels(Array.from(event.target.selectedOptions, option => option.value))}>{runs.map(run => <option key={str(run.model_version_id)} value={str(run.model_version_id)}>{str(run.model_name)} · {str(run.model_version_name)}</option>)}</select></Field></div></Panel>
+    <Panel title="Results"><div className="eval-comparison-matrix" style={{ "--eval-model-count": Math.max(1, shownRuns.length) } as CSSProperties}>
+      <div className="eval-comparison-header"><strong>Prompt</strong>{shownRuns.map(run => <strong key={str(run.model_version_id)}>{str(run.model_name)}<small>{str(run.model_version_name)} · step {str(run.checkpoint_step, "—")}</small></strong>)}</div>
+      {shownPrompts.map((prompt, promptIndex) => <div className="eval-comparison-row" key={str(prompt.prompt_id, String(promptIndex))}><p>{str(prompt.prompt)}</p>{shownRuns.map(run => { const output = rows(run.outputs).find(item => str(item.prompt_id) === str(prompt.prompt_id)); return <div key={str(run.model_version_id)}>{output ? <a href={galleryOpenHref({ ...output, project_id: resource.data?.project_id, origin_type: "EVAL", eval_run_id: run.eval_run_id })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt={str(prompt.prompt)} loading="lazy" /></a> : <div className="vela-empty">{str(run.status) === "completed" ? "No output" : str(run.status)}</div>}</div>; })}</div>)}
+    </div></Panel>
+  </Page>;
 }
 
 function RatingControl({ output }: { output: Row }) {

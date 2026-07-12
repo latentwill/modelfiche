@@ -115,7 +115,7 @@ def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: P
     _upgrade_to_head(database_path)
 
     with _connection(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0010_generation_queue",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0011_generation_queue_children",)
 
 
 def test_0007_backfills_canonical_origin_timestamps(tmp_path: Path) -> None:

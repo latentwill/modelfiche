@@ -548,7 +548,7 @@ export function ModelScreen({ id }: { id: string }) {
     <ObjectImageStrip assets={rows(preview.data)} label="Latest model outputs" />
     {resource.data && <Panel title="Model record"><Notice error={project.error} loading={project.loading} /><dl className="details"><dt>Description</dt><dd>{str(resource.data.description, "No description")}</dd><dt>Latest trigger words</dt><dd>{Array.isArray(latestVersion.trigger_words) && latestVersion.trigger_words.length ? latestVersion.trigger_words.join(", ") : "None registered"}</dd><dt>Base model</dt><dd>{str(latestVersion.base_model, "Not registered")}</dd><dt>Project</dt><dd>{projectId ? <a href={`#/project/${projectId}`}>{str(project.data?.title ?? project.data?.name, "Open project")}</a> : "Not assigned"}</dd><dt>Versions</dt><dd>{versions.length}</dd></dl></Panel>}
 
-    <Panel title="Project eval runs">
+    <Panel title="Eval Runs">
       <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
       {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => <a href={`#/eval/${idOf(evaluation)}`} key={idOf(evaluation)}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={String(output.asset_revision_id ?? output.asset_id)} alt="Eval output" />)}</div><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.prompt_set_name)} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a>)}</div>}
     </Panel>
@@ -620,6 +620,7 @@ type GalleryFilters = {
   project_id: string;
   model_id: string;
   dataset_id: string;
+  eval_run_id?: string;
   category: string;
   kind: string;
   decision: string;
@@ -630,13 +631,14 @@ type GalleryFilters = {
 };
 
 function galleryFiltersFromParams(params: URLSearchParams, projectId: string, defaults?: GalleryFilters): Partial<GalleryFilters> {
-  const isExplicitGalleryScope = ["project", "model", "dataset", "category", "kind", "decision", "rating", "q", "sort", "include_dataset_assets", "asset", "return"].some(key => params.has(key));
+  const isExplicitGalleryScope = ["project", "model", "dataset", "eval", "category", "kind", "decision", "rating", "q", "sort", "include_dataset_assets", "asset", "return"].some(key => params.has(key));
   if (isExplicitGalleryScope && defaults) {
     return {
       ...defaults,
       project_id: params.get("project") ?? projectId,
       model_id: params.get("model") ?? "",
       dataset_id: params.get("dataset") ?? "",
+      eval_run_id: params.get("eval") ?? "",
       category: params.get("category") ?? "",
       kind: params.get("kind") ?? "image",
       decision: params.get("decision") ?? "",
@@ -651,6 +653,7 @@ function galleryFiltersFromParams(params: URLSearchParams, projectId: string, de
   if (project) filters.project_id = project;
   if (params.has("model")) filters.model_id = params.get("model") ?? "";
   if (params.has("dataset")) filters.dataset_id = params.get("dataset") ?? "";
+  if (params.has("eval")) filters.eval_run_id = params.get("eval") ?? "";
   if (params.has("category")) filters.category = params.get("category") ?? "";
   if (params.has("kind")) filters.kind = params.get("kind") ?? "image";
   if (params.has("decision")) filters.decision = params.get("decision") ?? "";
@@ -671,6 +674,7 @@ export function galleryHash(filters: GalleryFilters, page: number, pageSize: num
     project: filters.project_id,
     model: filters.model_id,
     dataset: filters.dataset_id,
+    eval: filters.eval_run_id,
     category: filters.category,
     kind: filters.kind === "image" ? "" : filters.kind,
     decision: filters.decision,
@@ -690,7 +694,7 @@ export function galleryOpenHref(asset: Row, category = "") {
   const origin = str(asset.origin_type ?? metadata.origin_type, "").toUpperCase();
   const resolvedCategory = category || (origin === "EVAL" ? "eval_output" : origin === "SAMPLE" ? "sample" : origin === "DATASET" ? "dataset_image" : "");
   const returnTarget = typeof location !== "undefined" ? safeReturnTarget(location.hash.replace(/^#\/?/, "")) : "";
-  return `#/gallery${query({ project: asset.project_id ?? metadata.project_id, category: resolvedCategory, include_dataset_assets: resolvedCategory === "dataset_image" ? true : "", asset: asset.asset_revision_id ?? asset.asset_id ?? asset.id, return: returnTarget })}`;
+  return `#/gallery${query({ project: asset.project_id ?? metadata.project_id, eval: asset.eval_run_id ?? metadata.eval_run_id, category: resolvedCategory, include_dataset_assets: resolvedCategory === "dataset_image" ? true : "", asset: asset.asset_revision_id ?? asset.asset_id ?? asset.id, return: returnTarget })}`;
 }
 
 export function isGalleryShortcutTarget(target: EventTarget | null) {
@@ -701,7 +705,7 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
   const projects = useResource<unknown>("/api/projects?limit=100");
   const [page, setPage] = useState(() => Math.max(1, Number(params.get("page")) || Number(localStorage.getItem("titles.gallery.page")) || 1));
   const [pageSize, setPageSize] = useState(() => Number(params.get("pageSize")) || Number(localStorage.getItem("titles.gallery.pageSize")) || 50);
-  const defaultFilters: GalleryFilters = { project_id: projectId, model_id: "", dataset_id: "", category: "", kind: "image", decision: "", rating: "", q: "", include_dataset_assets: false, sort: "origin_time_desc" };
+  const defaultFilters: GalleryFilters = { project_id: projectId, model_id: "", dataset_id: "", eval_run_id: "", category: "", kind: "image", decision: "", rating: "", q: "", include_dataset_assets: false, sort: "origin_time_desc" };
   const [filters, setFilters] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("titles.gallery.filters") ?? "null") as Partial<typeof defaultFilters> | null;

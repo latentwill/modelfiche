@@ -21,7 +21,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0010_generation_queue",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0011_generation_queue_children",)
 
 
 def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) -> None:
@@ -30,7 +30,7 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0010_generation_queue",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0011_generation_queue_children",)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)
@@ -67,7 +67,7 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0010_generation_queue",
+            "0011_generation_queue_children",
         )
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(eval_definitions)").fetchall()}
         assert columns["prompt_set_id"][3] == 0
@@ -92,7 +92,7 @@ def test_upgrade_installed_database_accepts_checkpoint_revision_head(tmp_path: P
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0010_generation_queue",
+            "0011_generation_queue_children",
         )
 
 
@@ -105,8 +105,21 @@ def test_upgrade_installed_database_accepts_live_inline_prompts_head(tmp_path: P
         connection.execute("UPDATE alembic_version SET version_num = ?", ("0009_inline_generation_prompts",))
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0010_generation_queue",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0011_generation_queue_children",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_items'").fetchone() == (1,)
+
+
+def test_upgrade_installed_database_accepts_live_generation_queue_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "installed-0010.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    upgrade_installed_database(database_url)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE generation_queue_children")
+        connection.execute("UPDATE alembic_version SET version_num = ?", ("0010_generation_queue",))
+    upgrade_installed_database(database_url)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0011_generation_queue_children",)
+        assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_children'").fetchone() == (1,)
 
 
 def test_runtime_initialization_migrates_but_does_not_seed_before_cutover_marker(
