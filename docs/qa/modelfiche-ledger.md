@@ -16,7 +16,7 @@ Status legend: `completed`, `pending`, `blocked`. Initialized by MAP-01 on 2026-
 | Eval | **EVAL-01 — completed; EVAL-02 — completed; EVAL-03 — completed; EVAL-04 — completed; EVAL-05 — completed; EVAL-06 — completed; EVAL-07 — completed; EVAL-08 — completed; EVAL-09 — completed; EVAL-10 — completed; EVAL-11 — completed; EVAL-12 (`QA2-06`) — completed; EVAL-13 (`QA2-07B`) — completed** |
 | Grid | **GRID-01 — completed; GRID-02 — completed; GRID-03 — completed; GRID-04 — completed; GRID-05 — completed; GRID-06 — completed; GRID-07 — completed; GRID-08 — completed; GRID-09 (`QA2-07A`) — completed; GRID-10 — completed; GRID-11 (`QA2-08`) — completed; GRID-12 (`QA2-09`) — completed; GRID-13 (`QA2-10`) — completed** |
 | UI | **UI-01 — completed; UI-02 — completed; UI-03 (`QA2-11`) — completed** |
-| Regression | QA regression — pending |
+| Regression | **QA regression — completed** |
 
 ## MAP-01 completion record
 
@@ -137,3 +137,10 @@ QA2 requirements are implemented only through these canonical ledger tasks; ther
 - `UI-02` gives native dropdowns and checkpoint multi-selects one accessible visual treatment: explicit affordances, hover and keyboard-focus states, larger multi-select rows, selected-option contrast, and visible disabled options. Existing native select semantics and keyboard behavior remain intact.
 - `UI-03` (`QA2-11`) unifies status, metadata, caption-version, and training-run capsules. Semantic states pair contrast-safe borders/backgrounds with non-color `✓`, `!`, `×`, or neutral dot cues; metadata lists use consistent alignment and readable wrapping.
 - Verification: focused frontend suite passed 24 tests across 6 files; frontend TypeScript typecheck passed; live browser smoke on Settings verified rendered vertical rhythm, dropdown semantics, and semantic status capsules. No API, schema, migration, queue, provider, or feature behavior changed. No live FAL admission, provider request, or billed generation was submitted.
+
+## Final regression completion record
+
+- Status: completed after one focused source fix. The initial complete backend run found `S3Browser` did not enforce configured `allowed_prefixes`; `require_allowed` now rejects bucket-root and outside-subtree requests while preserving unrestricted behavior when no prefixes are configured.
+- Verification: complete backend suite passed `217` tests with `18` existing dependency/deprecation warnings; focused S3 browser regression passed `6` tests; complete frontend suite passed `33` tests across `9` files; frontend TypeScript typecheck passed.
+- Browser evidence: Project, Model, Training Run, Gallery, Image lightbox, Eval, Eval comparison, historical Grid, Imports, and Settings rendered without a Not Found route; representative Project/Settings visual review passed; direct hash reloads passed for Project/Model/Training Run/Gallery/Settings; browser back/forward restored Gallery query state and Settings; API health returned `{"status":"ok","version":"0.1.0"}`; migration head is `0011_generation_queue_children`; `/api/generation-queue` returned `{"items":[]}`.
+- Runtime caveat: the isolated Vite preview's image-delivery POSTs were rejected by the API local-request boundary because the preview origin was not an allowed mutating origin (`403 local request boundary rejected`). No provider request, generation, queue admission, or billed operation was made; this preview-origin diagnostic is not a UI-polish source regression.
