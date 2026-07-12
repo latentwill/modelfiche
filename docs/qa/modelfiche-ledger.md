@@ -8,13 +8,14 @@ Status legend: `completed`, `pending`, `blocked`. Initialized by MAP-01 on 2026-
 | --- | --- |
 | Mapping | **MAP-01 — completed** |
 | Data | **DATA-01 — completed; DATA-02 — completed; DATA-03 — completed; DATA-04 — completed; DATA-05 — blocked (one historical v002 source absent); DATA-06 — completed; DATA-07 — completed** |
-| Project | **PROJECT-01 — completed; PROJECT-02 — completed; PROJECT-03 — completed; PROJECT-04 — completed; PROJECT-05 — completed; PROJECT-06 — completed; PROJECT-07 — completed** |
+| Project | **PROJECT-01 — completed; PROJECT-02 — completed; PROJECT-03 — completed; PROJECT-04 — completed; PROJECT-05 — completed; PROJECT-06 — completed; PROJECT-07 — completed**; PROJECT-08 (`QA2-01`) — pending |
 | Model | **MODEL-01 — completed; MODEL-02 — completed; MODEL-03 — completed; MODEL-04 — completed; MODEL-05 — completed; MODEL-06 — completed; MODEL-07 — completed; MODEL-08 — completed; MODEL-09 — completed** |
-| Generator | GEN-01 — pending; GEN-02 — pending; GEN-03 — pending; GEN-04 — pending; GEN-05 — pending; GEN-06 — pending |
+| Shell | SHELL-01 (`QA2-03`) — pending; SHELL-02 (`QA2-04`) — pending; SHELL-03 (`QA2-12`) — pending |
+| Generator | GEN-01 — pending; GEN-02 — pending; GEN-03 — pending; GEN-04 — pending; GEN-05 (`QA2-02`) — pending; GEN-06 — pending; GEN-07 (`QA2-05`) — pending |
 | Gallery | GALLERY-01 — pending; GALLERY-02 — pending; GALLERY-03 — pending; GALLERY-04 — pending; GALLERY-05 — pending; GALLERY-06 — pending; GALLERY-07 — pending; GALLERY-08 — pending; GALLERY-09 — pending; GALLERY-10 — pending |
-| Eval | EVAL-01 — pending; EVAL-02 — pending; EVAL-03 — pending; EVAL-04 — pending; EVAL-05 — pending; EVAL-06 — pending; EVAL-07 — pending; EVAL-08 — pending; EVAL-09 — pending; EVAL-10 — pending; EVAL-11 — pending |
-| Grid | GRID-01 — pending; GRID-02 — pending; GRID-03 — pending; GRID-04 — pending; GRID-05 — pending; GRID-06 — pending; GRID-07 — pending; GRID-08 — pending; GRID-09 — pending; GRID-10 — pending |
-| UI | UI-01 — pending; UI-02 — pending |
+| Eval | EVAL-01 — pending; EVAL-02 — pending; EVAL-03 — pending; EVAL-04 — pending; EVAL-05 — pending; EVAL-06 — pending; EVAL-07 — pending; EVAL-08 — pending; EVAL-09 — pending; EVAL-10 — pending; EVAL-11 — pending; EVAL-12 (`QA2-06`) — pending; EVAL-13 (`QA2-07B`) — pending |
+| Grid | GRID-01 — pending; GRID-02 — pending; GRID-03 — pending; GRID-04 — pending; GRID-05 — pending; GRID-06 — pending; GRID-07 — pending; GRID-08 — pending; GRID-09 (`QA2-07A`) — pending; GRID-10 — pending; GRID-11 (`QA2-08`) — pending; GRID-12 (`QA2-09`) — pending; GRID-13 (`QA2-10`) — pending |
+| UI | UI-01 — pending; UI-02 — pending; UI-03 (`QA2-11`) — pending |
 | Regression | QA regression — pending |
 
 ## MAP-01 completion record
@@ -54,4 +55,24 @@ Status legend: `completed`, `pending`, `blocked`. Initialized by MAP-01 on 2026-
 - Modern Times merged model registered as model `c4a1f73e-2f39-43cf-ae1e-2e762a9bfd03`, version `42a41764-3e59-4885-8747-b2c2f9c21c52`, with verified SHA-256 `1faaa99084fad957216e0cb74091d135ff7ef0f854c155fe8848b7c241974e5e` and its existing FAL URL.
 - Exactly one authorized FAL request was submitted: `019f55bd-b4e0-7440-be18-fb58c7d6e30a`. Eval run `da2af79d-759e-4b4b-90bd-911ef3e2edc9` succeeded and ingested eval output `c5b3c0d3-9cf4-447c-a089-858d481a631b` / asset `f1c1f99c-780a-45e2-bc91-e4845dd63df7`, seed `249459924`, with canonical generated time `2026-07-12T09:52:03.808Z`.
 - Verification: independent focused FAL/migration tests passed; agent backend/worker suite passed 145 tests (one unrelated gallery-contract test excluded); frontend typecheck passed; live server health and FAL auth validation passed; final worker job and eval run both report `succeeded`.
-- Full archive reconciliation was still active at the last ledger update: 59/61 objects and 12,498,864,961/14,339,372,681 bytes were size-verified in `s3://titlesxyz/title-lora/local-archive/TitlesXYZ/`. The uploader is resumable and non-overwriting.
+- Full archive reconciliation completed: all 61 remaining objects and 14,339,372,681 bytes were uploaded additively and size-verified in `s3://titlesxyz/title-lora/local-archive/TitlesXYZ/`. Final-object HEAD evidence: `kzapata-specialist-track-b-v002-coverage-merges/kzapata_full3x_v004-2400_x_render-v002-3000_x_flat-v002-3250_tf35-40-25_tr20-50-30-r160.safetensors`, 1,148,778,424 bytes, multipart ETag `8e764f9bba21cbc1a95e380b8b8b7f24-137`, modified `2026-07-12T10:01:07Z`.
+
+## QA2 canonical alias mapping
+
+QA2 requirements are implemented only through these canonical ledger tasks; there is no separate QA2 packet:
+
+| QA2 alias | Canonical task | Recorded definition |
+| --- | --- | --- |
+| `QA2-01` | `PROJECT-08` | Project cards: Dataset left, Training Samples middle; focused completed-area delta. |
+| `QA2-02` | `GEN-05` | Shared scoped + Image, Eval, and Grid actions on Project and Model pages. |
+| `QA2-03` | `SHELL-01` | Dock Settings and Storage at the sidebar viewport bottom. |
+| `QA2-04` | `SHELL-02` | Reachable, scrolling, unclipped sidebars coordinated with SHELL-01. |
+| `QA2-05` | `GEN-07` | One persistent, ordered Image/Eval/Grid generation queue consuming normalized generator contracts. |
+| `QA2-06` | `EVAL-12` | Add/edit/remove/reorder/review manual Eval prompts with preserved order. |
+| `QA2-07A` | `GRID-09` | Existing task: remove Grid Prompt Source. |
+| `QA2-07B` | `EVAL-13` | Make manual Eval prompts first-class; retain optional Prompt Source only if necessary and clear. |
+| `QA2-08` | `GRID-11` | Direct fixed Grid prompt with conflict validation against Prompt axes. |
+| `QA2-09` | `GRID-12` | Stable X-column/Y-row preview and result ordering, including Z-model sub-grids. |
+| `QA2-10` | `GRID-13` | Validating, duplicate-safe primary Grid Generate action targeting GEN-07. |
+| `QA2-11` | `UI-03` | Accessible, coherent metadata and semantic status capsules. |
+| `QA2-12` | `SHELL-03` | Human-readable activity labels with raw keys only in technical details. |
