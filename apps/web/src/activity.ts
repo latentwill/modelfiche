@@ -1,0 +1,23 @@
+const ACTIVITY_LABELS: Record<string, string> = {
+  "FAL.ADMISSION_ADMITTED": "Generation admitted",
+  "FAL.ADMISSION_REJECTED": "Generation rejected",
+  "FAL.REQUEST_SUBMITTED": "Generation submitted",
+  "FAL.REQUEST_RUNNING": "Generation running",
+  "FAL.REQUEST_COMPLETED": "Generation completed",
+  "FAL.REQUEST_FAILED": "Generation failed",
+  "FAL.RESULT_INGESTED": "Generated image ingested",
+};
+
+export function activityLabel(value: unknown) {
+  const key = String(value ?? "").trim();
+  if (!key) return "Activity recorded";
+  if (ACTIVITY_LABELS[key.toUpperCase()]) return ACTIVITY_LABELS[key.toUpperCase()];
+  return key
+    .split(".")
+    .filter(Boolean)
+    .map(part => {
+      const words = part.toLowerCase().replaceAll("_", " ");
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    })
+    .join(" · ");
+}

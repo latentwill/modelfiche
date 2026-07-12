@@ -1,11 +1,14 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { formatCanonicalTimestamp, LatestTrainingRun } from "./screens-core";
+import { formatCanonicalTimestamp, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER } from "./screens-core";
 
 afterEach(cleanup);
 
 describe("project packet timestamp", () => {
+  it("places Dataset images left and Training samples in the middle", () => {
+    expect(PROJECT_IMAGE_COLLECTION_ORDER).toEqual(["Dataset images", "Training samples", "Eval outputs"]);
+  });
   it("renders a deterministic UTC training-run timestamp", () => {
     expect(formatCanonicalTimestamp("2026-07-12T08:09:10.456+08:00")).toBe("2026-07-12 00:09:10 UTC");
   });
