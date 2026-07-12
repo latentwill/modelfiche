@@ -329,7 +329,8 @@ class EvalDefinition(UUIDMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(240))
     endpoint: Mapped[str] = mapped_column(String(240))
     model_version_id: Mapped[str | None] = mapped_column(ForeignKey("model_versions.id", ondelete="SET NULL"))
-    prompt_set_id: Mapped[str] = mapped_column(ForeignKey("prompt_sets.id", ondelete="RESTRICT"))
+    prompt_set_id: Mapped[str | None] = mapped_column(ForeignKey("prompt_sets.id", ondelete="RESTRICT"))
+    inline_prompts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     parameters: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 

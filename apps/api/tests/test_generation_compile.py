@@ -51,8 +51,8 @@ def test_image_compile_is_exact_admissible_and_idempotent(client: TestClient):
 
     with app_module.SessionLocal.begin() as session:
         definition = session.get(models.EvalDefinition, compiled["definition_id"])
-        prompts = list(session.scalars(select(models.Prompt).where(models.Prompt.prompt_set_id == definition.prompt_set_id).order_by(models.Prompt.position)))
-        assert [item.text for item in prompts] == [prompt]
+        assert definition.prompt_set_id is None
+        assert [item["text"] for item in definition.inline_prompts] == [prompt]
         run = models.EvalRun(definition_id=definition.id, checkpoint_id=version["checkpoint_id"], checkpoint_revision_id=version["checkpoint_revision_id"], status="test-plan", parameters_snapshot=definition.parameters)
         session.add(run)
         session.flush()
@@ -71,7 +71,7 @@ def test_image_compile_is_exact_admissible_and_idempotent(client: TestClient):
     assert second.json()["admission"]["id"] == compiled["admission"]["id"]
     assert second.json()["definition_id"] == compiled["definition_id"]
     with app_module.SessionLocal() as session:
-        assert session.scalar(select(func.count()).select_from(models.PromptSet)) == 1
+        assert session.scalar(select(func.count()).select_from(models.PromptSet)) == 0
         assert session.scalar(select(func.count()).select_from(models.EvalDefinition)) == 1
 
     conflict = _payload(project["id"], model, version, request_id, "different prompt")
@@ -112,3 +112,22 @@ def test_image_compile_requires_matching_registered_endpoint(client: TestClient)
     unavailable = client.post("/api/generation-requests/compile", json=_payload(project["id"], model, version, str(uuid4()), "unavailable"))
     assert unavailable.status_code == 409
     assert "not registered with FAL" in unavailable.json()["detail"]
+
+
+def test_worker_plan_keeps_legacy_prompt_set_compatibility(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Legacy"}).json()
+    _model, version = _registered_checkpoint(client, project["id"])
+    with app_module.SessionLocal.begin() as session:
+        prompt_set = models.PromptSet(project_id=project["id"], name="Legacy prompts", version=1)
+        session.add(prompt_set); session.flush()
+        prompt = models.Prompt(prompt_set_id=prompt_set.id, text="legacy prompt", position=0, metadata_={})
+        session.add(prompt)
+        definition = models.EvalDefinition(project_id=project["id"], name="Legacy", endpoint="fal-ai/krea-2/turbo/lora", model_version_id=version["id"], prompt_set_id=prompt_set.id, inline_prompts=[], parameters={})
+        session.add(definition); session.flush()
+        run = models.EvalRun(definition_id=definition.id, checkpoint_id=version["checkpoint_id"], status="test-plan", parameters_snapshot={})
+        session.add(run); session.flush(); run_id = run.id
+    handler = object.__new__(FalEvalBatchHandler); handler.session_factory = app_module.SessionLocal
+    _definition, _checkpoint, prompts = handler._plan(run_id)
+    assert [item.text for item in prompts] == ["legacy prompt"]
+    assert prompts[0].id == prompt.id

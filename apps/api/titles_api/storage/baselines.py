@@ -28,7 +28,7 @@ ALEMBIC_PREVIOUS_HEAD = "0004_training_metrics"
 ALEMBIC_INTERMEDIATE_HEAD = "0005_content_blob_timestamps"
 ALEMBIC_SOURCE_HEAD = "0006_source_capability_timestamps"
 ALEMBIC_ASSET_TIMESTAMP_HEAD = "0007_asset_origin_timestamps"
-ALEMBIC_HEAD = "0008_checkpoint_revisions"
+ALEMBIC_HEAD = "0009_inline_generation_prompts"
 
 
 _OLD_HEAD_REQUIRED_TABLES = frozenset(

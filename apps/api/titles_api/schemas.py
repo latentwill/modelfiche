@@ -273,8 +273,15 @@ class EvalDefinitionCreate(BaseModel):
     name: str
     endpoint: str
     model_version_id: str | None = None
-    prompt_set_id: str
+    prompt_set_id: str | None = None
+    inline_prompts: list[dict[str, Any]] = []
     parameters: dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def prompt_source(self):
+        if bool(self.prompt_set_id) == bool(self.inline_prompts):
+            raise ValueError("exactly one of prompt_set_id or inline_prompts is required")
+        return self
 
 
 class EvalRunCreate(BaseModel):

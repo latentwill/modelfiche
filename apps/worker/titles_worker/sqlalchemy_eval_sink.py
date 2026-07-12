@@ -48,6 +48,7 @@ class SQLAlchemyEvalOutputSink:
             project = _required(session, models.Project, definition.project_id)
             prompt = session.get(models.Prompt, prompt_id) if prompt_id else None
             prompt_text = prompt.text if prompt else str(response.get("prompt") or "") or None
+            logical_prompt_id = prompt_id or (str(response.get("_inline_prompt_id")) if response.get("_inline_prompt_id") else None)
             response_metadata = {key: value for key, value in response.items() if key != "images"}
             request_ids = [str(response["_request_id"])] if response.get("_request_id") else list(run.provider_job_ids or [])
             generated_at = fal_generated_at(response)
@@ -75,7 +76,7 @@ class SQLAlchemyEvalOutputSink:
                         "provider": "fal",
                         "caption": prompt_text,
                         "prompt": prompt_text,
-                        "prompt_id": prompt_id,
+                        "prompt_id": logical_prompt_id,
                         "endpoint": definition.endpoint,
                         "seed": response.get("seed"),
                         "provider_request_ids": request_ids,
@@ -105,6 +106,7 @@ class SQLAlchemyEvalOutputSink:
                         "source_url": None if source_url.startswith("data:") else source_url,
                         "source_kind": "inline_data" if source_url.startswith("data:") else "url",
                         "prompt": prompt_text,
+                        "inline_prompt_id": None if prompt_id else logical_prompt_id,
                         "endpoint": definition.endpoint,
                         "request_ids": request_ids,
                         "response": response_metadata,

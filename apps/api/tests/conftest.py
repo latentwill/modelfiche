@@ -31,7 +31,7 @@ def _install_model_test_foundation(engine) -> None:
         gates.verify_storage_contract(
             GateEvidence(
                 run_lease_id="model-test-lease",
-                alembic_head="0008_checkpoint_revisions",
+                alembic_head="0009_inline_generation_prompts",
                 marker=1,
                 binding_digest="model-test-binding",
                 contract_version=1,

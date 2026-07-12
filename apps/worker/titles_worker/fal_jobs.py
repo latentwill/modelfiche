@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from itertools import product
+from types import SimpleNamespace
 from typing import Any, Protocol
 
 from sqlalchemy import select
@@ -177,7 +178,8 @@ class FalEvalBatchHandler:
         total = max(len(prompts), 1)
         completed = 0
         for prompt in prompts:
-            if self._has_output(eval_run_id, prompt.id):
+            output_prompt_id = getattr(prompt, "output_prompt_id", prompt.id)
+            if self._has_output(eval_run_id, output_prompt_id):
                 tasks[prompt.id] = {**tasks.get(prompt.id, {}), "state": "completed"}
                 completed += 1
                 continue
@@ -228,7 +230,10 @@ class FalEvalBatchHandler:
                     if state == "COMPLETED":
                         response = self.client.result(str(task["response_url"]))
                         response.setdefault("_request_id", str(task["request_id"]))
-                        self.sink.ingest_outputs(eval_run_id, prompt.id, response)
+                        response.setdefault("prompt", prompt.text)
+                        if output_prompt_id is None:
+                            response.setdefault("_inline_prompt_id", prompt.id)
+                        self.sink.ingest_outputs(eval_run_id, output_prompt_id, response)
                         _finish_submission(self.sink, eval_run_id, prompt_id=prompt.id)
                         task["state"] = "completed"
                         tasks[prompt.id] = task
@@ -263,18 +268,16 @@ class FalEvalBatchHandler:
                 checkpoint_id = version.checkpoint_id if version else None
             if not checkpoint_id:
                 raise ValueError("eval run requires a checkpoint or model version")
-            prompts = list(
-                session.scalars(
-                    select(models.Prompt)
-                    .where(models.Prompt.prompt_set_id == definition.prompt_set_id)
-                    .order_by(models.Prompt.position, models.Prompt.id)
-                )
-            )
+            inline = sorted(list(definition.inline_prompts or []), key=lambda item: (int(item.get("position", 0)), str(item.get("id", ""))))
+            prompts = [SimpleNamespace(id=str(item["id"]), text=str(item["text"]), output_prompt_id=None, metadata_=dict(item.get("metadata") or {})) for item in inline]
+            if not prompts and definition.prompt_set_id:
+                prompts = list(session.scalars(select(models.Prompt).where(models.Prompt.prompt_set_id == definition.prompt_set_id).order_by(models.Prompt.position, models.Prompt.id)))
             if not prompts:
                 raise ValueError("eval prompt set is empty")
             session.expunge(definition)
             for prompt in prompts:
-                session.expunge(prompt)
+                if isinstance(prompt, models.Prompt):
+                    session.expunge(prompt)
             return definition, checkpoint_id, prompts
 
     def _run_parameters(self, eval_run_id: str) -> dict[str, Any]:
