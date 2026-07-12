@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Archive, FolderSearch, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Trash2, Upload, X } from "lucide-react";
+import { Archive, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
 import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Panel, ProfileSelect, SelectRecords, Status } from "./ui";
+import { generatorHref } from "./generation";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -43,7 +44,7 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   const [projectBusy, setProjectBusy] = useState(false);
   const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const evalRows = rows(evals.data);
   const archived = project.data?.state === "archived";
-  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"} · ${str(project.data?.state, "active")}`} actions={archived ? <button disabled title="Restore the project before importing"><Upload size={15} /> Import unavailable</button> : <a className="button vela-button-primary" href={`#/import?project=${id}`}><Upload size={15} aria-hidden="true" /> Import assets</a>}>
+  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"} · ${str(project.data?.state, "active")}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${id}&scope=project`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a></>}>
     <Notice error={project.error || projectActionError} loading={project.loading} />
     <div className="project-visual-grid">
       <ProjectImagePanel title="Training samples" assets={rows(trainingImages.data)} loading={trainingImages.loading} error={trainingImages.error} href={projectGalleryHref(id, "sample")} returnTarget={`project/${id}`} />

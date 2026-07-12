@@ -15,6 +15,8 @@ import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
+import { ModelCheckpointPicker } from "./generator";
+import { generationModelFromRow } from "./generation";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -206,22 +208,21 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
   );
 }
 
-export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
+export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { projectId?: string; initialModelVersionId?: string }) {
   const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: projectId })}`);
   const models = useResource<unknown>(`/api/model-versions${query({ project_id: projectId })}`);
   const promptSets = useResource<unknown>(`/api/prompt-sets${query({ project_id: projectId })}`);
   const projects = useResource<unknown>("/api/projects?limit=100");
   const endpoints = useResource<unknown>("/api/eval-endpoints");
-  const operatorSettings = useResource<Row>("/api/operator-settings");
-  const [endpoint, setEndpoint] = useState("");
-  const [modelVersionId, setModelVersionId] = useState("");
+  const [modelVersionId, setModelVersionId] = useState(initialModelVersionId);
   const [selectedPromptSet, setSelectedPromptSet] = useState("");
   const [message, setMessage] = useState("");
   const [billingAck, setBillingAck] = useState(false);
   const endpointRows = rows(endpoints.data);
-  useEffect(() => { if (!endpoint && endpointRows.length) { const preferred = str((operatorSettings.data?.fal as Row | undefined)?.default_endpoint, ""); setEndpoint(endpointRows.some(row => str(row.endpoint_id ?? row.id) === preferred) ? preferred : str(endpointRows[0].endpoint_id ?? endpointRows[0].id)); } }, [endpoint, endpointRows, operatorSettings.data]);
-  const selectedEndpoint = endpointRows.find(row => idOf(row) === endpoint || row.endpoint_id === endpoint) ?? endpointRows[0];
-  const endpointId = str(selectedEndpoint?.endpoint_id ?? selectedEndpoint?.id, endpoint);
+  const generationModels = rows(models.data).map(generationModelFromRow).filter(model => !projectId || model.projectId === projectId);
+  const generationModel = generationModels.find(model => model.id === modelVersionId);
+  const endpointId = generationModel?.endpoint ?? "";
+  const selectedEndpoint = endpointRows.find(row => idOf(row) === endpointId || row.endpoint_id === endpointId);
   const endpointSchema = useResource<Row>(endpointId ? `/api/eval-endpoints/${endpointId}/schema` : null);
   const activeSchema = endpointSchema.data ?? selectedEndpoint;
   const selectedModel = rows(models.data).find(row => idOf(row) === modelVersionId);
@@ -242,7 +243,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
       <Notice error={models.error || promptSets.error || endpoints.error} loading={models.loading || promptSets.loading || endpoints.loading} />
       <Panel title="Model readiness">
         <div className="readiness-grid">
-          <Field label="Model version"><SelectRecords name="model_version_id" records={rows(models.data)} value={modelVersionId} onChange={setModelVersionId} required /></Field>
+          <ModelCheckpointPicker multiple={false} models={generationModels} selected={modelVersionId ? [modelVersionId] : []} onChange={ids => setModelVersionId(ids[0] ?? "")} />
           <dl className="details">
             <dt>Checkpoint</dt><dd>{str(selectedModel?.checkpoint_step, "Select a model")}</dd>
             <dt>FAL uploaded</dt><dd><Status value={selectedModel?.fal_status ?? selectedModel?.readiness_status ?? "unknown"} /></dd>
@@ -280,7 +281,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string }) {
           }}
         >
           <div className="form-grid">
-            <Field label="Endpoint"><SelectRecords name="endpoint" records={endpointRows} labelKey="name" valueKey="endpoint_id" value={endpointId} onChange={setEndpoint} required /></Field>
+            <Field label="Provider / endpoint"><input readOnly value={endpointId ? `FAL / ${endpointId}` : "Select a provider-registered model"} /></Field>
             <Field label="Prompt set"><SelectRecords name="prompt_set_id" records={rows(promptSets.data)} value={selectedPromptSet} onChange={setSelectedPromptSet} required /></Field>
             <Field label="LoRA scale" hint="Applied to the selected checkpoint."><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
             <EndpointFields key={endpointId} schema={activeSchema} />
@@ -459,22 +460,21 @@ function RatingControl({ output }: { output: Row }) {
   );
 }
 
-export function GridsScreen({ projectId = "" }: { projectId?: string }) {
+export function GridsScreen({ projectId = "", initialModelVersionId = "" }: { projectId?: string; initialModelVersionId?: string }) {
   const grids = useResource<unknown>(`/api/grids${query({ project_id: projectId })}`);
   const models = useResource<unknown>(`/api/model-versions${query({ project_id: projectId })}`);
   const prompts = useResource<unknown>(`/api/prompt-sets${query({ project_id: projectId })}`);
   const endpoints = useResource<unknown>("/api/eval-endpoints");
-  const operatorSettings = useResource<Row>("/api/operator-settings");
   const endpointRows = rows(endpoints.data);
-  const [endpoint, setEndpoint] = useState("");
-  useEffect(() => { if (!endpoint && endpointRows.length) { const preferred = str((operatorSettings.data?.fal as Row | undefined)?.default_endpoint, ""); setEndpoint(endpointRows.some(row => str(row.endpoint_id ?? row.id) === preferred) ? preferred : str(endpointRows[0].endpoint_id ?? endpointRows[0].id)); } }, [endpoint, endpointRows, operatorSettings.data]);
-  const selectedEndpoint = endpointRows.find(row => idOf(row) === endpoint || row.endpoint_id === endpoint) ?? endpointRows[0];
-  const endpointId = str(selectedEndpoint?.endpoint_id ?? selectedEndpoint?.id, endpoint);
+  const modelRows = rows(models.data);
+  const [modelVersionId, setModelVersionId] = useState(initialModelVersionId);
+  const generationModels = modelRows.map(generationModelFromRow).filter(model => !projectId || model.projectId === projectId);
+  const generationModel = generationModels.find(model => model.id === modelVersionId);
+  const endpointId = generationModel?.endpoint ?? "";
+  const selectedEndpoint = endpointRows.find(row => idOf(row) === endpointId || row.endpoint_id === endpointId);
   const endpointSchema = useResource<Row>(endpointId ? `/api/eval-endpoints/${endpointId}/schema` : null);
   const activeSchema = endpointSchema.data ?? selectedEndpoint;
   const axes = Array.isArray(activeSchema?.grid_axes) ? activeSchema.grid_axes.map(String) : ["prompt", "checkpoint_step", "lora_scale", "seed", "model"];
-  const modelRows = rows(models.data);
-  const [modelVersionId, setModelVersionId] = useState("");
   const [xValues, setXValues] = useState("front, profile");
   const [yValues, setYValues] = useState("800, 1200, 1600");
   const [xField, setXField] = useState("prompt");
@@ -521,9 +521,9 @@ export function GridsScreen({ projectId = "" }: { projectId?: string }) {
           }}
         >
           <div className="form-grid">
-            <Field label="Model version"><SelectRecords name="model_version_id" records={modelRows} labelKey="name" value={modelVersionId} onChange={setModelVersionId} required /></Field>
+            <ModelCheckpointPicker multiple={false} models={generationModels} selected={modelVersionId ? [modelVersionId] : []} onChange={ids => setModelVersionId(ids[0] ?? "")} />
             <Field label="Prompt source"><SelectRecords name="prompt_set_id" records={rows(prompts.data)} required /></Field>
-            <Field label="Endpoint"><SelectRecords name="endpoint" records={endpointRows} labelKey="name" valueKey="endpoint_id" value={endpointId} onChange={setEndpoint} required /></Field>
+            <Field label="Provider / endpoint"><input readOnly value={endpointId ? `FAL / ${endpointId}` : "Select a provider-registered model"} /></Field>
             <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
             <Field label="Preset">
               <select onChange={event => { const [x, y] = event.target.value.split("|"); changeAxis(x, setXField, setXValues); changeAxis(y, setYField, setYValues); }}>

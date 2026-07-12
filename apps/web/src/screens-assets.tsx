@@ -12,6 +12,7 @@ import {
   FileImage,
   FolderInput,
   Grid3X3,
+  ImagePlus,
   Plus,
   RefreshCw,
   Save,
@@ -28,6 +29,7 @@ import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status } from "./ui";
+import { generatorHref } from "./generation";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -538,7 +540,7 @@ export function ModelScreen({ id }: { id: string }) {
   }
 
   return <Page title={str(resource.data?.name, "Model")} subtitle={`${str(latestVersion.base_model, "Base model unknown")} · ${str(project.data?.title ?? project.data?.name, "Project")}`} actions={<>
-    {projectId ? <><a className="button vela-button vela-button-primary" href={`#/evals?project=${projectId}`}><Sparkles size={15} />New eval</a><a className="button vela-button" href={`#/grids?project=${projectId}`}><Grid3X3 size={15} />New grid</a></> : <button disabled title="The model is not attached to a project">Evaluation unavailable</button>}
+    {projectId ? <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "model", projectId, modelId: id, modelVersionId: idOf(latestVersion) })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${projectId}&scope=model&model=${id}&model_version=${idOf(latestVersion)}`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${projectId}&scope=model&model=${id}&model_version=${idOf(latestVersion)}`}><Grid3X3 size={15} /> Grid</a></> : <button disabled title="The model is not attached to a project">Generation unavailable</button>}
     {idOf(latestVersion) ? <a className="button vela-button" href={`#/transfers?mode=export&model_version=${idOf(latestVersion)}`}><Download size={15} />Export version</a> : <button disabled title="Register a model version before exporting"><Download size={15} />Export unavailable</button>}
   </>}>
     <Notice error={resource.error} loading={resource.loading} />
@@ -768,6 +770,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
     <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></div><AssetImage className={fit ? "fit" : "fill"} assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} />
       <div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
       <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} x {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{str(metadata.model_name, "Unknown")}</dd><dt>Base model</dt><dd>{str(metadata.base_model, "Unknown")}</dd><dt>Dataset</dt><dd>{str(metadata.dataset_name, "Unknown")}</dd><dt>Training run</dt><dd>{str(metadata.run_name, "Unknown")}</dd><dt>Step</dt><dd>{str(metadata.step, "Unknown")}</dd><dt>Seed</dt><dd>{str(metadata.seed, "Unknown")}</dd><dt>Storage</dt><dd>{rows((context.data?.asset as Row | undefined)?.locations).map(location => str(location.provider)).join(", ") || "Remote"}</dd></dl><details><summary>All metadata</summary><pre className="vela-code">{JSON.stringify(metadata, null, 2)}</pre></details>
+        {Boolean(metadata.prompt ?? metadata.caption) && Boolean(metadata.model_version_id) && Boolean(metadata.model_id) && Boolean(metadata.project_id ?? asset.data?.project_id) && <a className="button vela-button" href={generatorHref("image", { kind: "model", projectId: str(metadata.project_id ?? asset.data?.project_id, ""), modelId: str(metadata.model_id, ""), modelVersionId: str(metadata.model_version_id, "") }, id)}><ImagePlus size={15} /> Generate with these settings</a>}
         <div className="rating-control"><span>Image rating</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={async () => { setRatingBusy(true); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: id, rating: value, decision: "candidate" })); await reviews.reload(); } catch (reason) { setRatingError(reason instanceof Error ? reason.message : String(reason)); } finally { setRatingBusy(false); } }}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
         <section><h3>Comments</h3><div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div><Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form></section>
       </aside></main>
