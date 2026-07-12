@@ -131,3 +131,30 @@ def test_worker_plan_keeps_legacy_prompt_set_compatibility(client: TestClient):
     _definition, _checkpoint, prompts = handler._plan(run_id)
     assert [item.text for item in prompts] == ["legacy prompt"]
     assert prompts[0].id == prompt.id
+
+
+def test_inline_output_lookup_is_independent_for_each_logical_prompt(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Two inline prompts"}).json()
+    _model, version = _registered_checkpoint(client, project["id"])
+    inline = [
+        {"id": "inline-first", "text": "first prompt", "position": 0, "metadata": {}},
+        {"id": "inline-second", "text": "second prompt", "position": 1, "metadata": {}},
+    ]
+    created = client.post("/api/eval-definitions", json={"project_id": project["id"], "name": "Inline pair", "endpoint": "fal-ai/krea-2/turbo/lora", "model_version_id": version["id"], "inline_prompts": inline, "parameters": {}})
+    assert created.status_code == 201, created.text
+    assert created.json()["inline_prompts"] == inline
+    with app_module.SessionLocal.begin() as session:
+        workspace_id = session.get(models.Project, project["id"]).workspace_id
+        definition = session.get(models.EvalDefinition, created.json()["id"])
+        run = models.EvalRun(definition_id=definition.id, checkpoint_id=version["checkpoint_id"], status="running", parameters_snapshot={})
+        asset = models.Asset(workspace_id=workspace_id, project_id=project["id"], kind=models.AssetKind.image, name="first.png")
+        session.add_all([run, asset]); session.flush()
+        session.add(models.EvalOutput(eval_run_id=run.id, prompt_id=None, asset_id=asset.id, provider_metadata={"inline_prompt_id": "inline-first"}))
+        run_id = run.id
+
+    handler = object.__new__(FalEvalBatchHandler); handler.session_factory = app_module.SessionLocal
+    _definition, _checkpoint, planned = handler._plan(run_id)
+    assert [item.id for item in planned] == ["inline-first", "inline-second"]
+    assert handler._has_output(run_id, None, inline_prompt_id="inline-first") is True
+    assert handler._has_output(run_id, None, inline_prompt_id="inline-second") is False

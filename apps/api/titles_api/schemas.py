@@ -268,19 +268,30 @@ class PromptSetUpdate(BaseModel):
     prompts: list[str | dict[str, Any]] | None = None
 
 
+class InlinePromptCreate(BaseModel):
+    id: str = Field(min_length=1, max_length=240)
+    text: str = Field(min_length=1, max_length=64_000)
+    position: int = Field(ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class EvalDefinitionCreate(BaseModel):
     project_id: str
     name: str
     endpoint: str
     model_version_id: str | None = None
     prompt_set_id: str | None = None
-    inline_prompts: list[dict[str, Any]] = []
-    parameters: dict[str, Any] = {}
+    inline_prompts: list[InlinePromptCreate] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def prompt_source(self):
         if bool(self.prompt_set_id) == bool(self.inline_prompts):
             raise ValueError("exactly one of prompt_set_id or inline_prompts is required")
+        positions = [item.position for item in self.inline_prompts]
+        ids = [item.id for item in self.inline_prompts]
+        if len(positions) != len(set(positions)) or len(ids) != len(set(ids)):
+            raise ValueError("inline prompt ids and positions must be unique")
         return self
 
 

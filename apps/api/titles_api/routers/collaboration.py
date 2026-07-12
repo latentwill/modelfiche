@@ -309,9 +309,15 @@ def create_eval_definition(body: schemas.EvalDefinitionCreate, db: DB):
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     get_or_404(db, models.Project, body.project_id)
-    get_or_404(db, models.PromptSet, body.prompt_set_id)
+    if body.prompt_set_id:
+        prompt_set = get_or_404(db, models.PromptSet, body.prompt_set_id)
+        if prompt_set.project_id != body.project_id:
+            raise HTTPException(status_code=409, detail="prompt set belongs to another project")
     if body.model_version_id:
-        get_or_404(db, models.ModelVersion, body.model_version_id)
+        version = get_or_404(db, models.ModelVersion, body.model_version_id)
+        model = get_or_404(db, models.Model, version.model_id)
+        if model.project_id != body.project_id:
+            raise HTTPException(status_code=409, detail="model version belongs to another project")
     definition = models.EvalDefinition(**body.model_dump())
     db.add(definition)
     db.commit()

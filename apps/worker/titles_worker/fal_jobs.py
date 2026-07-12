@@ -179,7 +179,7 @@ class FalEvalBatchHandler:
         completed = 0
         for prompt in prompts:
             output_prompt_id = getattr(prompt, "output_prompt_id", prompt.id)
-            if self._has_output(eval_run_id, output_prompt_id):
+            if self._has_output(eval_run_id, output_prompt_id, inline_prompt_id=prompt.id if output_prompt_id is None else None):
                 tasks[prompt.id] = {**tasks.get(prompt.id, {}), "state": "completed"}
                 completed += 1
                 continue
@@ -285,14 +285,16 @@ class FalEvalBatchHandler:
             run = session.get(models.EvalRun, eval_run_id)
             return dict(run.parameters_snapshot) if run else {}
 
-    def _has_output(self, eval_run_id: str, prompt_id: str) -> bool:
+    def _has_output(self, eval_run_id: str, prompt_id: str | None, *, inline_prompt_id: str | None = None) -> bool:
         with self.session_factory() as session:
-            return session.scalar(
-                select(models.EvalOutput.id).where(
-                    models.EvalOutput.eval_run_id == eval_run_id,
-                    models.EvalOutput.prompt_id == prompt_id,
-                ).limit(1)
-            ) is not None
+            query = select(models.EvalOutput.id).where(models.EvalOutput.eval_run_id == eval_run_id)
+            if prompt_id is not None:
+                query = query.where(models.EvalOutput.prompt_id == prompt_id)
+            elif inline_prompt_id is not None:
+                query = query.where(models.EvalOutput.prompt_id.is_(None), models.EvalOutput.provider_metadata["inline_prompt_id"].as_string() == inline_prompt_id)
+            else:
+                return False
+            return session.scalar(query.limit(1)) is not None
 
 
 class FalGridBatchHandler:
