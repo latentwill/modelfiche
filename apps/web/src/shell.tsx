@@ -37,6 +37,7 @@ export const SHELL_LAYOUT_CONTRACT = {
   navigation: "scroll-region",
   footer: "viewport-docked",
   inspector: "scroll-region",
+  viewport: "100dvh",
 } as const;
 
 export function WorkbenchShell({ section, id, params, children }: { section: string; id: string; params: URLSearchParams; children: ReactNode }) {
@@ -46,6 +47,11 @@ export function WorkbenchShell({ section, id, params, children }: { section: str
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const projects = useResource<unknown>("/api/projects?limit=100");
   const workspaces = useResource<unknown>("/api/workspaces");
+  const workspace = rows(workspaces.data)[0] ?? null;
+  const workspaceId = str(workspace?.id, "");
+  const scopedProjects = workspaceId
+    ? rows(projects.data).filter(project => !project.workspace_id || str(project.workspace_id) === workspaceId)
+    : rows(projects.data);
   const projectId = projectForRoute(section, id, params);
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") { setMobileNavOpen(false); setMobileInspectorOpen(false); } }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, []);
   useEffect(() => { setMobileNavOpen(false); setMobileInspectorOpen(false); }, [section, id]);
@@ -59,7 +65,7 @@ export function WorkbenchShell({ section, id, params, children }: { section: str
     return () => window.removeEventListener("titles:workspace-updated", update);
   }, [workspaces.data, workspaces.setData]);
   return <div className="vela-shell" data-nav-collapsed={leftCollapsed} data-inspector-collapsed={rightCollapsed}>
-    <Sidebar section={section} id={id} activeProjectId={projectId} projects={rows(projects.data)} collapsed={leftCollapsed} mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onCollapse={() => setLeftCollapsed(!leftCollapsed)} />
+    <Sidebar section={section} id={id} activeProjectId={projectId} projects={scopedProjects} workspace={workspace} collapsed={leftCollapsed} mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onCollapse={() => setLeftCollapsed(!leftCollapsed)} />
     <div className="vela-workspace">
       <Topbar section={section} id={id} projectId={projectId} workspaces={rows(workspaces.data)} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
       <div className="vela-route-stage">{children}</div>
@@ -110,13 +116,14 @@ function GlobalSearch() {
   return <div className="vela-global-search"><Search size={16} aria-hidden="true" /><label className="sr-only" htmlFor="global-search">Search workspace</label><input id="global-search" className="vela-search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls="global-search-results" value={value} onChange={event => setValue(event.target.value)} onKeyDown={event => { if (event.key === "Escape") setValue(""); }} placeholder="Search projects, runs, model files..." />{open && <div className="vela-search-results" id="global-search-results" role="listbox">{resource.loading ? <span>Searching...</span> : resource.error ? <span role="alert">{resource.error}</span> : results.length ? results.map(result => <a role="option" aria-selected="false" href={searchHref(result)} key={`${str(result.type)}-${idOf(result)}`} onClick={() => setValue("")}>{result.preview_asset_id && <AssetImage assetRevisionId={str(result.preview_asset_id)} alt="" loading="lazy" />}<span><strong>{str(result.title)}</strong><small>{str(result.type)} · {str(result.subtitle)}</small></span></a>) : <span>No matching workspace objects</span>}</div>}</div>;
 }
 
-function Sidebar({ section, id, activeProjectId, projects, collapsed, mobileOpen, onMobileClose, onCollapse }: { section: string; id: string; activeProjectId: string; projects: Row[]; collapsed: boolean; mobileOpen: boolean; onMobileClose: () => void; onCollapse: () => void }) {
+function Sidebar({ section, id, activeProjectId, projects, workspace, collapsed, mobileOpen, onMobileClose, onCollapse }: { section: string; id: string; activeProjectId: string; projects: Row[]; workspace: Row | null; collapsed: boolean; mobileOpen: boolean; onMobileClose: () => void; onCollapse: () => void }) {
   const sources = useResource<unknown>("/api/import-sources");
   const visibleProjects = projects.filter(project => project.state !== "archived");
   const shownProjects = visibleProjects.length ? visibleProjects : projects;
   const activeSources = rows(sources.data).filter(source => source.is_active !== false).length;
   return <aside className="vela-sidebar" id="vela-navigation" data-mobile-open={mobileOpen} onClick={event => { if ((event.target as HTMLElement).closest("a")) onMobileClose(); }}>
     <div className="vela-brand"><a className="vela-wordmark" href="#/dashboard">MODELFICHE</a><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close navigation" onClick={onMobileClose}><X size={18} /></button></div>
+    <div className="vela-workspace-context" data-workspace-id={str(workspace?.id, "")}><span className="vela-meta">Workspace</span><strong>{str(workspace?.name, "Workspace")}</strong></div>
     <nav className="vela-nav" aria-label="Primary navigation" data-layout={SHELL_LAYOUT_CONTRACT.navigation}>
       <VelaNavLink href="#/dashboard" active={section === "dashboard" || section === "projects"} icon={<LayoutDashboard size={16} />}>Dashboard</VelaNavLink>
       <VelaNavLink href="#/gallery" active={section === "gallery" || section === "image"} icon={<Images size={16} />}>Gallery</VelaNavLink>
@@ -148,17 +155,18 @@ function ProjectTree({ project, section, activeId, activeProjectId }: { project:
   const models = useResource<unknown>(expanded ? `/api/models${query({ project_id: projectId })}` : null);
   const evals = useResource<unknown>(expanded ? `/api/eval-runs${query({ project_id: projectId })}` : null);
   return <div className={`vela-project-nav ${project.state === "archived" ? "is-archived" : ""}`}>
-    <div className="vela-project-nav-root"><a className="vela-nav-item" aria-current={section === "project" && activeId === projectId ? "page" : undefined} href={`#/project/${projectId}`}><span className="vela-nav-icon"><Folder size={15} /></span><span className="vela-nav-text">{str(project.title ?? project.name)}</span></a><button type="button" className="vela-icon-button" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${str(project.title)}`} aria-expanded={expanded}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button></div>
+    <div className="vela-project-nav-root"><a className="vela-nav-item" aria-current={(activeProjectId === projectId || (section === "project" && activeId === projectId)) ? "page" : undefined} href={`#/project/${projectId}`}><span className="vela-nav-icon"><Folder size={15} /></span><span className="vela-nav-text">{str(project.title ?? project.name)}</span></a><button type="button" className="vela-icon-button" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${str(project.title)}`} aria-expanded={expanded}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button></div>
     {expanded && <div className="vela-project-tree">
-      <NavBranch label="Models" href={`#/models?project=${projectId}`} items={rows(models.data)} itemRoute="model" projectId={projectId} />
-      <NavBranch label="Datasets" href={`#/datasets?project=${projectId}`} items={rows(datasets.data)} itemRoute="dataset" projectId={projectId} />
-      <NavBranch label="Evals" href={`#/evals?project=${projectId}`} items={rows(evals.data)} itemRoute="eval" projectId={projectId} />
+      <NavBranch label="Models" href={`#/models?project=${projectId}`} items={rows(models.data)} itemRoute="model" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
+      <NavBranch label="Datasets" href={`#/datasets?project=${projectId}`} items={rows(datasets.data)} itemRoute="dataset" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
+      <NavBranch label="Evals" href={`#/evals?project=${projectId}`} items={rows(evals.data)} itemRoute="eval" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
     </div>}
   </div>;
 }
 
-function NavBranch({ label, href, items, itemRoute, projectId }: { label: string; href: string; items: Row[]; itemRoute: string; projectId: string }) {
-  return <div className="vela-tree-group"><a className="vela-nav-group" href={href}>{label}</a>{items.slice(0, 5).map(item => <a className="vela-nav-item" key={idOf(item)} href={`#/${itemRoute}/${idOf(item)}?project=${projectId}`}><span className="vela-nav-text">{str(item.name ?? item.title, "Untitled")}</span></a>)}</div>;
+function NavBranch({ label, href, items, itemRoute, projectId, section, activeId, activeProjectId }: { label: string; href: string; items: Row[]; itemRoute: string; projectId: string; section: string; activeId: string; activeProjectId: string }) {
+  const groupActive = activeProjectId === projectId && (section === `${itemRoute}s` || (itemRoute === "eval" && section === "evals"));
+  return <div className="vela-tree-group"><a className="vela-nav-group" href={href} aria-current={groupActive ? "page" : undefined}>{label}</a>{items.slice(0, 5).map(item => { const itemId = idOf(item); const active = activeProjectId === projectId && section === itemRoute && activeId === itemId; return <a className="vela-nav-item" key={itemId} href={`#/${itemRoute}/${itemId}?project=${projectId}`} aria-current={active ? "page" : undefined}><span className="vela-nav-text">{str(item.name ?? item.title, "Untitled")}</span></a>; })}</div>;
 }
 
 function ContextInspector({ section, id, projectId, collapsed, mobileOpen, onMobileClose, onCollapse }: { section: string; id: string; projectId: string; collapsed: boolean; mobileOpen: boolean; onMobileClose: () => void; onCollapse: () => void }) {

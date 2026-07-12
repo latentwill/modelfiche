@@ -9,5 +9,6 @@ describe("shell rail layout", () => {
 
   it("uses the dynamic viewport and keeps the inspector reachable", () => {
     expect(SHELL_LAYOUT_CONTRACT.inspector).toBe("scroll-region");
+    expect(SHELL_LAYOUT_CONTRACT.viewport).toBe("100dvh");
   });
 });

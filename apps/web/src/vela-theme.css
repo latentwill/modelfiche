@@ -60,6 +60,7 @@
 
 .vela-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: var(--vela-left-rail) minmax(0, 1fr) var(--vela-right-rail);
   transition: grid-template-columns var(--vela-duration) var(--vela-ease);
@@ -71,18 +72,21 @@
 .vela-sidebar, .vela-inspector {
   position: sticky;
   top: 0;
-  height: 100vh;
-  height: 100dvh;
+  block-size: 100vh;
+  block-size: 100dvh;
+  max-block-size: 100dvh;
   background: var(--vela-surface);
 }
-.vela-sidebar { display: flex; flex-direction: column; overflow: hidden; padding: 20px 14px 16px; border-right: 1px solid var(--vela-border); }
-.vela-inspector { overflow-y: auto; overscroll-behavior: contain; padding: 16px; border-left: 1px solid var(--vela-border); }
+.vela-sidebar { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; padding: 20px 14px 16px; border-right: 1px solid var(--vela-border); }
+.vela-inspector { min-block-size: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; border-left: 1px solid var(--vela-border); }
 .vela-shell[data-nav-collapsed="true"] .vela-sidebar { padding-inline: 0; }
 .vela-shell[data-inspector-collapsed="true"] .vela-inspector { padding-inline: 0; }
 .vela-shell[data-nav-collapsed="true"] .vela-sidebar > :not(.vela-rail-label),
 .vela-shell[data-inspector-collapsed="true"] .vela-inspector > :not(.vela-rail-label) { display: none; }
 
 .vela-brand { min-height: 42px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 16px; }
+.vela-workspace-context { flex: 0 0 auto; display: grid; gap: 2px; margin: 0 8px 10px; padding: 8px 10px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-md); background: var(--vela-surface-soft); }
+.vela-workspace-context strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px var(--vela-font-display); text-transform: uppercase; }
 .vela-wordmark { font: 24px/1 var(--vela-font-serif); letter-spacing: 0; }
 .vela-icon-button {
   width: 32px;
@@ -136,7 +140,7 @@
 .vela-storage-meter > span { display: block; height: 100%; background: var(--vela-accent); }
 .vela-meta { color: var(--vela-muted); font: 11px/1.4 var(--vela-font-mono); }
 
-.vela-workspace { min-width: 0; }
+.vela-workspace { min-width: 0; min-height: 100dvh; }
 .vela-topbar {
   position: sticky;
   top: 0;
