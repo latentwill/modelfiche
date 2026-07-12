@@ -66,4 +66,3 @@ def test_project_runs_expose_correct_result_model_route_id(client: TestClient):
     assert listed["result_model_id"] == model["id"]
     assert listed["result_model_name"] == "Result family"
     assert listed["result_model_version_id"] == version["id"]
-
