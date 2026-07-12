@@ -47,6 +47,24 @@ class FalEvalCreateV1(FalContractModel):
     prompts: list[FalPromptV1]
     parameters: dict[str, Any]
     client_request_id: UUID
+    definition_id: UUID | None = None
+
+
+class GenerationContextV1(FalContractModel):
+    kind: Literal["project", "model"]
+    project_id: UUID
+    model_id: UUID | None = None
+
+
+class GenerationCompileV1(FalContractModel):
+    workflow: Literal["image"]
+    provider: str
+    context: GenerationContextV1
+    model_version_id: UUID
+    checkpoint_revision_id: UUID
+    prompt: str = Field(min_length=1, max_length=64_000)
+    parameters: dict[str, Any]
+    client_request_id: UUID
 
 
 class FalGridCreateV1(FalContractModel):
@@ -278,7 +296,9 @@ def create_fal_admission(body: FalCreateAdmissionV1, db: DB, x_profile_id: Annot
         raise HTTPException(status_code=409, detail="model version belongs to another project")
     if body.kind == "eval":
         prompts = [item.model_dump() for item in body.prompts]
-        definition = db.scalar(select(models.EvalDefinition).where(models.EvalDefinition.model_version_id == model_version.id, models.EvalDefinition.endpoint == adapter.endpoint_id).order_by(models.EvalDefinition.created_at.desc()))
+        definition = db.get(models.EvalDefinition, str(body.definition_id)) if body.definition_id else db.scalar(select(models.EvalDefinition).where(models.EvalDefinition.model_version_id == model_version.id, models.EvalDefinition.endpoint == adapter.endpoint_id).order_by(models.EvalDefinition.created_at.desc()))
+        if body.definition_id and (definition is None or definition.project_id != str(body.project_id) or definition.model_version_id != model_version.id or definition.endpoint != adapter.endpoint_id):
+            raise HTTPException(status_code=409, detail="compiled generation definition does not match project, model version, or provider endpoint")
         definition_id = definition.id if definition else None
         input_digest = _digest({"prompts": prompts, "parameters": normalized})
         try:
@@ -345,6 +365,61 @@ def create_fal_admission(body: FalCreateAdmissionV1, db: DB, x_profile_id: Annot
     projection = _projection(db, admission)
     db.commit()
     return FalProjectionResultV1(kind="projection", admission=projection, announcement=_announcement(admission.id, "FAL admission is ready for review"))
+
+
+@router.post("/generation-requests/compile", status_code=status.HTTP_200_OK)
+def compile_generation_request(body: GenerationCompileV1, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    """Persist one provider-neutral workflow request, then compile it into the existing FAL admission path."""
+    workspace = current_workspace(db)
+    existing = db.scalar(
+        select(models.FalAdmission)
+        .join(models.StoragePolicySnapshot, models.StoragePolicySnapshot.id == models.FalAdmission.snapshot_id)
+        .where(models.FalAdmission.workspace_id == workspace.id, models.StoragePolicySnapshot.operation_id == str(body.client_request_id))
+        .order_by(models.FalAdmission.created_at.desc())
+    )
+    compile_digest = _digest(body.model_dump(mode="json"))
+    if existing is not None:
+        subject = db.scalar(select(models.FalSubject).where(models.FalSubject.admission_id == existing.id).order_by(models.FalSubject.ordinal))
+        definition_id = str(subject.definition.get("definition_id")) if subject else ""
+        definition = db.get(models.EvalDefinition, definition_id) if definition_id else None
+        prompt = db.scalar(select(models.Prompt).where(models.Prompt.prompt_set_id == definition.prompt_set_id).order_by(models.Prompt.position)) if definition else None
+        if prompt is None or prompt.metadata_.get("compile_digest") != compile_digest:
+            raise HTTPException(status_code=409, detail="client_request_id was already used for a different generation request")
+        return {"kind": "compiled_generation", "workflow": body.workflow, "provider": body.provider, "definition_id": definition_id or None, "prompt_set_id": definition.prompt_set_id if definition else None, "admission": _projection(db, existing).model_dump(mode="json")}
+    if body.provider != "fal":
+        raise HTTPException(status_code=422, detail=f"generation provider is not installed: {body.provider}")
+    model_version = get_or_404(db, models.ModelVersion, str(body.model_version_id))
+    model = get_or_404(db, models.Model, model_version.model_id)
+    if model.project_id != str(body.context.project_id):
+        raise HTTPException(status_code=409, detail="model version belongs to another project")
+    if body.context.kind == "model" and body.context.model_id and model.id != str(body.context.model_id):
+        raise HTTPException(status_code=409, detail="model context does not match selected model version")
+    if model_version.checkpoint_revision_id != str(body.checkpoint_revision_id):
+        raise HTTPException(status_code=409, detail="checkpoint revision does not match model version")
+    readiness = dict(model_version.readiness or {})
+    fal_url = str(readiness.get("fal_url") or readiness.get("fal_path") or "")
+    endpoint = str(readiness.get("endpoint_id") or readiness.get("endpoint") or readiness.get("fal_endpoint") or "")
+    requested_endpoint = str(body.parameters.get("endpoint_id") or "")
+    if not fal_url:
+        raise HTTPException(status_code=409, detail="selected model version is not registered with FAL")
+    if not endpoint:
+        raise HTTPException(status_code=409, detail="selected model version has no registered FAL endpoint")
+    if requested_endpoint != endpoint:
+        raise HTTPException(status_code=409, detail="requested endpoint does not match selected model registration")
+    try:
+        get_adapter(endpoint)
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=f"registered FAL endpoint is unavailable: {endpoint}") from exc
+    prompt_set = models.PromptSet(project_id=model.project_id, name=f"Image request {body.client_request_id}", version=1)
+    db.add(prompt_set)
+    db.flush()
+    prompt = models.Prompt(prompt_set_id=prompt_set.id, text=body.prompt, position=0, metadata_={"workflow": body.workflow, "client_request_id": str(body.client_request_id), "compile_digest": compile_digest})
+    db.add(prompt)
+    definition = models.EvalDefinition(project_id=model.project_id, name=f"Image request {body.client_request_id}", endpoint=endpoint, model_version_id=model_version.id, prompt_set_id=prompt_set.id, parameters=dict(body.parameters))
+    db.add(definition)
+    db.flush()
+    projection = create_fal_admission(FalEvalCreateV1(kind="eval", mode="single", project_id=body.context.project_id, model_version_id=body.model_version_id, checkpoint_revision_id=body.checkpoint_revision_id, prompts=[FalPromptV1(prompt_id=prompt.id, prompt=body.prompt)], parameters=body.parameters, client_request_id=body.client_request_id, definition_id=UUID(definition.id)), db, x_profile_id)
+    return {"kind": "compiled_generation", "workflow": body.workflow, "provider": body.provider, "definition_id": definition.id, "prompt_set_id": prompt_set.id, "admission": projection.admission.model_dump(mode="json")}
 
 @router.get("/fal-admissions/{admission_id}", response_model=FalAdmissionV1)
 def get_fal_admission(admission_id: str, db: DB):

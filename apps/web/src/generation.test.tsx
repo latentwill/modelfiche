@@ -47,6 +47,6 @@ describe("shared generation contracts", () => {
   it("does not submit an admission when the Image Generator opens", () => {
     vi.mocked(api).mockClear();
     render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&scope=project&prefill_asset=a1")} />);
-    expect(vi.mocked(api).mock.calls.some(([path]) => String(path).includes("/fal-admissions"))).toBe(false);
+    expect(vi.mocked(api).mock.calls.some(([path]) => /generation-requests\/compile|fal-admissions/.test(String(path)))).toBe(false);
   });
 });

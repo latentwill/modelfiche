@@ -124,10 +124,11 @@ export const falAdapter: GenerationProviderAdapter = {
       ...falEndpointParameters(model.endpoint, p), ...p.extra,
     };
     Object.keys(parameters).forEach(key => parameters[key] === undefined && delete parameters[key]);
-    const projection = await api<Record<string, unknown>>("/api/fal-admissions", jsonBody({
-      kind: "eval", mode: "single", project_id: request.context.projectId,
+    const projection = await api<Record<string, unknown>>("/api/generation-requests/compile", jsonBody({
+      workflow: request.workflow, provider: "fal",
+      context: { kind: request.context.kind, project_id: request.context.projectId, model_id: request.context.kind === "model" ? request.context.modelId : undefined },
       model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId,
-      prompts: [{ prompt_id: request.clientRequestId, prompt: p.prompt }], parameters,
+      prompt: p.prompt, parameters,
       client_request_id: request.clientRequestId,
     }));
     const admission = record(projection.admission);
