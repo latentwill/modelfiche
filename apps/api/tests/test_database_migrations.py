@@ -80,6 +80,22 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
         assert session.scalar(select(models.StoragePolicySnapshot)) is None
 
 
+def test_upgrade_installed_database_accepts_checkpoint_revision_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "installed-0008.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    upgrade_installed_database(database_url)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "UPDATE alembic_version SET version_num = ?",
+            ("0008_checkpoint_revisions",),
+        )
+    upgrade_installed_database(database_url)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0009_inline_generation_prompts",
+        )
+
+
 def test_runtime_initialization_migrates_but_does_not_seed_before_cutover_marker(
     tmp_path: Path, monkeypatch
 ) -> None:
