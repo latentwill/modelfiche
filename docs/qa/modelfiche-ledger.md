@@ -8,9 +8,9 @@ Status legend: `completed`, `pending`, `blocked`. Initialized by MAP-01 on 2026-
 | --- | --- |
 | Mapping | **MAP-01 — completed** |
 | Data | **DATA-01 — completed; DATA-02 — completed; DATA-03 — completed; DATA-04 — completed; DATA-05 — blocked (one historical v002 source absent); DATA-06 — completed; DATA-07 — completed** |
-| Project | **PROJECT-01 — completed; PROJECT-02 — completed; PROJECT-03 — completed; PROJECT-04 — completed; PROJECT-05 — completed; PROJECT-06 — completed; PROJECT-07 — completed**; PROJECT-08 (`QA2-01`) — pending |
+| Project | **PROJECT-01 — completed; PROJECT-02 — completed; PROJECT-03 — completed; PROJECT-04 — completed; PROJECT-05 — completed; PROJECT-06 — completed; PROJECT-07 — completed; PROJECT-08 (`QA2-01`) — completed** |
 | Model | **MODEL-01 — completed; MODEL-02 — completed; MODEL-03 — completed; MODEL-04 — completed; MODEL-05 — completed; MODEL-06 — completed; MODEL-07 — completed; MODEL-08 — completed; MODEL-09 — completed** |
-| Shell | SHELL-01 (`QA2-03`) — pending; SHELL-02 (`QA2-04`) — pending; SHELL-03 (`QA2-12`) — pending |
+| Shell | **SHELL-01 (`QA2-03`) — completed; SHELL-02 (`QA2-04`) — completed; SHELL-03 (`QA2-12`) — completed** |
 | Generator | **GEN-01 — completed; GEN-02 — completed; GEN-03 — completed; GEN-04 — completed; GEN-05 (`QA2-02`) — completed; GEN-06 — completed**; GEN-07 (`QA2-05`) — pending |
 | Gallery | GALLERY-01 — pending; GALLERY-02 — pending; GALLERY-03 — pending; GALLERY-04 — pending; GALLERY-05 — pending; GALLERY-06 — pending; GALLERY-07 — pending; GALLERY-08 — pending; GALLERY-09 — pending; GALLERY-10 — pending |
 | Eval | EVAL-01 — pending; EVAL-02 — pending; EVAL-03 — pending; EVAL-04 — pending; EVAL-05 — pending; EVAL-06 — pending; EVAL-07 — pending; EVAL-08 — pending; EVAL-09 — pending; EVAL-10 — pending; EVAL-11 — pending; EVAL-12 (`QA2-06`) — pending; EVAL-13 (`QA2-07B`) — pending |
@@ -87,3 +87,10 @@ QA2 requirements are implemented only through these canonical ledger tasks; ther
 - Added provider-neutral `POST /api/generation-requests/compile` with registration-derived provider/endpoint validation, cross-project/revision/model guards, exact inline-prompt persistence, identical replay idempotency, and conflicting replay rejection. Explicit form submission remains required before FAL admission.
 - Verification: independent 22-test backend/migration/worker run passed; independent 9-test frontend generator/project run passed; frontend TypeScript project build passed. Agent broader focused runs passed 26 API/migration/baseline tests, 3 worker regressions, and 11 frontend tests. No live FAL admission or generation was submitted.
 - Preserved pending regression: `test_gallery_context_uses_full_filtered_order_not_visible_page` remains under later Gallery triage and was not changed in this packet.
+
+## PROJECT-08 and SHELL-01–03 completion record
+
+- `PROJECT-08` (`QA2-01`): Project image cards now render Dataset images on the left, Training samples in the middle, and Eval outputs on the right while preserving their existing resources, loading/error/empty states, gallery links, and responsive single-column layout.
+- `SHELL-01` (`QA2-03`) and `SHELL-02` (`QA2-04`): the navigation rail uses a dynamic viewport-height flex layout; its primary navigation is the independent scroll region while Settings and Storage remain in a fixed footer region. The inspector and mobile navigation remain independently scrollable and reachable at narrow viewport heights.
+- `SHELL-03` (`QA2-12`): activity keys are mapped case-insensitively to human labels in the inspector and Project activity table. Unknown keys receive deterministic sentence-style labels; raw machine keys are confined to expandable technical details.
+- Verification: independent full frontend suite passed 21 tests across 6 files; frontend TypeScript project build passed; `git show --check` and clean isolated-worktree verification passed.
