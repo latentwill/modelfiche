@@ -55,6 +55,22 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
         assert connection.execute("SELECT marker FROM storage_cutover_marker WHERE id=1").fetchone() is None
 
 
+def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "installed-0007.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    upgrade_installed_database(database_url)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "UPDATE alembic_version SET version_num = ?",
+            ("0007_asset_origin_timestamps",),
+        )
+    upgrade_installed_database(database_url)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "0008_checkpoint_revisions",
+        )
+
+
 def test_runtime_initialization_migrates_but_does_not_seed_before_cutover_marker(
     tmp_path: Path, monkeypatch
 ) -> None:

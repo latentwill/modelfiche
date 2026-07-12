@@ -27,6 +27,7 @@ ALEMBIC_OLD_HEAD = "0003_flexible_image_storage"
 ALEMBIC_PREVIOUS_HEAD = "0004_training_metrics"
 ALEMBIC_INTERMEDIATE_HEAD = "0005_content_blob_timestamps"
 ALEMBIC_SOURCE_HEAD = "0006_source_capability_timestamps"
+ALEMBIC_ASSET_TIMESTAMP_HEAD = "0007_asset_origin_timestamps"
 ALEMBIC_HEAD = "0008_checkpoint_revisions"
 
 
@@ -164,6 +165,8 @@ def _classify_connection(connection: sqlite3.Connection) -> BaselineState:
     if version == ALEMBIC_INTERMEDIATE_HEAD and _HEAD_REQUIRED_TABLES <= names:
         return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
     if version == ALEMBIC_SOURCE_HEAD and _HEAD_REQUIRED_TABLES <= names:
+        return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
+    if version == ALEMBIC_ASSET_TIMESTAMP_HEAD and _HEAD_REQUIRED_TABLES <= names:
         return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
     if version == ALEMBIC_HEAD and _HEAD_REQUIRED_TABLES <= names:
         return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
