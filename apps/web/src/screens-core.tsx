@@ -78,9 +78,9 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: id })}`);
   const models = useResource<unknown>(`/api/models${query({ project_id: id })}`);
   const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: id })}`);
-  const trainingImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "sample", limit: 8 })}`);
-  const datasetImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "dataset_image", include_dataset_assets: true, limit: 8 })}`);
-  const evalImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "eval_output", limit: 8 })}`);
+  const trainingImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "sample", limit: 9 })}`);
+  const datasetImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "dataset_image", include_dataset_assets: true, limit: 9 })}`);
+  const evalImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "eval_output", limit: 9 })}`);
   const [projectMessage, setProjectMessage] = useState("");
   const [projectActionError, setProjectActionError] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
@@ -156,7 +156,7 @@ function projectGalleryHref(projectId: string, category: string, extra: Record<s
 }
 
 function ProjectImagePanel({ title, assets, loading, error, href, returnTarget }: { title: string; assets: Row[]; loading: boolean; error?: string; href: string; returnTarget: string }) {
-  return <section className="vela-panel project-image-panel"><div className="vela-section-heading"><h2>{title}</h2><a className="vela-text-button" href={href}>View all</a></div><Notice error={error} loading={loading} empty={!loading && !assets.length} />{!!assets.length && <div className="project-image-mosaic">{assets.slice(0, 8).map(asset => <a href={`${href}&return=${encodeURIComponent(returnTarget)}&asset=${encodeURIComponent(idOf(asset))}`} key={idOf(asset)}><AssetImage assetRevisionId={idOf(asset)} alt={str(asset.name, title)} loading="lazy" /></a>)}</div>}</section>;
+  return <section className="vela-panel project-image-panel"><div className="vela-section-heading"><h2>{title}</h2><a className="vela-text-button" href={href}>View all</a></div><Notice error={error} loading={loading} empty={!loading && !assets.length} />{!!assets.length && <div className="project-image-mosaic">{assets.slice(0, 9).map(asset => <a href={`${href}&return=${encodeURIComponent(returnTarget)}&asset=${encodeURIComponent(idOf(asset))}`} key={idOf(asset)}><AssetImage assetRevisionId={idOf(asset)} alt={str(asset.name, title)} loading="lazy" /></a>)}</div>}</section>;
 }
 
 export function ImportScreen({ initialProject = "" }: { initialProject?: string }) {
