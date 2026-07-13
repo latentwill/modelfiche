@@ -82,10 +82,12 @@ def test_dataset_detail_exposes_explicit_training_run_and_empty_reason(client: T
 
 
     assert client.delete("/api/import-sources/not-a-source").status_code == 404
-def test_source_delete_persists_and_referenced_source_is_safe(client: TestClient):
+def test_source_disconnect_hides_configuration_and_preserves_references(client: TestClient):
     source = client.post("/api/import-sources", json={"name": "Disposable", "bucket": "bucket"}).json()
     assert client.delete(f"/api/import-sources/{source['id']}").status_code == 204
     assert source["id"] not in {row["id"] for row in client.get("/api/import-sources").json()}
+    with app_module.SessionLocal() as db:
+        assert db.get(models.ImportSource, source["id"]).is_active is False
 
     referenced = client.post("/api/import-sources", json={"name": "Referenced", "bucket": "bucket"}).json()
     with app_module.SessionLocal.begin() as db:
@@ -93,9 +95,11 @@ def test_source_delete_persists_and_referenced_source_is_safe(client: TestClient
         asset = models.Asset(workspace_id=workspace.id, kind=models.AssetKind.image, name="remote.png")
         db.add(asset); db.flush()
         db.add(models.AssetLocation(asset_id=asset.id, workspace_id=workspace.id, source_id=referenced["id"], provider="s3", uri="s3://bucket/remote.png", bucket="bucket", object_key="remote.png"))
-    blocked = client.delete(f"/api/import-sources/{referenced['id']}")
-    assert blocked.status_code == 409
-    assert "asset locations" in blocked.json()["detail"]
+    assert client.delete(f"/api/import-sources/{referenced['id']}").status_code == 204
+    assert referenced["id"] not in {row["id"] for row in client.get("/api/import-sources").json()}
+    with app_module.SessionLocal() as db:
+        assert db.get(models.ImportSource, referenced["id"]).is_active is False
+        assert db.query(models.AssetLocation).filter_by(source_id=referenced["id"]).one().source_id == referenced["id"]
 
 
 def test_mega_connection_never_falls_through_to_an_s3_source(client: TestClient):

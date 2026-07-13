@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { Archive, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
-import { activityLabel } from "./activity";
 import { ApiError, api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Panel, ProfileSelect, SelectRecords, Status } from "./ui";
 import { generatorHref } from "./generation";
-import { LossGraph } from "./screens-assets";
+import { LossGraph, scientificNotation } from "./screens-assets";
 
 type Row = Record<string, unknown>;
 type LocalSelection = { file: File; path: string };
@@ -73,7 +72,6 @@ export function ProjectsScreen() {
 
 export function ProjectScreen({ id, editing = false }: { id: string; editing?: boolean }) {
   const project = useResource<Row>(`/api/projects/${id}`);
-  const activity = useResource<unknown>(`/api/activity${query({ project_id: id })}`);
   const runs = useResource<unknown>(`/api/runs${query({ project_id: id })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: id })}`);
   const models = useResource<unknown>(`/api/models${query({ project_id: id })}`);
@@ -93,21 +91,34 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[1]} assets={rows(trainingImages.data)} loading={trainingImages.loading} error={trainingImages.error} href={projectGalleryHref(id, "sample")} returnTarget={`project/${id}`} />
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[2]} assets={rows(evalImages.data)} loading={evalImages.loading} error={evalImages.error} href={projectGalleryHref(id, "eval_output")} returnTarget={`project/${id}`} />
     </div>
-    <div className="project-compare-grid">
-      <LatestTrainingRun projectId={id} runs={runRows} loading={runs.loading} error={runs.error} />
+    <LatestTrainingRun projectId={id} runs={runRows} loading={runs.loading} error={runs.error} />
+    <div className="project-resource-grid">
       <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} empty={!datasets.loading && !datasetRows.length} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div><a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
       <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
+      <Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel>
     </div>
-    <div className="dashboard-lower"><Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["status", "Status"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel><Panel title="Project activity"><Notice error={activity.error} loading={activity.loading} empty={!rows(activity.data).length} /><DataTable rows={rows(activity.data).slice(0, 8).map(item => ({ ...item, activity_label: activityLabel(item.action ?? item.event_type) }))} columns={[["activity_label", "Event"], ["profile_name", "Profile"], ["created_at", "Time"]]} /></Panel></div>
     {project.data && editing && <Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { await api(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); setProjectMessage("Project updated."); await project.reload(); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel>}
   </Page>;
 }
 
+function trainingRunTimestamp(run: Row): unknown {
+  const manifest = (run.raw_manifest ?? {}) as Row;
+  const state = (run.raw_state ?? {}) as Row;
+  const canonical = run.completed_at ?? run.started_at ?? manifest.created_at ?? state.updated_at;
+  if (canonical) return canonical;
+  const sourceMatch = str(run.source_prefix, "").match(/(20\d{6})[_-](\d{6})/);
+  if (sourceMatch) {
+    const [, date, clock] = sourceMatch;
+    return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${clock.slice(0, 2)}:${clock.slice(2, 4)}:${clock.slice(4, 6)}Z`;
+  }
+  return run.created_at;
+}
+
 export function latestTrainingRun(runs: Row[]) {
-  return [...runs].sort((left, right) => {
+  const trainingRuns = runs.filter(run => str(run.trainer).toLowerCase() !== "checkpoint-merge");
+  return [...trainingRuns].sort((left, right) => {
     const timestamp = (run: Row) => {
-      const value = run.completed_at ?? run.started_at ?? run.created_at;
-      const parsed = Date.parse(str(value, ""));
+      const parsed = Date.parse(str(trainingRunTimestamp(run), ""));
       return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
     };
     return timestamp(right) - timestamp(left) || idOf(right).localeCompare(idOf(left));
@@ -119,30 +130,38 @@ export function LatestTrainingRun({ projectId, runs, loading, error }: { project
   const state = str(latest?.status, "unknown").toLowerCase();
   const failed = /fail|error|cancel/.test(state);
   const completed = /complete|completed|success|succeeded|finished/.test(state);
-  return <Panel title="Latest training run">
+  return <Panel title="Latest training run" className="latest-training-run-panel">
     <Notice error={error} loading={loading} />
     {!loading && !error && !latest && <div className="vela-empty"><span>No training runs yet</span><small>Imported or newly created runs will appear here.</small></div>}
     {!loading && !error && latest && <LatestTrainingRunDetails run={latest} failed={failed} completed={completed} />}
-    <a className="vela-text-button" href={`#/runs?project=${projectId}`}>View all runs</a>
+    <div className="latest-run-footer">
+      {completed && Boolean(latest?.result_model_id) && <a className="latest-run-result" href={`#/model/${str(latest?.result_model_id)}`}><span>Result model</span><strong>{str(latest?.result_model_name)}</strong></a>}
+      <a className="button vela-button vela-button-primary latest-run-all" href={`#/runs?project=${projectId}`}>View all training runs <span aria-hidden="true">→</span></a>
+    </div>
   </Panel>;
 }
 
 function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed: boolean; completed: boolean }) {
   const runId = idOf(run);
+  const runName = str(run.name).toLowerCase();
+  const lossMetric = runName.includes("flat") ? "loss.flat" : runName.includes("render") ? "loss.render" : "loss";
   const samples = useResource<unknown>(`/api/runs/${runId}/samples`);
-  const metrics = useResource<Record<string, unknown>>(`/api/runs/${runId}/metrics?name=loss`);
+  const metrics = useResource<Record<string, unknown>>(`/api/runs/${runId}/metrics?name=${lossMetric}`);
   const config = useResource<Record<string, unknown>>(`/api/runs/${runId}/config`);
-  const sampleRows = rows(samples.data).slice(0, 4);
-  const timestamp = run.completed_at ?? run.started_at ?? run.created_at;
+  const sampleRows = rows(samples.data).sort((left, right) => {
+    const stepDifference = Number(right.training_step ?? right.step ?? -1) - Number(left.training_step ?? left.step ?? -1);
+    if (stepDifference) return stepDifference;
+    return Date.parse(str(right.generated_at ?? right.modified_at ?? right.created_at, "")) - Date.parse(str(left.generated_at ?? left.modified_at ?? left.created_at, ""));
+  }).slice(0, 9);
+  const timestamp = trainingRunTimestamp(run);
   const normalized = (config.data?.normalized ?? {}) as Row;
   return <div className="latest-training-run">
-    <div className="comparison-stack"><a href={`#/run/${runId}`}><strong>{str(run.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : run.status} /><span>{completed ? "Completed" : "Started"} <time dateTime={str(timestamp, "")}>{formatCanonicalTimestamp(timestamp)}</time></span><span>{str(run.dataset_version_name ?? run.dataset_name, "Dataset not linked")} · {str(run.base_model, "Base model not recorded")}</span></a></div>
-    <dl className="details latest-run-details"><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Steps</dt><dd>{str(normalized.steps ?? normalized.max_train_steps, "Not recorded")}</dd><dt>Learning rate</dt><dd>{str(normalized.learning_rate, "Not recorded")}</dd></dl>
+    <div className="latest-run-summary"><div className="comparison-stack"><a href={`#/run/${runId}`}><strong>{str(run.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : run.status} /><span>{completed ? "Completed" : "Started"} <time dateTime={str(timestamp, "")}>{formatCanonicalTimestamp(timestamp)}</time></span><span>{str(run.dataset_version_name ?? run.dataset_name, "Dataset not linked")} · {str(run.base_model, "Base model not recorded")}</span></a></div>
+    <dl className="details latest-run-details"><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Steps</dt><dd>{str(normalized.steps ?? normalized.max_train_steps, "Not recorded")}</dd><dt>Learning rate</dt><dd>{scientificNotation(normalized.learning_rate)}</dd></dl></div>
     <Notice error={samples.error || metrics.error || config.error} loading={samples.loading || metrics.loading || config.loading} />
-    {!!sampleRows.length && <div className="latest-run-samples" aria-label="Latest training samples">{sampleRows.map(sample => <AssetImage key={idOf(sample)} assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id ?? sample.id)} alt={str(sample.prompt, "Training sample")} />)}</div>}
-    <div className="latest-run-loss"><LossGraph points={metrics.data?.points} /></div>
+    <div className="latest-run-visuals"><div className="latest-run-loss"><LossGraph points={metrics.data?.points} /></div>
+    {!!sampleRows.length && <div className="latest-run-samples" aria-label="Latest training samples">{sampleRows.map(sample => <AssetImage key={idOf(sample)} assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id ?? sample.id)} alt={str(sample.prompt, "Training sample")} />)}</div>}</div>
     {failed && <div className="vela-notice vela-notice-error" role="alert"><strong>Training run failed</strong><span>Open the run to inspect its recorded status and logs.</span></div>}
-    {completed && Boolean(run.result_model_id) && <a className="vela-text-button" href={`#/model/${str(run.result_model_id)}`}>Open result model: {str(run.result_model_name)}</a>}
   </div>;
 }
 
@@ -156,7 +175,7 @@ function projectGalleryHref(projectId: string, category: string, extra: Record<s
 }
 
 function ProjectImagePanel({ title, assets, loading, error, href, returnTarget }: { title: string; assets: Row[]; loading: boolean; error?: string; href: string; returnTarget: string }) {
-  return <section className="vela-panel project-image-panel"><div className="vela-section-heading"><h2>{title}</h2><a className="vela-text-button" href={href}>View all</a></div><Notice error={error} loading={loading} empty={!loading && !assets.length} />{!!assets.length && <div className="project-image-mosaic">{assets.slice(0, 9).map(asset => <a href={`${href}&return=${encodeURIComponent(returnTarget)}&asset=${encodeURIComponent(idOf(asset))}`} key={idOf(asset)}><AssetImage assetRevisionId={idOf(asset)} alt={str(asset.name, title)} loading="lazy" /></a>)}</div>}</section>;
+  return <section className="vela-panel project-image-panel"><div className="vela-section-heading"><h2>{title}</h2><a className="vela-text-button" href={href} aria-label={`View all ${title.toLowerCase()}`}>View all</a></div><Notice error={error} loading={loading} empty={!loading && !assets.length} />{!!assets.length && <div className="project-image-mosaic">{assets.slice(0, 9).map(asset => <a href={`${href}&return=${encodeURIComponent(returnTarget)}&asset=${encodeURIComponent(idOf(asset))}`} key={idOf(asset)}><AssetImage assetRevisionId={idOf(asset)} alt={str(asset.name, title)} loading="lazy" /></a>)}</div>}</section>;
 }
 
 export function ImportScreen({ initialProject = "" }: { initialProject?: string }) {
@@ -345,7 +364,7 @@ export function SettingsScreen() {
   const [testError, setTestError] = useState("");
   const [testing, setTesting] = useState("");
   const [falKey, setFalKey] = useState("");
-  const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row;
+  const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const generation = (settings.data?.generation ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row;
   const test = async (provider: "llm" | "fal") => {
     setMessage(""); setTestError(""); setTesting(provider);
     try {
@@ -356,14 +375,25 @@ export function SettingsScreen() {
   };
   return <Page title="Settings" subtitle="Local operator identity, provider defaults, and storage connections." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
     <Notice error={testError || settings.error || health.error || workspaces.error} loading={settings.loading || health.loading || workspaces.loading} />
+    <div className="settings-layout">
+      <div className="settings-account">
     <Panel title="Account"><div className="form-grid"><Field label="Active comment profile"><ProfileSelect workspaceName={str(workspace?.name, "Workspace")} /></Field>{workspace && <Form submit="Rename workspace" onSubmit={async form => { const updated = await api<Row>(`/api/workspaces/${idOf(workspace)}`, patchBody({ name: form.get("workspace_name") })); setMessage("Workspace renamed."); workspaces.setData([updated]); window.dispatchEvent(new CustomEvent("titles:workspace-updated", { detail: updated })); }}><Field label="Workspace" hint="Single local workspace in this release."><input name="workspace_name" defaultValue={str(workspace.name)} required /></Field></Form>}</div></Panel>
-    {settings.data && <Form submit="Save provider settings" onSubmit={async form => { setMessage(""); await api("/api/operator-settings", patchBody({ llm: { provider: form.get("llm_provider"), model: form.get("llm_model"), base_url: String(form.get("llm_base_url") ?? "").trim() || null }, fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) } })); setMessage("Provider settings saved."); await settings.reload(); }}>
+      </div>
+      <div className="settings-provider">
+    {settings.data && <Form submit="Save provider settings" onSubmit={async form => { setMessage(""); await api("/api/operator-settings", patchBody({ llm: { provider: form.get("llm_provider"), model: form.get("llm_model"), base_url: String(form.get("llm_base_url") ?? "").trim() || null }, fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) }, generation: { prompt_prepend: String(form.get("prompt_prepend") ?? ""), prompt_append: String(form.get("prompt_append") ?? "") } })); setMessage("Provider and generation settings saved."); await settings.reload(); }}>
       <Panel title="LLM"><div className="integration-heading"><Status value={credentials.llm_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("llm")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Check model settings and environment credentials without contacting the provider."}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Checking..." : "Check LLM"}</button></div><div className="form-grid"><Field label="Provider"><select name="llm_provider" defaultValue={str(llm.provider, "openai")}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option><option value="openai-compatible">OpenAI-compatible</option></select></Field><Field label="Model"><input name="llm_model" defaultValue={str(llm.model, "")} placeholder="gpt-5-mini" /></Field><Field label="OpenAI-compatible base URL" hint="Only required for compatible providers."><input name="llm_base_url" type="url" defaultValue={str(llm.base_url, "")} placeholder="https://api.example.com/v1" /></Field></div><p className="muted">API keys remain in environment variables and are never returned to the browser.</p></Panel>
       <Panel title="FAL worker"><Field label="Maximum parallel jobs"><input name="fal_max_parallel_jobs" type="number" min="1" max="32" defaultValue={str(fal.max_parallel_jobs, "4")} /></Field></Panel>
+      <Panel title="Generation prompts"><p className="muted">Applied to every Image, Eval, and Grid prompt at compile time. Leave either field empty to disable that affix.</p><div className="form-grid"><Field label="Prompt prepend" hint="Inserted before every submitted prompt."><textarea name="prompt_prepend" defaultValue={str(generation.prompt_prepend, "")} /></Field><Field label="Prompt append" hint="Inserted after every submitted prompt."><textarea name="prompt_append" defaultValue={str(generation.prompt_append, "")} /></Field></div></Panel>
     </Form>}
+      </div>
+      <div className="settings-credential">
     {settings.data && <Panel title="FAL credential"><div className="integration-heading"><Status value={credentials.fal_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("fal")} disabled={Boolean(testing) || !credentials.fal_configured} title="Authenticate against FAL without submitting a generation."><PlugZap size={15} aria-hidden="true" />{testing === "fal" ? "Validating..." : "Validate connection"}</button></div><Field label="FAL API key" hint="Write-only. Saved keys are never returned to this page."><input type="password" autoComplete="new-password" value={falKey} onChange={event => setFalKey(event.currentTarget.value)} placeholder={credentials.fal_configured ? "Configured — enter a replacement" : "Enter FAL key"} /></Field><div className="actions"><button type="button" className="primary" disabled={!falKey.trim()} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "PUT", body: JSON.stringify({ key: falKey }) }); setFalKey(""); setMessage("FAL key saved. Validate the connection to confirm provider access."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button><button type="button" disabled={!credentials.fal_configured} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "DELETE" }); setFalKey(""); setMessage("Saved FAL key cleared. Environment credentials, if present, still take precedence."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button></div><p className="muted">Source: {str((settings.data.fal_connection as Row | undefined)?.source, "not configured")} · validation: {str(((settings.data.fal_connection as Row | undefined)?.last_validation as Row | undefined)?.state, "not run")}</p></Panel>}
+      </div>
     {message && <div className="vela-notice" role="status"><strong>Settings</strong><span>{message}</span></div>}
+      <div className="settings-storage">
     <S3SourcesPanel />
+      </div>
+      <div className="settings-profiles">
     <Panel title="Local comment profiles"><Notice error={profileError || profilesResource.error} loading={profilesResource.loading} empty={!profilesResource.loading && !profiles.length} />
       <DataTable rows={profiles} columns={[["display_name", "Name"], ["email", "Email"], ["is_active", "Active"]]} onRow={profile => setSelectedProfileId(idOf(profile))} />
       {selectedProfile && <><Form key={selectedProfileId} submit="Update profile" onSubmit={async form => { await api(`/api/profiles/${selectedProfileId}`, patchBody({ display_name: form.get("display_name"), email: String(form.get("email") ?? "").trim() || null })); setMessage("Profile updated."); await profilesResource.reload(); }}><div className="form-grid"><Field label="Display name"><input name="display_name" defaultValue={str(selectedProfile.display_name)} required /></Field><Field label="Email"><input name="email" type="email" defaultValue={str(selectedProfile.email, "")} /></Field></div></Form><button type="button" disabled={profiles.length <= 1 || profileBusy} title={profiles.length <= 1 ? "At least one active comment profile is required." : "Archive this local comment profile."} onClick={async () => { if (!window.confirm(`Archive ${str(selectedProfile.display_name)}?`)) return; setProfileBusy(true); setProfileError(""); try { await api(`/api/profiles/${selectedProfileId}/archive`, jsonBody({})); setSelectedProfileId(""); setMessage("Profile archived."); await profilesResource.reload(); } catch (reason) { setProfileError(reason instanceof Error ? reason.message : String(reason)); } finally { setProfileBusy(false); } }}><Archive size={15} />{profileBusy ? "Archiving..." : "Archive profile"}</button></>}
@@ -371,6 +401,8 @@ export function SettingsScreen() {
         await api("/api/profiles", jsonBody({ display_name: form.get("display_name"), email: form.get("email") || null })); await profilesResource.reload();
       }}><div className="form-grid"><Field label="Display name"><input name="display_name" required /></Field><Field label="Email"><input name="email" type="email" /></Field></div></Form>
     </Panel>
+      </div>
+    </div>
   </Page>;
 }
 
@@ -421,11 +453,11 @@ function S3SourcesPanel() {
       catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
       finally { setTesting(false); }
     }} disabled={testing} title={testing ? "Connection test is running." : "List one object from the first browse hint, or from the bucket root."}><PlugZap size={15} aria-hidden="true" />{testing ? "Testing..." : "Test connection"}</button><button onClick={async () => {
-      if (!window.confirm(`Delete source ${str(editing.name)}? Existing imported objects will be preserved.`)) return;
+      if (!window.confirm(`Disconnect source ${str(editing.name)}? This disables the connection but does not delete the bucket or its objects.`)) return;
       setMessage("");
-      try { await api(`/api/import-sources/${editingId}`, { method: "DELETE" }); setEditingId(""); setMessage("Source deleted."); await resource.reload(); }
+      try { await api(`/api/import-sources/${editingId}`, { method: "DELETE" }); setEditingId(""); setMessage("Source disconnected."); await resource.reload(); }
       catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
-    }} disabled={testing} title="Delete an unreferenced source configuration."><Trash2 size={15} />Delete source</button><button onClick={() => { setEditingId(""); setMessage(""); }} disabled={testing} title={testing ? "Wait for the connection test to finish." : "Return to the new-source form."}>Cancel edit</button></>}</div>
+    }} disabled={testing} title="Disconnect this source without deleting bucket data."><PlugZap size={15} />Disconnect source</button><button onClick={() => { setEditingId(""); setMessage(""); }} disabled={testing} title={testing ? "Wait for the connection test to finish." : "Return to the new-source form."}>Cancel edit</button></>}</div>
     {message && <div className="vela-notice" role="status"><strong>Storage source</strong><span>{message}</span></div>}
   </Panel>;
 }

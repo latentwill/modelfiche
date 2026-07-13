@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { axisValues, compileGridPlan, type GridAxis } from "./grid";
 import type { GenerationModel } from "./generation";
+import { GridBoard } from "./screens-grids";
 import gridSource from "./screens-grids.tsx?raw";
 
 const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelId: `family-${id}`, projectId: "project", name: `Model ${id}`,
   checkpointLabel: `step ${id}`, checkpointRevisionId: `revision-${id}`, provider: "fal", endpoint, providerModelUrl: `fal://${id}`, available: true });
 
+
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("grid planner", () => {
   it("uses the fixed/global and ordered axis workflow without legacy Scope controls", () => {
     expect(gridSource).toContain("Fixed / global settings");
@@ -70,5 +75,31 @@ describe("grid planner", () => {
     expect(cells).toHaveLength(8);
     expect(cells.map(cell => cell.zIndex)).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
     expect(() => compileGridPlan({ ...input, x: { field: "checkpoint_step", values: [{ id: "a", label: "a", value: "a" }] } })).toThrow(/cannot be an X or Y axis/);
+  });
+
+  it("shows planned cell content and contains completed images in review cells", async () => {
+    const x = { field: "prompt", values: axisValues("portrait") } as GridAxis;
+    const y = { field: "seed", values: axisValues("7") } as GridAxis;
+    const cells = compileGridPlan({ x, y, defaultModel: model("a"), availableModels: [model("a")], base: { numImages: 1 } });
+    const preview = render(createElement(GridBoard, { x: x.values, y: y.values, cells }));
+    expect(preview.getAllByText("portrait")).toHaveLength(2);
+    expect(preview.container.querySelector(".grid-board-preview")).toBeTruthy();
+
+    cleanup();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null } });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      kind: "descriptor",
+      descriptor: { delivery_url: "/delivery/full", asset_revision_id: "asset-1", variant: { kind: "thumbnail" } },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const review = render(createElement(GridBoard, {
+      x: x.values,
+      y: y.values,
+      cells: [{ x_index: 0, y_index: 0, asset_revision_id: "asset-1" }],
+      completed: true,
+    }));
+    const image = await review.findByRole("img");
+    await waitFor(() => expect(image.getAttribute("src")).toBe("/delivery/full"));
+    expect(image.parentElement?.classList.contains("grid-cell")).toBe(true);
+    expect(review.container.querySelector(".grid-board-completed")).toBeTruthy();
   });
 });

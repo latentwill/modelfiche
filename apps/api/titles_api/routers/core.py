@@ -197,10 +197,15 @@ def _gallery_query(
             models.Asset.id.not_in(dataset_asset_ids),
             func.coalesce(models.Asset.metadata_["category"].as_string(), "") != "dataset_image",
         )
-    if project_id:
+    if project_id and category != "sample":
         query = query.where(models.Asset.project_id == project_id)
     if category == "sample":
-        query = query.where(or_(models.Asset.id.in_(select(models.Sample.asset_id)), models.Asset.metadata_["category"].as_string() == "sample"))
+        sample_asset_ids = select(models.Sample.asset_id)
+        if project_id:
+            sample_asset_ids = sample_asset_ids.join(
+                models.TrainingRun, models.TrainingRun.id == models.Sample.run_id
+            ).where(models.TrainingRun.project_id == project_id)
+        query = query.where(models.Asset.id.in_(sample_asset_ids))
     elif category == "eval_output":
         # Historical imports predate relational EvalOutput rows. Gallery keeps them
         # navigable by their canonical origin tag; Eval pages remain run-owned.

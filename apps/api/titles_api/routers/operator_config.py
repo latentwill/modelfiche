@@ -25,6 +25,7 @@ DB = Annotated[Session, Depends(get_db)]
 DEFAULT_OPERATOR_SETTINGS = {
     "llm": {"provider": "openai", "model": "", "base_url": None},
     "fal": {"max_parallel_jobs": 4},
+    "generation": {"prompt_prepend": "", "prompt_append": ""},
 }
 
 
@@ -32,7 +33,7 @@ class OperatorSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     llm: dict[str, Any] | None = None
     fal: dict[str, Any] | None = None
-
+    generation: dict[str, Any] | None = None
 
 class FalKeySave(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -92,6 +93,11 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
         if unknown:
             raise HTTPException(status_code=422, detail=f"unsupported {section} settings: {', '.join(sorted(unknown))}")
         result[section].update(values)
+    for key in ("prompt_prepend", "prompt_append"):
+        value = result["generation"].get(key)
+        if not isinstance(value, str) or len(value) > 4_000:
+            raise HTTPException(status_code=422, detail=f"generation.{key} must be a string no longer than 4000 characters")
+        result["generation"][key] = value.strip()
     concurrency = result["fal"].get("max_parallel_jobs")
     if not isinstance(concurrency, int) or not 1 <= concurrency <= 32:
         raise HTTPException(status_code=422, detail="fal.max_parallel_jobs must be between 1 and 32")
@@ -106,7 +112,7 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
 @router.get("/operator-settings")
 @router.get("/settings/operator")
 def operator_settings(db: DB):
-    values = _preference(db).value
+    values = _merge_settings(_preference(db).value, OperatorSettingsUpdate())
     settings = get_settings()
     fal_status = fal_secret_store().status()
     return {

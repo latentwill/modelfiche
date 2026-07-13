@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activityLabel } from "./activity";
+import { activityLabel, activityObjectHref, previewAssetId } from "./activity";
 
 describe("activityLabel", () => {
   it("maps known provider events to concise user-facing text", () => {
@@ -15,5 +15,24 @@ describe("activityLabel", () => {
 
   it("has a useful fallback for a missing event key", () => {
     expect(activityLabel(undefined)).toBe("Activity recorded");
+  });
+});
+
+describe("activity row links and previews", () => {
+  it("returns only non-empty API-provided hrefs", () => {
+    expect(activityObjectHref("#/image/image-1")).toBe("#/image/image-1");
+    expect(activityObjectHref("  #/run/run-1  ")).toBe("#/run/run-1");
+    expect(activityObjectHref("")).toBeNull();
+    expect(activityObjectHref(null)).toBeNull();
+    expect(activityObjectHref(42)).toBeNull();
+    expect(activityObjectHref("/image/image-1")).toBeNull();
+  });
+
+  it("returns only non-empty preview asset identifiers", () => {
+    expect(previewAssetId("asset-revision-1")).toBe("asset-revision-1");
+    expect(previewAssetId("  asset-revision-2  ")).toBe("asset-revision-2");
+    expect(previewAssetId("")).toBeNull();
+    expect(previewAssetId(undefined)).toBeNull();
+    expect(previewAssetId({ id: "asset-revision-3" })).toBeNull();
   });
 });

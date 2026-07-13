@@ -30,6 +30,7 @@ import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status } from "./ui";
 import { generationReplayFromMetadata, generatorHref } from "./generation";
+import { DitherLossChart } from "./dither-loss-chart";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -44,7 +45,7 @@ const formatBytes = (value: unknown) => {
   for (let index = 1; index < units.length && amount >= 1024; index += 1) { amount /= 1024; unit = units[index]; }
   return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
 };
-const scientificNotation = (value: unknown) => {
+export const scientificNotation = (value: unknown) => {
   const number = Number(value);
   if (!Number.isFinite(number)) return str(value, "Unavailable");
   const scientific = number.toExponential().replace(/\.0+e/, "e").replace(/(\.\d*?[1-9])0+e/, "$1e").replace("e+", "e");
@@ -88,7 +89,7 @@ export function LossGraph({ points }: { points: unknown }) {
     return <div className="loss-graph-empty" role="status"><strong>No loss metrics available</strong><small>The imported run artifacts did not include usable loss points.</small></div>;
   }
 
-  return <FlintMetricChart points={normalized} label="Loss" color="#b64235" />;
+  return <DitherLossChart points={normalized} />;
 }
 
 function FlintMetricChart({ points, label, color }: { points: LossMetricPoint[]; label: string; color: string }) {
@@ -526,6 +527,7 @@ export function ModelScreen({ id }: { id: string }) {
   const versionRunIds = new Set(versions.flatMap(version => [str(version.checkpoint_run_id), str((version.readiness as Row | undefined)?.training_run_id)]).filter(Boolean));
   const projectRuns = rows(runs.data);
   const relatedRuns = projectRuns.filter(run => versionRunIds.has(idOf(run)));
+  const modelTrack = str(resource.data?.name).toLowerCase().includes("render") ? "render" : str(resource.data?.name).toLowerCase().includes("flat") ? "flat" : "";
 
   async function changeVersion(action: "approve" | "archive") {
     if (!selectedVersion) return;
@@ -548,6 +550,11 @@ export function ModelScreen({ id }: { id: string }) {
     <ObjectImageStrip assets={rows(preview.data)} label="Latest model outputs" />
     {resource.data && <Panel title="Model record"><Notice error={project.error} loading={project.loading} /><dl className="details"><dt>Description</dt><dd>{str(resource.data.description, "No description")}</dd><dt>Latest trigger words</dt><dd>{Array.isArray(latestVersion.trigger_words) && latestVersion.trigger_words.length ? latestVersion.trigger_words.join(", ") : "None registered"}</dd><dt>Base model</dt><dd>{str(latestVersion.base_model, "Not registered")}</dd><dt>Project</dt><dd>{projectId ? <a href={`#/project/${projectId}`}>{str(project.data?.title ?? project.data?.name, "Open project")}</a> : "Not assigned"}</dd><dt>Versions</dt><dd>{versions.length}</dd></dl></Panel>}
 
+    <Panel title="Training run data">
+      <Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !relatedRuns.length} />
+      {relatedRuns.map((run, index) => <ModelTrainingRun key={idOf(run)} run={run} track={modelTrack} initiallyExpanded={index === 0} />)}
+    </Panel>
+
     <Panel title="Eval Runs">
       <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
       {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => <a href={`#/eval/${idOf(evaluation)}`} key={idOf(evaluation)}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={String(output.asset_revision_id ?? output.asset_id)} alt="Eval output" />)}</div><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.prompt_set_name)} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a>)}</div>}
@@ -556,36 +563,28 @@ export function ModelScreen({ id }: { id: string }) {
     <Panel title="Model versions">
       <Notice loading={resource.loading} empty={!resource.loading && !versions.length} />
       {!!versions.length && <DataTable rows={versions} columns={[["filename", "Checkpoint file"], ["asset_id", "Artifact ID"], ["checkpoint_step", "Step"], ["lifecycle_state", "State"], ["fal_status", "FAL upload"], ["fal_url", "FAL URL / identifier"]]} onRow={setSelectedVersion} />}
-      {selectedVersion && <div className="actions version-actions" aria-label={`Actions for ${str(selectedVersion.name, "selected version")}`}>
-        <strong>{str(selectedVersion.name, "Selected version")}</strong>
-        <button className="primary" onClick={() => void changeVersion("approve")} disabled={selectedState === "approved" || Boolean(busy)} title={selectedState === "approved" ? "This version is already approved" : undefined}><Check size={14} />{busy === "approve" ? "Approving..." : "Approve"}</button>
-        <button onClick={() => void changeVersion("archive")} disabled={selectedState === "archived" || Boolean(busy)} title={selectedState === "archived" ? "This version is already archived" : undefined}><Archive size={14} />{busy === "archive" ? "Archiving..." : "Archive"}</button>
-        <button aria-label="Clear selected model version" title="Clear selection" onClick={() => setSelectedVersion(null)}><X size={14} /></button>
-      </div>}
-    </Panel>
-
-    <Panel title="Training run data">
-      <Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !relatedRuns.length} />
-      {relatedRuns.map(run => <ModelTrainingRun key={idOf(run)} run={run} />)}
+      {selectedVersion && <div className="actions version-actions" aria-label={`Actions for ${str(selectedVersion.name, "selected version")}`}><strong>{str(selectedVersion.name, "Selected version")}</strong><button className="primary" onClick={() => void changeVersion("approve")} disabled={selectedState === "approved" || Boolean(busy)} title={selectedState === "approved" ? "This version is already approved" : undefined}><Check size={14} />{busy === "approve" ? "Approving..." : "Approve"}</button><button onClick={() => void changeVersion("archive")} disabled={selectedState === "archived" || Boolean(busy)} title={selectedState === "archived" ? "This version is already archived" : undefined}><Archive size={14} />{busy === "archive" ? "Archiving..." : "Archive"}</button><button aria-label="Clear selected model version" title="Clear selection" onClick={() => setSelectedVersion(null)}><X size={14} /></button></div>}
     </Panel>
   </Page>;
 }
 
-function ModelTrainingRun({ run }: { run: Row }) {
-  const [expanded, setExpanded] = useState(true);
+function ModelTrainingRun({ run, track, initiallyExpanded }: { run: Row; track: string; initiallyExpanded: boolean }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const runId = idOf(run);
   const samples = useResource<unknown>(expanded ? `/api/runs/${runId}/samples` : null);
-  const metrics = useResource<LossMetrics>(expanded ? `/api/runs/${runId}/metrics?name=loss` : null);
+  const metrics = useResource<LossMetrics>(expanded ? `/api/runs/${runId}/metrics?name=${encodeURIComponent(track ? `loss.${track}` : "loss")}` : null);
   const config = useResource<Row>(expanded ? `/api/runs/${runId}/config` : null);
-  const sampleRows = rows(samples.data);
-  return <details className="training-run" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
+  const sampleRows = rows(samples.data).filter(sample => !track || str(sample.sample_track).toLowerCase() === track).slice(0, 9);
+  return <details className="training-run model-training-run" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary><strong>{str(run.name, "Training run")}</strong><span>{str(run.dataset_version_name, "No linked dataset")}</span><Status value={run.status} /></summary>
     <div className="training-run-body">
       <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>
       <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}`}><FileImage size={14} />View all samples</a></div>
       {expanded && <>
-        <section className="vela-section"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <AssetGrid assets={sampleRows.slice(0, 8)} />}</section>
-        <section className="vela-section"><div className="vela-section-heading"><h3>Loss graph</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
+        <div className="model-training-visuals">
+          <section className="vela-section model-training-chart"><div className="vela-section-heading"><h3>{track ? `${track[0].toUpperCase()}${track.slice(1)} loss` : "Loss graph"}</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
+          <section className="vela-section model-training-samples"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <div className="model-sample-grid">{sampleRows.map(sample => <figure key={idOf(sample)}><AssetImage assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id)} alt={str(sample.name, "Training sample")} /><figcaption>Step {str(sample.training_step, "—")}</figcaption></figure>)}</div>}</section>
+        </div>
         <section className="vela-section"><div className="vela-section-heading"><h3>Training configuration</h3></div><Notice error={config.error} loading={config.loading} />{config.data && <details className="config-disclosure"><summary>Show stored training configuration</summary><ModelConfigDetails value={(config.data.normalized ?? {}) as Row} raw={(config.data.raw ?? {}) as Row} datasetName={str(run.dataset_version_name, "Not linked")} /></details>}</section>
       </>}
     </div>
@@ -613,7 +612,7 @@ function ModelConfigDetails({ value, raw, datasetName }: { value: Row; raw: Row;
   });
   const other = Object.entries(value).filter(([key]) => !used.has(key) && key !== "training_config");
   const display = (label: string, item: unknown) => label === "Learning rate" ? scientificNotation(item) : typeof item === "object" ? JSON.stringify(item) : str(item);
-  return <><dl className="details">{primary.map(([label, item]) => <Fragment key={label}><dt>{label}</dt><dd>{display(label, item)}</dd></Fragment>)}{other.map(([key, item]) => <Fragment key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{display(key, item)}</dd></Fragment>)}</dl>{value.training_config ? <><h4>Nested training config</h4><Json value={value.training_config} /></> : null}<h4>Imported source config</h4><Json value={raw} /></>;
+  return <div className="model-config-details"><dl className="details model-config-summary">{primary.map(([label, item]) => <Fragment key={label}><dt>{label}</dt><dd>{display(label, item)}</dd></Fragment>)}{other.map(([key, item]) => <Fragment key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{display(key, item)}</dd></Fragment>)}</dl>{value.training_config ? <section><h4>Nested training config</h4><Json value={value.training_config} /></section> : null}<section><h4>Imported source config</h4><Json value={raw} /></section></div>;
 }
 
 type GalleryFilters = {
@@ -762,7 +761,7 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
       </div>
       <div className="actions"><button onClick={() => setFilters(defaultFilters)} disabled={!isFiltered} title={!isFiltered ? "No additional filters are active" : undefined}><X size={14} />Clear filters</button><span className="vela-meta" aria-live="polite">{total} matching assets</span></div>
     </Panel>
-    <Panel title="Assets">
+    <Panel title="Assets" className="gallery-assets-panel">
       <ActionMessage message={actionNotice} />
       <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !assets.length} />
       {!!assets.length && <div style={{ "--asset-size": `${size}px` } as CSSProperties}><AssetGrid assets={assets} hrefForAsset={asset => galleryHash(filters, page, pageSize, str(asset.asset_revision_id ?? asset.asset_id ?? asset.id), returnTarget)} /></div>}
@@ -818,7 +817,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const prompt = str(metadata.prompt ?? metadata.caption, "");
   const replay = generationReplayFromMetadata({ ...metadata, project_id: metadata.project_id ?? asset.data?.project_id });
   return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`}><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
-    <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></div><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} /></div>{prompt && <p className="image-review-prompt">{prompt}</p>}
+    <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></nav><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} /></div>{prompt && <p className="image-review-prompt">{prompt}</p>}
       <div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
       <aside id="storage_details" className="image-review-inspector"><h2>Image review <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{originType}</span></h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} x {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{relationName("model")}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></dl>
         {replay && <a className="button vela-button" href={generatorHref("image", replay.context, id)}><ImagePlus size={15} /> Generate with these settings</a>}
@@ -850,7 +849,7 @@ export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsse
     const modelLine = [model, checkpoint].filter(Boolean).join(" · ");
     const assetId = String(asset.asset_revision_id ?? asset.asset_id ?? asset.id);
     const name = str(asset.filename ?? asset.name, "Generated image");
-    return <a className="asset-card" key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}>
+    return <a className="asset-card" data-origin={originType.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")} key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}>
       <AssetImage assetRevisionId={assetId} alt={name} loading="lazy" />
       <span className="asset-card-name">{name}</span>
       <small className="asset-card-footer"><span>{originLine || "Unknown"}</span><span>{modelLine || "Unknown"}</span></small>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ImagePlus } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
+import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { falAdapter, generationModelFromRow, generationModelUnavailableReason, pickerModeMultiple, normalizedParametersFromMetadata, type GenerationContext, type GenerationModel, type GenerationPickerMode, type NormalizedGenerationParameters } from "./generation";
@@ -33,6 +34,68 @@ export function ModelCheckpointPicker({ models, selected, onChange, multiple, mo
       })}
     </select>
   </Field>;
+}
+
+const endpointFieldExclusions: Record<string, true> = { sync_mode: true, prompt: true, loras: true };
+const imageSizeLabels: Record<string, string> = {
+  square_hd: "Square HD",
+  square: "Square",
+  portrait_4_3: "Portrait 4:3",
+  portrait_16_9: "Portrait 16:9",
+  landscape_4_3: "Landscape 4:3",
+  landscape_16_9: "Landscape 16:9",
+};
+
+export function EndpointFields({ schema, omit = [] }: { schema?: Row; omit?: string[] }) {
+  const defaults = (schema?.defaults ?? {}) as Row;
+  const fieldSchema = (schema?.fields ?? {}) as Record<string, Row>;
+  const requestFields = Array.isArray(schema?.request_fields) ? schema.request_fields.map(String) : [];
+  const omitted = new Set(omit);
+  const fields = Array.from(new Set([...Object.keys(defaults), ...requestFields])).filter(key => !endpointFieldExclusions[key] && !omitted.has(key));
+  return <>{fields.map(key => <EndpointField key={key} field={key} value={defaults[key]} schema={fieldSchema[key]} />)}</>;
+}
+
+function EndpointField({ field, value, schema = {} }: { field: string; value: unknown; schema?: Row }) {
+  const label = field === "image_size" ? "Aspect ratio / resolution" : field.replaceAll("_", " ");
+  const type = str(schema.type, typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "string");
+  const options = Array.isArray(schema.options) ? schema.options.map(String) : [];
+  const [imageSize, setImageSize] = useState(typeof value === "object" ? "custom" : str(value, options[0]));
+  if (type === "boolean") return <Field label={label}><select name={field} defaultValue={String(value ?? false)}><option value="true">Enabled</option><option value="false">Disabled</option></select></Field>;
+  if (type === "image_size") {
+    const custom = (schema.custom ?? {}) as Row;
+    const current = typeof value === "object" && value ? value as Row : {};
+    return <><Field label={label} hint="Presets come from the selected FAL endpoint. Use custom dimensions only when exact pixels are required."><select name={field} value={imageSize} onChange={event => setImageSize(event.target.value)}>{options.map(option => <option key={option} value={option}>{imageSizeLabels[option] ?? option.replaceAll("_", " ")}</option>)}<option value="custom">Custom dimensions</option></select></Field>{imageSize === "custom" && <><Field label="Custom width"><input name={`${field}_width`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.width, "1024")} required /></Field><Field label="Custom height"><input name={`${field}_height`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.height, "1024")} required /></Field></>}</>;
+  }
+  if (type === "enum" && options.length) return <Field label={label}><select name={field} defaultValue={str(value, options[0])}>{options.map(option => <option key={option}>{option}</option>)}</select></Field>;
+  if (type === "integer" || type === "number") return <Field label={label}><input name={field} type="number" min={schema.min === undefined ? undefined : Number(schema.min)} max={schema.max === undefined ? undefined : Number(schema.max)} step={schema.step === undefined ? (type === "integer" ? 1 : "any") : Number(schema.step)} defaultValue={value === undefined ? "" : Number(value)} /></Field>;
+  return <Field label={label}><input name={field} defaultValue={str(value, "")} /></Field>;
+}
+
+export function parametersFromForm(form: FormData, schema?: Row) {
+  const defaults = (schema?.defaults ?? {}) as Row;
+  const fieldSchema = (schema?.fields ?? {}) as Record<string, Row>;
+  const requestFields = Array.isArray(schema?.request_fields) ? schema.request_fields.map(String) : [];
+  const parameters: Row = {};
+  for (const key of Array.from(new Set([...Object.keys(defaults), ...requestFields]))) {
+    if (endpointFieldExclusions[key]) continue;
+    const fallback = defaults[key];
+    const raw = form.get(key);
+    if (raw === null || raw === "") {
+      if (fallback !== undefined) parameters[key] = fallback;
+      continue;
+    }
+    if (fieldSchema[key]?.type === "image_size" && raw === "custom") {
+      parameters[key] = { width: Number(form.get(`${key}_width`)), height: Number(form.get(`${key}_height`)) };
+    } else if (fieldSchema[key]?.type === "boolean" || typeof fallback === "boolean") {
+      parameters[key] = raw === "true";
+    } else if (["integer", "number"].includes(str(fieldSchema[key]?.type, "")) || typeof fallback === "number") {
+      parameters[key] = Number(raw);
+    } else {
+      parameters[key] = raw;
+    }
+  }
+  parameters.sync_mode = false;
+  return parameters;
 }
 
 export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
@@ -71,34 +134,41 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
     if (versions.data == null) return;
     setSelected(ids => ids.filter(id => generationModels.some(model => model.id === id)));
   }, [generationModels, versions.data]);
-  const context: GenerationContext | null = projectId ? scope === "model" && modelId ? { kind: "model", projectId, modelId, modelVersionId: selected[0] } : { kind: "project", projectId } : null;
+  const context: GenerationContext | null = projectId ? scope === "model" ? modelId ? { kind: "model", projectId, modelId, modelVersionId: selected[0] } : null : { kind: "project", projectId } : null;
+  const selectedModel = generationModels.find(model => model.id === selected[0]);
+  const endpointSchema = useResource<Row>(selectedModel?.endpoint ? `/api/eval-endpoints/${selectedModel.endpoint}/schema` : null);
+  const imageSchema = useMemo(() => endpointSchema.data ? {
+    ...endpointSchema.data,
+    defaults: {
+      ...((endpointSchema.data.defaults ?? {}) as Row),
+      ...(prefill.width && prefill.height ? { image_size: { width: prefill.width, height: prefill.height } } : {}),
+    },
+  } : undefined, [endpointSchema.data, prefill.width, prefill.height]);
+  const imagePreflightError = !projectId ? "Select a project." : scope === "model" && !modelId ? "Select a model context." : !selectedModel ? "Select an available model checkpoint." : !selectedModel.available ? selectedModel.unavailableReason || "Select a provider-registered checkpoint." : endpointSchema.loading || !endpointSchema.data ? "Loading settings for the selected FAL endpoint." : "";
   return <Page title="Image Generator" subtitle="Generate through the shared provider layer using the selected project/model context.">
-    <Notice error={projects.error || modelFamilies.error || versions.error || assetContext.error} loading={projects.loading || modelFamilies.loading || versions.loading || assetContext.loading} />
-    {prefillAssetId && <div className="vela-notice" role="status"><strong>Settings loaded</strong><span>Supported settings from image {prefillAssetId} are prefilled. Nothing will run until you submit.</span></div>}
+    <Notice error={projects.error || modelFamilies.error || versions.error || assetContext.error || endpointSchema.error} loading={projects.loading || modelFamilies.loading || versions.loading || assetContext.loading} />
+    {prefillAssetId && <div className="generation-source-layout"><figure className="generation-image-frame"><AssetImage assetRevisionId={prefillAssetId} variant="content" alt="Source image for generation settings" /><figcaption>Source image · settings reference</figcaption></figure><div className="vela-notice" role="status"><strong>Settings loaded</strong><span>Supported settings from image {prefillAssetId} are prefilled. Nothing will run until you submit.</span></div></div>}
     <Panel title="Generation context"><div className="form-grid">
+      <Field label="Scope"><select value={scope} onChange={event => { setScope(event.target.value as "project" | "model"); setModelId(""); setSelected([]); }}><option value="project">Project</option><option value="model">Model / checkpoint</option></select></Field>
       <Field label="Project"><select value={projectId} onChange={event => { setProjectId(event.target.value); setModelId(""); setSelected([]); }}><option value="">Select...</option>{rows(projects.data).map(project => <option value={idOf(project)} key={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field>
       {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelected([]); }} disabled={!projectId}><option value="">Select...</option>{rows(modelFamilies.data).map(model => <option value={idOf(model)} key={idOf(model)}>{str(model.name)}</option>)}</select></Field>}
     </div>
     <ModelCheckpointPicker mode="single" models={generationModels} selected={selected} onChange={setSelected} label="Model / checkpoint" />
     {context && selected[0] && <p className="vela-meta">Provider and endpoint: {generationModels.find(model => model.id === selected[0])?.provider?.toUpperCase()} / {generationModels.find(model => model.id === selected[0])?.endpoint}</p>}
     </Panel>
-    <Panel title="Image request"><Form submit="Generate image" onSubmit={async form => {
+    <div className={`vela-notice${imagePreflightError ? " vela-notice-error" : ""}`} role="status"><strong>Generation preflight</strong><span>{imagePreflightError || `Ready for ${selectedModel?.provider?.toUpperCase()} / ${selectedModel?.endpoint}. Enter a prompt, then generate one image.`}</span></div>
+    <Panel title="Image request"><Form submit="Generate image" submitDisabled={Boolean(imagePreflightError)} onSubmit={async form => {
       if (!context) throw new Error("Select a project context.");
       const model = generationModels.find(item => item.id === selected[0]);
       if (!model) throw new Error("Select an available model checkpoint.");
-      const parameters: NormalizedGenerationParameters = { prompt: String(form.get("prompt") ?? ""), negativePrompt: String(form.get("negative_prompt") ?? "") || undefined, seed: optionalNumber(form.get("seed")), width: optionalNumber(form.get("width")), height: optionalNumber(form.get("height")), guidance: optionalNumber(form.get("guidance")), steps: optionalNumber(form.get("steps")), sampler: String(form.get("sampler") ?? "") || undefined, scheduler: String(form.get("scheduler") ?? "") || undefined, loraScale: optionalNumber(form.get("lora_scale")), numImages: 1 };
+      const endpointParameters = parametersFromForm(form, imageSchema);
+      const parameters: NormalizedGenerationParameters = { prompt: String(form.get("prompt") ?? ""), seed: optionalNumber(form.get("seed")), loraScale: optionalNumber(form.get("lora_scale")), numImages: 1, extra: endpointParameters };
       const result = await falAdapter.submit({ workflow: "image", context, model, parameters, clientRequestId: crypto.randomUUID() });
       setQueued(result.providerRequestId ? `Queued as ${result.providerRequestId}.` : "Generation queued."); await queue.reload();
     }}><div className="form-grid">
       <Field label="Prompt"><textarea name="prompt" required key={`prompt-${prefill.prompt}`} defaultValue={prefill.prompt ?? ""} /></Field>
-      <Field label="Negative prompt"><textarea name="negative_prompt" key={`negative-${prefill.negativePrompt}`} defaultValue={prefill.negativePrompt ?? ""} /></Field>
       <Field label="Seed"><input name="seed" type="number" key={`seed-${prefill.seed}`} defaultValue={prefill.seed} /></Field>
-      <Field label="Width"><input name="width" type="number" min="1" key={`width-${prefill.width}`} defaultValue={prefill.width} /></Field>
-      <Field label="Height"><input name="height" type="number" min="1" key={`height-${prefill.height}`} defaultValue={prefill.height} /></Field>
-      <Field label="Guidance"><input name="guidance" type="number" step="0.1" key={`guidance-${prefill.guidance}`} defaultValue={prefill.guidance} /></Field>
-      <Field label="Steps"><input name="steps" type="number" min="1" key={`steps-${prefill.steps}`} defaultValue={prefill.steps} /></Field>
-      <Field label="Sampler"><input name="sampler" key={`sampler-${prefill.sampler}`} defaultValue={prefill.sampler} /></Field>
-      <Field label="Scheduler"><input name="scheduler" key={`scheduler-${prefill.scheduler}`} defaultValue={prefill.scheduler} /></Field>
+      <EndpointFields key={`${selectedModel?.endpoint}-${prefill.width}-${prefill.height}`} schema={imageSchema} omit={["num_images", "seed"]} />
       <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" key={`scale-${prefill.loraScale}`} defaultValue={prefill.loraScale ?? 1} /></Field>
     </div></Form>{queued && <div className="vela-notice" role="status"><ImagePlus size={16} /><span>{queued}</span></div>}</Panel>
     <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />

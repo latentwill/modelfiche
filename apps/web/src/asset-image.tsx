@@ -16,6 +16,7 @@ type AssetImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
 const descriptorCache = new Map<string, string>();
 const descriptorRequests = new Map<string, Promise<string>>();
 const unavailablePlaceholder = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="#d1d5db"/><g fill="none" stroke="#6b7280" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><rect x="35" y="27" width="90" height="66" rx="5"/><circle cx="62" cy="51" r="8"/><path d="m43 84 25-23 17 15 13-12 19 20"/></g></svg>')}`;
+const loadingPlaceholder = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="#f2f4fa"/><g fill="none" stroke="#b8c5ed" stroke-width="1" opacity=".7"><path d="M0 20h160M0 40h160M0 60h160M0 80h160M0 100h160M20 0v120M40 0v120M60 0v120M80 0v120M100 0v120M120 0v120M140 0v120"/></g><g fill="none" stroke="#1237b8"><circle cx="80" cy="60" r="22" stroke-dasharray="2 5"/><path d="M80 29v62M49 60h62M9 22V9h13M138 9h13v13M9 98v13h13M151 98v13h-13"/></g><circle cx="80" cy="60" r="3" fill="#1237b8"/></svg>')}`;
 
 function descriptorKey(assetRevisionId: string, variant: AssetImageVariant, maxPixels: number) {
   return `${assetRevisionId}:${variant}:${variant === "thumbnail" ? maxPixels : "original"}`;
@@ -72,7 +73,7 @@ export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels =
   }, [assetRevisionId, maxPixels, variant, visible]);
 
   const deliveryState = delivery?.error ? "unavailable" : delivery?.src ? "loaded" : "loading";
-  return <img {...props} ref={imageRef} className={`asset-image asset-image-${deliveryState}${className ? ` ${className}` : ""}`} src={delivery?.src || unavailablePlaceholder} alt={alt} aria-busy={deliveryState === "loading"} data-delivery-state={deliveryState} data-delivery-error={delivery?.error || undefined} onError={event => {
+  return <img {...props} ref={imageRef} className={`asset-image asset-image-${deliveryState}${className ? ` ${className}` : ""}`} src={delivery?.src || (delivery?.error ? unavailablePlaceholder : loadingPlaceholder)} alt={alt} aria-busy={deliveryState === "loading"} data-delivery-state={deliveryState} data-delivery-error={delivery?.error || undefined} onError={event => {
     props.onError?.(event);
     if (!delivery?.src || retriedRef.current) return;
     retriedRef.current = true;

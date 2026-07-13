@@ -208,6 +208,12 @@ export function generationModelFromRow(row: Record<string, unknown>): Generation
   return falAdapter.resolveModel(row);
 }
 
+export function connectedFalGenerationModels(rows: Record<string, unknown>[], projectId: string, modelId?: string): GenerationModel[] {
+  return rows
+    .map(generationModelFromRow)
+    .filter(model => model.projectId === projectId && model.provider === "fal" && eligibleGenerationModel(model) && (!modelId || model.modelId === modelId));
+}
+
 export function generatorHref(workflow: GenerationWorkflow, context: GenerationContext, prefillAssetId?: string) {
   const params = new URLSearchParams({ workflow, scope: context.kind, project: context.projectId });
   if (context.kind === "model") {

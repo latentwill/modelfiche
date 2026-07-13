@@ -158,3 +158,43 @@ def test_inline_output_lookup_is_independent_for_each_logical_prompt(client: Tes
     assert [item.id for item in planned] == ["inline-first", "inline-second"]
     assert handler._has_output(run_id, None, inline_prompt_id="inline-first") is True
     assert handler._has_output(run_id, None, inline_prompt_id="inline-second") is False
+
+
+def test_generation_prompt_affixes_apply_to_image_and_eval_compile(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Affixes"}).json()
+    model, version = _registered_checkpoint(client, project["id"])
+
+    settings = client.patch(
+        "/api/operator-settings",
+        json={"generation": {"prompt_prepend": "house style", "prompt_append": "no watermark"}},
+    )
+    assert settings.status_code == 200, settings.text
+    assert settings.json()["generation"] == {"prompt_prepend": "house style", "prompt_append": "no watermark"}
+
+    image = client.post(
+        "/api/generation-requests/compile",
+        json=_payload(project["id"], model, version, str(uuid4()), "portrait"),
+    )
+    assert image.status_code == 200, image.text
+
+    eval_compile = client.post(
+        "/api/eval-generation-requests/compile",
+        json={
+            "workflow": "eval",
+            "provider": "fal",
+            "context": {"kind": "project", "project_id": project["id"]},
+            "model_version_id": version["id"],
+            "checkpoint_revision_id": version["checkpoint_revision_id"],
+            "prompts": [{"prompt_id": "prompt-1", "prompt": "profile"}],
+            "parameters": {"lora_scale": 1, "num_images": 1},
+            "client_request_id": str(uuid4()),
+        },
+    )
+    assert eval_compile.status_code == 200, eval_compile.text
+
+    with app_module.SessionLocal() as session:
+        image_definition = session.get(models.EvalDefinition, image.json()["definition_id"])
+        eval_definition = session.get(models.EvalDefinition, eval_compile.json()["definition_id"])
+        assert [item["text"] for item in image_definition.inline_prompts] == ["house style portrait no watermark"]
+        assert [item["text"] for item in eval_definition.inline_prompts] == ["house style profile no watermark"]

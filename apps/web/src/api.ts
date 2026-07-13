@@ -21,7 +21,8 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   if (profileId) headers.set("x-profile-id", profileId);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const contentType = response.headers.get("content-type") ?? "";
-  const body = contentType.includes("json") ? await response.json() : await response.text();
+  const text = await response.text();
+  const body = text ? (contentType.includes("json") ? JSON.parse(text) : text) : undefined;
   if (!response.ok) {
     const message = typeof body === "object" && body && "detail" in body
       ? String((body as { detail: unknown }).detail)

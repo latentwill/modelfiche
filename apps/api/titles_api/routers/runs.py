@@ -1,3 +1,5 @@
+from datetime import datetime
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -15,6 +17,31 @@ DB = Annotated[Session, Depends(get_db)]
 
 def dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
+
+def sample_provenance(db: Session, sample: models.Sample, asset: models.Asset | None) -> tuple[int | None, str | None]:
+    checkpoint = db.get(models.Checkpoint, sample.checkpoint_id) if sample.checkpoint_id else None
+    training_step = checkpoint.step if checkpoint else None
+    if training_step is None and asset:
+        match = re.search(r"__(\d{9})_\d+\.[^.]+$", asset.name)
+        if match:
+            training_step = int(match.group(1))
+    if training_step is None:
+        training_step = sample.step
+    locations = db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == sample.asset_id)).all()
+    object_keys = " ".join(location.object_key or "" for location in locations).lower()
+    track = "flat" if "/kzapata_flat_" in object_keys else "render" if "/kzapata_render_" in object_keys else None
+    return training_step, track
+
+
+def model_version_chronology(db: Session, version: models.ModelVersion) -> tuple[float, int, float]:
+    checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+    run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+    source_time = ((run.raw_manifest or {}).get("created_at") or (run.raw_state or {}).get("updated_at")) if run else None
+    try:
+        parsed = datetime.fromisoformat(str(source_time).replace("Z", "+00:00")).timestamp() if source_time else run.created_at.timestamp() if run else 0.0
+    except (TypeError, ValueError):
+        parsed = run.created_at.timestamp() if run else 0.0
+    return parsed, checkpoint.step if checkpoint else -1, version.created_at.timestamp()
 
 
 def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> dict[str, Any] | None:
@@ -56,6 +83,35 @@ def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> di
     }
 
 
+def _run_preview_asset_ids(db: Session, run_ids: set[str]) -> dict[str, str]:
+    """Batch-resolve latest image samples, then image checkpoints as a safe fallback."""
+    if not run_ids:
+        return {}
+    previews: dict[str, str] = {}
+    sample_rows = db.execute(
+        select(models.Sample.run_id, models.Asset.id)
+        .join(models.Asset, models.Asset.id == models.Sample.asset_id)
+        .where(models.Sample.run_id.in_(run_ids), models.Asset.kind == models.AssetKind.image)
+        .order_by(
+            models.Sample.step.desc().nulls_last(),
+            models.Sample.modified_at.desc().nulls_last(),
+            models.Sample.created_at.desc(),
+            models.Sample.id.desc(),
+        )
+    ).all()
+    for run_id, asset_id in sample_rows:
+        previews.setdefault(run_id, asset_id)
+    checkpoint_rows = db.execute(
+        select(models.Checkpoint.run_id, models.Asset.id)
+        .join(models.Asset, models.Asset.id == models.Checkpoint.asset_id)
+        .where(models.Checkpoint.run_id.in_(run_ids), models.Asset.kind == models.AssetKind.image)
+        .order_by(models.Checkpoint.step.desc(), models.Checkpoint.created_at.desc(), models.Checkpoint.id.desc())
+    ).all()
+    for run_id, asset_id in checkpoint_rows:
+        previews.setdefault(run_id, asset_id)
+    return previews
+
+
 @router.get("/runs")
 def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(None, alias="status")):
     query = select(models.TrainingRun).order_by(models.TrainingRun.created_at.desc(), models.TrainingRun.id.desc())
@@ -63,8 +119,10 @@ def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(N
         query = query.where(models.TrainingRun.project_id == project_id)
     if run_status:
         query = query.where(models.TrainingRun.status == run_status)
+    run_rows = db.scalars(query).all()
+    previews = _run_preview_asset_ids(db, {row.id for row in run_rows})
     rows = []
-    for row in db.scalars(query).all():
+    for row in run_rows:
         project = db.get(models.Project, row.project_id)
         result = db.execute(
             select(models.Model, models.ModelVersion)
@@ -83,6 +141,7 @@ def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(N
             "result_model_name": result_model.name if result_model else None,
             "result_model_version_id": result_version.id if result_version else None,
             "result_model_version_name": result_version.name if result_version else None,
+            "preview_asset_id": previews.get(row.id),
         })
     return rows
 
@@ -220,8 +279,10 @@ def checkpoints(run_id: str, db: DB):
 
 @router.post("/runs/{run_id}/samples", status_code=status.HTTP_201_CREATED)
 def create_sample(run_id: str, body: schemas.SampleCreate, db: DB):
-    get_or_404(db, models.TrainingRun, run_id)
-    get_or_404(db, models.Asset, body.asset_id)
+    run = get_or_404(db, models.TrainingRun, run_id)
+    asset = get_or_404(db, models.Asset, body.asset_id)
+    if asset.project_id is not None and asset.project_id != run.project_id:
+        raise HTTPException(status_code=409, detail="sample asset belongs to another project")
     location = db.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == body.asset_id).order_by(models.AssetLocation.modified_at.desc()))
     values = body.model_dump()
     if values["checkpoint_id"] is None and values["step"] is not None:
@@ -231,6 +292,8 @@ def create_sample(run_id: str, body: schemas.SampleCreate, db: DB):
         checkpoint = get_or_404(db, models.Checkpoint, values["checkpoint_id"])
         if checkpoint.run_id != run_id:
             raise HTTPException(status_code=400, detail="sample checkpoint does not belong to training run")
+    asset.project_id = run.project_id
+    asset.metadata_ = {**dict(asset.metadata_ or {}), "category": "sample"}
     sample = models.Sample(run_id=run_id, modified_at=location.modified_at if location else None, **values)
     db.add(sample)
     db.commit()
@@ -247,6 +310,7 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
     for sample in db.scalars(query.offset(offset).limit(limit)).all():
         asset = db.get(models.Asset, sample.asset_id)
         review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == sample.asset_id).order_by(models.Review.created_at.desc()))
+        training_step, sample_track = sample_provenance(db, sample, asset)
         rows.append({
             **dump(sample),
             "asset_revision_id": sample.asset_id,
@@ -258,6 +322,8 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
             "origin_type": "SAMPLE",
             "modified_at": sample.modified_at,
             "generated_at": None,
+            "training_step": training_step,
+            "sample_track": sample_track,
         })
     return rows
 
@@ -304,7 +370,8 @@ def models_list(db: DB, project_id: str | None = None):
     rows = []
     for model in db.scalars(query).all():
         project = db.get(models.Project, model.project_id)
-        latest = db.scalar(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id).order_by(models.ModelVersion.created_at.desc()))
+        versions = db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id)).all()
+        latest = max(versions, key=lambda version: model_version_chronology(db, version), default=None)
         rows.append({
             **dump(model),
             "project_name": project.title if project else None,
@@ -319,7 +386,11 @@ def models_list(db: DB, project_id: str | None = None):
 @router.get("/models/{model_id}")
 def model_detail(model_id: str, db: DB):
     model = get_or_404(db, models.Model, model_id)
-    versions = db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id).order_by(models.ModelVersion.created_at.desc())).all()
+    versions = sorted(
+        db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id)).all(),
+        key=lambda version: model_version_chronology(db, version),
+        reverse=True,
+    )
     version_rows = []
     for version in versions:
         checkpoint = db.get(models.Checkpoint, version.checkpoint_id)

@@ -4,7 +4,7 @@ import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { GenerationQueue, ModelCheckpointPicker } from "./generator";
-import { compileGenerationChild, generationModelFromRow, type GenerationContext, type GenerationModel } from "./generation";
+import { compileGenerationChild, connectedFalGenerationModels, type GenerationContext, type GenerationModel } from "./generation";
 import { axisValues, compileGridPlan, type GridAxis, type GridAxisField, type GridAxisValue, type GridCellPlan } from "./grid";
 import { galleryOpenHref } from "./screens-assets";
 import { Field, Notice, Page, Panel, Status } from "./ui";
@@ -50,7 +50,7 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   const projects = useResource<unknown>("/api/projects?limit=100");
   const versions = useResource<unknown>(projectId ? `/api/model-versions?project_id=${encodeURIComponent(projectId)}` : null);
   const queue = useResource<unknown>(`/api/generation-queue${query({ project_id: projectId || undefined })}`);
-  const generationModels = useMemo(() => rows(versions.data).map(generationModelFromRow).filter(model => model.projectId === projectId), [versions.data, projectId]);
+  const generationModels = useMemo(() => connectedFalGenerationModels(rows(versions.data), projectId), [versions.data, projectId]);
   useEffect(() => {
     if (versions.data == null) return;
     const valid = new Set(generationModels.map(model => model.id));
@@ -78,13 +78,13 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   } catch (reason) {
     previewError = reason instanceof Error ? reason.message : String(reason);
   }
+  const gridPreflightError = !projectId ? "Select a project." : previewError || !preview.length ? previewError || "Add axis values to compose a grid." : preview.some(cell => !cell.model.available || cell.model.provider !== "fal") ? "Every selected checkpoint needs a usable FAL registration." : "";
+  const uniqueCheckpointCount = new Set(preview.map(cell => cell.model.id)).size;
 
   async function generate() {
     if (submitting) return;
     setError("");
-    if (!projectId) { setError("Select a project."); return; }
-    if (!preview.length) { setError(previewError || "Complete the grid definition."); return; }
-    if (preview.some(cell => !cell.model.available || cell.model.provider !== "fal")) { setError("Every selected checkpoint must have a usable FAL registration."); return; }
+    if (gridPreflightError) { setError(gridPreflightError); return; }
     setSubmitting(true);
     try {
       if (!attempt.current || attempt.current.children.length !== preview.length) attempt.current = { parent: crypto.randomUUID(), children: preview.map(() => crypto.randomUUID()) };
@@ -142,17 +142,17 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
       {zEnabled && <AxisEditor title="Z axis · subgrids" field={zField} onField={field => changeField(setZField, setZModels, setZText, field)} text={zText} onText={setZText} selectedModels={zModels} onModels={setZModels} models={generationModels} embedded />}
       {!zEnabled && <p className="vela-meta">One X/Y grid is shown. Enable Z to compose one ordered subgrid per value.</p>}
     </Panel>
-    {previewError && <div className="vela-notice vela-notice-error" role="alert"><strong>Grid incomplete</strong><span>{previewError}</span></div>}
+    <div className={`vela-notice${gridPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>{gridPreflightError ? "Grid incomplete" : "Grid preflight"}</strong><span>{gridPreflightError || `Ready to generate ${preview.length} cell${preview.length === 1 ? "" : "s"} across ${uniqueCheckpointCount} checkpoint${uniqueCheckpointCount === 1 ? "" : "s"}.`}</span></div>
     <GridPreview cells={preview} x={x} y={y} z={z} incomplete={Boolean(previewError)} />
     {error && <div className="vela-notice vela-notice-error" role="alert"><strong>Cannot generate grid</strong><span>{error}</span></div>}
-    <button className="vela-button vela-button-primary grid-generate" type="button" disabled={submitting} onClick={() => void generate()}>{submitting ? <><LoaderCircle className="vela-spin" size={15} /> Preparing grid...</> : <><Grid3X3 size={15} /> Generate grid</>}</button>
+    <button className="vela-button vela-button-primary grid-generate" type="button" disabled={submitting || Boolean(gridPreflightError)} onClick={() => void generate()}>{submitting ? <><LoaderCircle className="vela-spin" size={15} /> Preparing grid...</> : <><Grid3X3 size={15} /> Generate grid</>}</button>
     {queuedId && <div className="vela-notice" role="status"><strong>Grid queued</strong><span><a href={`#/grid/${queuedId}`}>Open grid {queuedId}</a></span></div>}
     <GenerationQueue items={rows(queue.data).filter(row => row.workflow === "grid")} error={queue.error} loading={queue.loading} />
   </Page>;
 }
 
 function AxisEditor({ title, field, onField, text, onText, selectedModels, onModels, models, embedded = false }: { title: string; field: GridAxisField; onField: (field: GridAxisField) => void; text: string; onText: (text: string) => void; selectedModels: string[]; onModels: (ids: string[]) => void; models: GenerationModel[]; embedded?: boolean }) {
-  const body = <><Field label="Parameter"><select value={field} onChange={event => onField(event.target.value as GridAxisField)}>{FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>{modelAxisField(field) ? <ModelCheckpointPicker mode="axis" models={models} selected={selectedModels} onChange={onModels} label="Axis model / checkpoints" /> : <Field label="Values"><textarea value={text} onChange={event => onText(event.target.value)} /></Field>}</>;
+  const body = <><Field label="Parameter"><select className="grid-axis-select" value={field} onChange={event => onField(event.target.value as GridAxisField)}>{FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>{modelAxisField(field) ? <ModelCheckpointPicker mode="axis" models={models} selected={selectedModels} onChange={onModels} label="Axis model / checkpoints" /> : <Field label="Values"><textarea value={text} onChange={event => onText(event.target.value)} /></Field>}</>;
   return embedded ? <div className="grid-axis-editor">{body}</div> : <Panel title={title}>{body}</Panel>;
 }
 
@@ -170,8 +170,14 @@ function GridPreview({ cells, x, y, z, incomplete }: { cells: GridCellPlan[]; x:
   return <Panel title="Composed grid preview"><div className="grid-preview-tools"><span>X · {x.field} · columns</span><span>Y · {y.field} · rows</span><span>{z ? `Z · ${z.field} · ${groups.length} subgrids` : "One X/Y grid"}</span><span>{cells.length} cells</span></div>{incomplete ? <div className="vela-empty" role="status">Complete the fixed settings and axis values to preview composed cells.</div> : <div className="grid-subgrids">{groups.map(zIndex => { const group = cells.filter(cell => cell.zIndex === zIndex); return <section key={zIndex}>{z && <h3>{group[0]?.z?.label}</h3>}<GridBoard x={x.values} y={y.values} cells={group} /></section>; })}</div>}</Panel>;
 }
 
-function GridBoard({ x, y, cells, completed = false }: { x: GridAxisValue[]; y: GridAxisValue[]; cells: Array<GridCellPlan | Row>; completed?: boolean }) {
-  return <div className="grid-board" style={{ "--cell": "82px", gridTemplateColumns: `100px repeat(${Math.max(1, x.length)}, var(--cell))` } as CSSProperties}><span />{x.map((entry, index) => <strong key={`x-${index}-${entry.id}`}>{entry.label}</strong>)}{y.flatMap((entry, yIndex) => [<strong key={`y-${yIndex}-${entry.id}`}>{entry.label}</strong>, ...x.map((_, xIndex) => { const cell = cells.find(item => Number((item as Row).x_index ?? (item as GridCellPlan).xIndex) === xIndex && Number((item as Row).y_index ?? (item as GridCellPlan).yIndex) === yIndex); const row = cell as Row | undefined; const assetId = completed ? str(row?.asset_id ?? row?.asset_revision_id, "") : ""; return <div className="grid-cell" key={`cell-${yIndex}-${xIndex}`}>{assetId ? <AssetImage assetRevisionId={assetId} loading="lazy" alt={`${xIndex}, ${yIndex}`} /> : <span>{completed ? "Pending" : `${xIndex + 1} × ${yIndex + 1}`}</span>}</div>; })])}</div>;
+export function GridBoard({ x, y, cells, completed = false }: { x: GridAxisValue[]; y: GridAxisValue[]; cells: Array<GridCellPlan | Row>; completed?: boolean }) {
+  return <div className={`grid-board${completed ? " grid-board-completed" : " grid-board-preview"}`} style={{ "--cell": completed ? "180px" : "118px", gridTemplateColumns: `100px repeat(${Math.max(1, x.length)}, var(--cell))` } as CSSProperties}><span />{x.map((entry, index) => <strong key={`x-${index}-${entry.id}`}>{entry.label}</strong>)}{y.flatMap((entry, yIndex) => [<strong key={`y-${yIndex}-${entry.id}`}>{entry.label}</strong>, ...x.map((_, xIndex) => {
+    const cell = cells.find(item => Number((item as Row).x_index ?? (item as GridCellPlan).xIndex) === xIndex && Number((item as Row).y_index ?? (item as GridCellPlan).yIndex) === yIndex);
+    const row = cell as Row | undefined;
+    const assetId = completed ? str(row?.asset_id ?? row?.asset_revision_id, "") : "";
+    const plan = completed ? undefined : cell as GridCellPlan | undefined;
+    return <div className="grid-cell" key={`cell-${yIndex}-${xIndex}`}>{assetId ? <AssetImage assetRevisionId={assetId} loading="lazy" alt={`${x[xIndex]?.label ?? `Column ${xIndex + 1}`} by ${entry.label}`} /> : completed ? <span>Pending</span> : <span className="grid-cell-plan"><b>{xIndex + 1} × {yIndex + 1}</b><small>{plan?.parameters.prompt || plan?.model.checkpointLabel || "Configured cell"}</small></span>}</div>;
+  })])}</div>;
 }
 
 export function GridScreen({ id }: { id: string }) {

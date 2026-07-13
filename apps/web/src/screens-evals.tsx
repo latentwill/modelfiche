@@ -15,8 +15,8 @@ import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
-import { GenerationQueue, ModelCheckpointPicker } from "./generator";
-import { generationModelFromRow } from "./generation";
+import { EndpointFields, GenerationQueue, ModelCheckpointPicker, parametersFromForm } from "./generator";
+import { connectedFalGenerationModels, generationModelFromRow } from "./generation";
 import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
@@ -218,12 +218,27 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const models = useResource<unknown>(project ? `/api/model-versions${query({ project_id: project })}` : null);
   const modelFamilies = useResource<unknown>(project ? `/api/models${query({ project_id: project })}` : null);
   const projects = useResource<unknown>("/api/projects?limit=100");
+  const endpoints = useResource<unknown>("/api/eval-endpoints");
   const queue = useResource<unknown>(`/api/generation-queue${query({ project_id: project })}`);
   const [selectedModels, setSelectedModels] = useState<string[]>(initialModelVersionId ? [initialModelVersionId] : []);
   const [prompts, setPrompts] = useState(() => [newInlinePrompt(""), newInlinePrompt("")]);
   const [message, setMessage] = useState("");
-  const generationModels = rows(models.data).map(generationModelFromRow).filter(model => model.projectId === project && (scope !== "model" || !modelId || model.modelId === modelId));
-  const latestEval = rows(evals.data)[0];
+  const generationModels = connectedFalGenerationModels(rows(models.data), project, scope === "model" ? modelId : undefined);
+  const evalRunRows = rows(evals.data);
+  const latestEval = evalRunRows[0];
+  const recentEvalRuns = evalRunRows.slice(0, 3);
+  const historicalEvalRuns = evalRunRows.slice(3);
+  const selectedGenerationModels = selectedModels.flatMap(id => {
+    const model = generationModels.find(item => item.id === id);
+    return model ? [model] : [];
+  });
+  const endpointRows = rows(endpoints.data);
+  const selectedEndpointIds = unique(selectedGenerationModels.map(model => model.endpoint ?? ""));
+  const selectedEndpointSchemas = selectedEndpointIds.map(endpointId => endpointRows.find(row => str(row.endpoint_id ?? row.id) === endpointId)).filter((row): row is Row => Boolean(row));
+  const sharedEndpointSchema = commonEndpointSchema(selectedEndpointSchemas);
+  const eligibleModelIds = new Set(generationModels.map(model => model.modelId));
+  const readyPromptCount = prompts.reduce((count, prompt) => count + Number(Boolean(prompt.text.trim())), 0);
+  const evalPreflightError = !project ? "Select a project." : scope === "model" && !modelId ? "Select a model context." : !selectedModels.length ? "Select at least one model checkpoint." : selectedGenerationModels.length !== selectedModels.length ? "Wait for selected checkpoint details to load." : endpoints.loading || selectedEndpointSchemas.length !== selectedEndpointIds.length ? "Loading settings for the selected FAL endpoints." : !readyPromptCount ? "Add at least one prompt." : "";
   useEffect(() => setSelectedModels(ids => ids.filter(id => generationModels.some(model => model.id === id))), [models.data, project, scope, modelId]);
 
   return (
@@ -237,13 +252,14 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
         </>
       }
     >
-      <Notice error={models.error || modelFamilies.error || projects.error} loading={models.loading || modelFamilies.loading || projects.loading} />
+      <Notice error={models.error || modelFamilies.error || projects.error || endpoints.error} loading={models.loading || modelFamilies.loading || projects.loading || endpoints.loading} />
       <Panel title="Evaluation context"><div className="form-grid">
         <Field label="Scope"><select value={scope} onChange={event => { setScope(event.target.value as "project" | "model"); setSelectedModels([]); }}><option value="project">Project</option><option value="model">Model / checkpoint</option></select></Field>
         <Field label="Project"><select value={project} onChange={event => { setProject(event.target.value); setModelId(""); setSelectedModels([]); }}><option value="">Select…</option>{rows(projects.data).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.title ?? row.name)}</option>)}</select></Field>
-        {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelectedModels([]); }}><option value="">Select…</option>{rows(modelFamilies.data).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.name)}</option>)}</select></Field>}
+        {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelectedModels([]); }}><option value="">Select…</option>{rows(modelFamilies.data).filter(row => eligibleModelIds.has(idOf(row))).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.name)}</option>)}</select></Field>}
       </div><ModelCheckpointPicker models={generationModels} selected={selectedModels} onChange={setSelectedModels} />
       {selectedModels.map(id => { const model = generationModels.find(item => item.id === id); return model && !model.available ? <div className="vela-notice vela-notice-error" role="alert" key={id}>{model.name} / {model.checkpointLabel}: {model.unavailableReason}</div> : null; })}</Panel>
+      <div className={`vela-notice${evalPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>Eval preflight</strong><span>{evalPreflightError || `Ready to compare ${readyPromptCount} prompt${readyPromptCount === 1 ? "" : "s"} across ${selectedGenerationModels.length} checkpoint${selectedGenerationModels.length === 1 ? "" : "s"}.`}</span></div>
       <Panel title="Ordered manual prompts"><div className="prompt-editor">
         {prompts.map((prompt, index) => <div className="prompt-editor-row" key={prompt.id}><span>{index + 1}</span><textarea aria-label={`Prompt ${index + 1}`} value={prompt.text} onChange={event => setPrompts(items => items.map(item => item.id === prompt.id ? { ...item, text: event.target.value } : item))} /><button type="button" aria-label={`Move prompt ${index + 1} up`} disabled={!index} onClick={() => setPrompts(moveItem(prompts, index, index - 1))}><ArrowUp size={14} /></button><button type="button" aria-label={`Move prompt ${index + 1} down`} disabled={index === prompts.length - 1} onClick={() => setPrompts(moveItem(prompts, index, index + 1))}><ArrowDown size={14} /></button><button type="button" aria-label={`Remove prompt ${index + 1}`} disabled={prompts.length === 1} onClick={() => setPrompts(items => items.filter(item => item.id !== prompt.id))}><X size={14} /></button></div>)}
         <button type="button" className="vela-button" onClick={() => setPrompts(items => [...items, newInlinePrompt("")])}>Add prompt</button>
@@ -251,6 +267,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
       <Panel title="Generation settings">
         <Form
           submit="Generate Eval"
+          submitDisabled={Boolean(evalPreflightError)}
           onSubmit={async form => {
             if (!project) throw new Error("Select a project context.");
             const chosen = selectedModels.map(id => generationModels.find(model => model.id === id)).filter(Boolean);
@@ -258,22 +275,25 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
             if (chosen.some(model => !model?.available)) throw new Error("Remove checkpoints without a usable provider registration.");
             const orderedPrompts = prompts.map(item => ({ prompt_id: item.id, prompt: item.text.trim() })).filter(item => item.prompt);
             if (!orderedPrompts.length) throw new Error("Add at least one prompt.");
-            const parameters = { seed: optionalNumber(form.get("seed")), image_size: { width: Number(form.get("width") ?? 1024), height: Number(form.get("height") ?? 1024) }, guidance_scale: optionalNumber(form.get("guidance")), num_inference_steps: optionalNumber(form.get("steps")), lora_scale: Number(form.get("lora_scale") ?? 1) };
-            const compiled = [] as Array<{ model: NonNullable<typeof chosen[number]>; requestId: string; admission: Row }>;
+            const loraScale = Number(form.get("lora_scale") ?? 1);
+            const compiled = [] as Array<{ model: NonNullable<typeof chosen[number]>; requestId: string; admission: Row; parameters: Row }>;
             for (const model of chosen) {
               if (!model?.checkpointRevisionId) throw new Error(`${model?.name} has no immutable checkpoint revision.`);
+              const schema = endpointRows.find(row => str(row.endpoint_id ?? row.id) === model.endpoint);
+              if (!schema) throw new Error(`FAL settings for ${model.endpoint} are unavailable.`);
+              const parameters = { ...parametersFromForm(form, schema), lora_scale: loraScale };
               const requestId = crypto.randomUUID();
               const result = await api<Row>("/api/eval-generation-requests/compile", jsonBody({ workflow: "eval", provider: model.provider, context: scope === "model" ? { kind: "model", project_id: project, model_id: modelId } : { kind: "project", project_id: project }, model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId, prompts: orderedPrompts, parameters, client_request_id: requestId }));
-              compiled.push({ model, requestId, admission: result.admission as Row });
+              compiled.push({ model, requestId, admission: result.admission as Row, parameters });
             }
             const parentId = crypto.randomUUID();
-            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: scope, project_id: project, model_id: scope === "model" ? modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", context: { kind: scope, projectId: project, modelId }, models: compiled.map(item => item.model), prompts: orderedPrompts, parameters }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
+            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: scope, project_id: project, model_id: scope === "model" ? modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", context: { kind: scope, projectId: project, modelId }, models: compiled.map(item => item.model), prompts: orderedPrompts, parameters: Object.fromEntries(compiled.map(item => [item.model.id, item.parameters])) }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
             setMessage(`One evaluation job queued as ${idOf(queued)} for ${compiled.length} checkpoint${compiled.length === 1 ? "" : "s"}.`);
             await queue.reload();
           }}
         >
           <div className="form-grid">
-            <Field label="Seed"><input name="seed" type="number" /></Field><Field label="Width"><input name="width" type="number" min="1" defaultValue="1024" /></Field><Field label="Height"><input name="height" type="number" min="1" defaultValue="1024" /></Field><Field label="Guidance"><input name="guidance" type="number" step="0.1" /></Field><Field label="Steps"><input name="steps" type="number" min="1" /></Field>
+            <EndpointFields schema={sharedEndpointSchema} omit={["num_images"]} />
             <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
           </div>
         </Form>
@@ -281,43 +301,24 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
       </Panel>
       <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />
       <Panel title="Eval Runs">
-        <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
-        {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(run => <a href={`#/eval/${idOf(run)}`} key={idOf(run)}><div className="comparison-image">{rows(run.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt="Eval output preview" loading="lazy" />)}</div><strong>{str(run.name, "Eval run")}</strong><span>{str(run.model_version_name, "Checkpoint")} · {str(run.prompt_count, "0")} prompts · {str(run.output_count, "0")} outputs</span><Status value={run.status} /></a>)}</div>}
+        <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !evalRunRows.length} />
+        {!!recentEvalRuns.length && <EvalRunStrip runs={recentEvalRuns} />}
+        {!!historicalEvalRuns.length && <details className="vela-history-disclosure"><summary>Show {historicalEvalRuns.length} earlier eval run{historicalEvalRuns.length === 1 ? "" : "s"}</summary><EvalRunStrip runs={historicalEvalRuns} /></details>}
       </Panel>
     </Page>
   );
 }
+function EvalRunStrip({ runs }: { runs: Row[] }) {
+  return <div className="eval-run-strip">{runs.map(run => <a href={`#/eval/${idOf(run)}`} key={idOf(run)}><div className="comparison-image">{rows(run.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt="Eval output preview" loading="lazy" />)}</div><strong>{str(run.name, "Eval run")}</strong><span>{str(run.model_version_name, "Checkpoint")} · {str(run.prompt_count, "0")} prompts · {str(run.output_count, "0")} outputs</span><Status value={run.status} /></a>)}</div>;
+}
+
 
 type InlinePrompt = { id: string; text: string };
 function newInlinePrompt(text: string): InlinePrompt { return { id: crypto.randomUUID(), text }; }
 export function moveItem<T>(items: T[], from: number, to: number): T[] { const next = [...items]; const [item] = next.splice(from, 1); next.splice(to, 0, item); return next; }
 function optionalNumber(value: FormDataEntryValue | null) { if (value == null || value === "") return undefined; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
 
-function EndpointFields({ schema }: { schema?: Row }) {
-  const defaults = (schema?.defaults ?? {}) as Row;
-  const fieldSchema = (schema?.fields ?? {}) as Record<string, Row>;
-  const requestFields = Array.isArray(schema?.request_fields) ? schema.request_fields.map(String) : [];
-  const fields = unique([...Object.keys(defaults), ...requestFields]).filter(key => !["sync_mode", "prompt", "loras"].includes(key));
-  return <>{fields.map(key => <EndpointField key={key} field={key} value={defaults[key]} schema={fieldSchema[key]} />)}</>;
-}
 
-function EndpointField({ field, value, schema = {} }: { field: string; value: unknown; schema?: Row }) {
-  const label = field.replaceAll("_", " ");
-  const type = str(schema.type, typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "string");
-  const options = Array.isArray(schema.options) ? schema.options.map(String) : [];
-  const [imageSize, setImageSize] = useState(typeof value === "object" ? "custom" : str(value, options[0]));
-  if (type === "boolean") {
-    return <Field label={label}><select name={field} defaultValue={String(value ?? false)}><option value="true">Enabled</option><option value="false">Disabled</option></select></Field>;
-  }
-  if (type === "image_size") {
-    const custom = (schema.custom ?? {}) as Row;
-    const current = typeof value === "object" && value ? value as Row : {};
-    return <><Field label={label}><select name={field} value={imageSize} onChange={event => setImageSize(event.target.value)}>{options.map(option => <option key={option}>{option}</option>)}<option value="custom">Custom dimensions</option></select></Field>{imageSize === "custom" && <><Field label="Custom width"><input name={`${field}_width`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.width, "1024")} required /></Field><Field label="Custom height"><input name={`${field}_height`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.height, "1024")} required /></Field></>}</>;
-  }
-  if (type === "enum" && options.length) return <Field label={label}><select name={field} defaultValue={str(value, options[0])}>{options.map(option => <option key={option}>{option}</option>)}</select></Field>;
-  if (type === "integer" || type === "number") return <Field label={label}><input name={field} type="number" min={schema.min === undefined ? undefined : Number(schema.min)} max={schema.max === undefined ? undefined : Number(schema.max)} step={schema.step === undefined ? (type === "integer" ? 1 : "any") : Number(schema.step)} defaultValue={value === undefined ? "" : Number(value)} /></Field>;
-  return <Field label={label}><input name={field} defaultValue={str(value, "")} /></Field>;
-}
 
 export function EvalScreen({ id }: { id: string }) {
   const resource = useResource<Row>(`/api/eval-runs/${id}`);
@@ -766,28 +767,38 @@ function AsyncAction({ label, workingLabel = "Working...", successLabel = "Done"
   );
 }
 
-function parametersFromForm(form: FormData, schema?: Row) {
-  const defaults = (schema?.defaults ?? {}) as Row;
-  const fieldSchema = (schema?.fields ?? {}) as Record<string, Row>;
-  const requestFields = Array.isArray(schema?.request_fields) ? schema.request_fields.map(String) : [];
-  const parameters: Row = {};
-  for (const key of unique([...Object.keys(defaults), ...requestFields])) {
-    if (["sync_mode", "prompt", "loras"].includes(key)) continue;
-    const fallback = defaults[key];
-    const raw = form.get(key);
-    if (raw === null || raw === "") {
-      if (fallback !== undefined) parameters[key] = fallback;
-      continue;
+
+function commonEndpointSchema(schemas: Row[]): Row | undefined {
+  if (!schemas.length) return undefined;
+  const requestFields = schemas.map(schema => new Set(Array.isArray(schema.request_fields) ? schema.request_fields.map(String) : []));
+  const common = Array.from(requestFields[0]).filter(field => requestFields.every(fields => fields.has(field)));
+  const first = schemas[0];
+  const defaults = (first.defaults ?? {}) as Row;
+  const fields = (first.fields ?? {}) as Record<string, Row>;
+  const sharedFields = Object.fromEntries(common.flatMap(field => {
+    if (!fields[field]) return [];
+    const definitions = schemas.map(schema => ((schema.fields ?? {}) as Record<string, Row>)[field]).filter((value): value is Row => Boolean(value));
+    const merged = { ...fields[field] };
+    const optionSets = definitions.map(definition => Array.isArray(definition.options) ? definition.options.map(String) : []);
+    if (optionSets.length === definitions.length && optionSets.every(options => options.length)) {
+      merged.options = optionSets[0].filter(option => optionSets.every(options => options.includes(option)));
     }
-    if (fieldSchema[key]?.type === "image_size" && raw === "custom") { parameters[key] = { width: Number(form.get(`${key}_width`)), height: Number(form.get(`${key}_height`)) }; continue; }
-    parameters[key] = fieldSchema[key]?.type === "boolean" || typeof fallback === "boolean"
-      ? raw === "true"
-      : ["integer", "number"].includes(str(fieldSchema[key]?.type, "")) || typeof fallback === "number"
-        ? Number(raw)
-        : raw;
-  }
-  parameters.sync_mode = false;
-  return parameters;
+    if (definitions.every(definition => definition.custom && typeof definition.custom === "object")) {
+      const custom = definitions.map(definition => definition.custom as Row);
+      merged.custom = {
+        min: Math.max(...custom.map(value => Number(value.min ?? 1))),
+        max: Math.min(...custom.map(value => Number(value.max ?? 16_384))),
+        step: Math.max(...custom.map(value => Number(value.step ?? 1))),
+      };
+    }
+    return [[field, merged]];
+  }));
+  return {
+    ...first,
+    request_fields: common,
+    defaults: Object.fromEntries(common.filter(field => defaults[field] !== undefined).map(field => [field, defaults[field]])),
+    fields: sharedFields,
+  };
 }
 
 function parsePrompts(value: string): unknown[] {

@@ -31,7 +31,7 @@ ALEMBIC_ASSET_TIMESTAMP_HEAD = "0007_asset_origin_timestamps"
 ALEMBIC_CHECKPOINT_REVISION_HEAD = "0008_checkpoint_revisions"
 ALEMBIC_INLINE_PROMPTS_HEAD = "0009_inline_generation_prompts"
 ALEMBIC_GENERATION_QUEUE_HEAD = "0010_generation_queue"
-ALEMBIC_HEAD = "0011_generation_queue_children"
+ALEMBIC_HEAD = "0015_backfill_legacy_krea_endpoints"
 
 
 _OLD_HEAD_REQUIRED_TABLES = frozenset(

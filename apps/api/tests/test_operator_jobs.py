@@ -11,6 +11,8 @@ from titles_api.asset_cache import AssetCache
 from titles_api.integrations.config import CacheSettings
 from titles_api.integrations.s3.browser import S3Browser
 from titles_api.settings import get_settings
+from titles_api.integrations.s3.importer import ImportContext
+from titles_api.integrations.s3.sqlalchemy_sink import SQLAlchemyImportSink, _supported_fal_endpoint
 from titles_worker.export_jobs import ExportPackageHandler
 from titles_worker.hydration_jobs import CheckpointHydrationHandler
 from titles_worker.import_jobs import S3ImportHandler
@@ -73,11 +75,46 @@ def test_run_samples_include_immutable_asset_revision_id(client: TestClient):
         json={"project_id": project["id"], "kind": "image", "name": "sample.png"},
     ).json()
     run = client.post("/api/runs", json={"project_id": project["id"], "name": "Run"}).json()
-    client.post(f"/api/runs/{run['id']}/samples", json={"asset_id": asset["id"]})
+    created = client.post(f"/api/runs/{run['id']}/samples", json={"asset_id": asset["id"], "step": 250}).json()
 
     sample = client.get(f"/api/runs/{run['id']}/samples").json()[0]
 
     assert sample["asset_revision_id"] == asset["id"]
+    assert created["step"] == 250
+    assert sample["training_step"] == 250
+    assert sample["sample_track"] is None
+
+def test_s3_run_import_infers_project_from_an_unambiguous_trigger(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    modern_times = client.post(
+        "/api/projects",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"title": "Modern Times", "trigger_words": ["kzapata"]},
+    ).json()
+    vcribb = client.post(
+        "/api/projects",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"title": "vcribb", "trigger_words": ["vcribb"]},
+    ).json()
+
+    with app_module.SessionLocal() as session:
+        sink = SQLAlchemyImportSink(session)
+        project_id = sink._run_project_id(
+            ImportContext(
+                source_id="unused",
+                project_id=vcribb["id"],
+                prefix="runpod-expanded/titlesxyz-kzapata-ideogram4-v001/samples/",
+            ),
+            "titlesxyz-kzapata-ideogram4-v001",
+        )
+
+    assert project_id == modern_times["id"]
+
+def test_s3_import_maps_supported_base_models_to_fal_endpoints():
+    assert _supported_fal_endpoint("krea/Krea-2-Raw") == "fal-ai/krea-2/turbo/lora"
+    assert _supported_fal_endpoint("titlesxyz-kzapata-krea2-nocaptions-100s") == "fal-ai/krea-2/turbo/lora"
+    assert _supported_fal_endpoint("ideogram-ai/ideogram-4-fp8") == "ideogram/v4/lora"
+    assert _supported_fal_endpoint("qwen-image") is None
 
 @pytest.mark.parametrize("kind", ["dataset", "training_run"])
 def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: TestClient, monkeypatch, kind):

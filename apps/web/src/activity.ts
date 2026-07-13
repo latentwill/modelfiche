@@ -21,3 +21,14 @@ export function activityLabel(value: unknown) {
     })
     .join(" · ");
 }
+export function activityObjectHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const href = value.trim();
+  return href.startsWith("#/") ? href : null;
+}
+
+export function previewAssetId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  return id || null;
+}

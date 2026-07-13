@@ -69,7 +69,9 @@ class FalValidateRequest(BaseModel):
 def list_import_sources(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     workspace = current_workspace(db)
     sources = db.scalars(
-        select(models.ImportSource).where(models.ImportSource.workspace_id == workspace.id).order_by(models.ImportSource.name)
+        select(models.ImportSource)
+        .where(models.ImportSource.workspace_id == workspace.id, models.ImportSource.is_active.is_(True))
+        .order_by(models.ImportSource.name)
     )
     return [
         {
@@ -160,7 +162,7 @@ def update_import_source(source_id: str, request: ImportSourceUpdate, db: Sessio
 
 
 @router.delete("/api/import-sources/{source_id}", status_code=204)
-def delete_import_source(source_id: str, db: Session = Depends(get_db)) -> None:
+def disconnect_import_source(source_id: str, db: Session = Depends(get_db)) -> None:
     workspace = current_workspace(db)
     source = db.scalar(
         select(models.ImportSource).where(
@@ -170,27 +172,7 @@ def delete_import_source(source_id: str, db: Session = Depends(get_db)) -> None:
     )
     if source is None:
         raise HTTPException(status_code=404, detail="import source not found")
-    references = {
-        "asset locations": db.scalar(select(models.AssetLocation.id).where(models.AssetLocation.source_id == source.id).limit(1)),
-        "import jobs": db.scalar(select(models.ImportJob.id).where(models.ImportJob.source_id == source.id).limit(1)),
-        "training runs": db.scalar(select(models.TrainingRun.id).where(models.TrainingRun.origin_source_id == source.id).limit(1)),
-        "storage policy": db.scalar(select(models.StoragePolicy.workspace_id).where(models.StoragePolicy.write_source_id == source.id).limit(1)),
-        "storage snapshots": db.scalar(
-            select(models.StoragePolicySnapshot.id).where(
-                (models.StoragePolicySnapshot.origin_source_id == source.id)
-                | (models.StoragePolicySnapshot.write_source_id == source.id)
-            ).limit(1)
-        ),
-        "storage migrations": db.scalar(select(models.StorageMigration.id).where(models.StorageMigration.destination_source_id == source.id).limit(1)),
-        "storage previews": db.scalar(select(models.StorageMigrationPreview.id).where(models.StorageMigrationPreview.destination_source_id == source.id).limit(1)),
-        "storage transfers": db.scalar(select(models.StorageTransfer.id).where(models.StorageTransfer.destination_source_id == source.id).limit(1)),
-        "migration items": db.scalar(select(models.StorageMigrationItem.id).where(models.StorageMigrationItem.destination_source_id == source.id).limit(1)),
-        "FAL admissions": db.scalar(select(models.FalAdmission.id).where(models.FalAdmission.staging_source_id == source.id).limit(1)),
-    }
-    active = [name for name, value in references.items() if value is not None]
-    if active:
-        raise HTTPException(status_code=409, detail=f"source is still referenced by {', '.join(active)}; deactivate it instead")
-    db.delete(source)
+    source.is_active = False
     db.commit()
 
 

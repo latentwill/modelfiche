@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -141,6 +142,261 @@ def lineage(db: DB, subject_type: str, subject_id: str):
     return [{**dump(row), "preview_asset_id": _lineage_preview(db, row)} for row in db.scalars(query).all()]
 
 
+def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[tuple[str, str], dict[str, str | None]]:
+    """Resolve activity subjects in batches, keeping unknown subjects entirely null."""
+    aliases = {"training_run": "run", "import_job": "import_job"}
+    ids_by_type: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        subject_type = aliases.get(row.subject_type, row.subject_type)
+        if subject_type in {"project", "dataset", "asset", "run", "checkpoint", "eval_run", "grid_definition", "job", "import_job", "model"}:
+            ids_by_type[subject_type].add(row.subject_id)
+
+    projects = {
+        item.id: item
+        for item in db.scalars(select(models.Project).where(models.Project.id.in_(ids_by_type["project"]))).all()
+    } if ids_by_type["project"] else {}
+    datasets = {
+        item.id: item
+        for item in db.scalars(select(models.Dataset).where(models.Dataset.id.in_(ids_by_type["dataset"]))).all()
+    } if ids_by_type["dataset"] else {}
+    assets = {
+        item.id: item
+        for item in db.scalars(select(models.Asset).where(models.Asset.id.in_(ids_by_type["asset"]))).all()
+    } if ids_by_type["asset"] else {}
+    runs = {
+        item.id: item
+        for item in db.scalars(select(models.TrainingRun).where(models.TrainingRun.id.in_(ids_by_type["run"]))).all()
+    } if ids_by_type["run"] else {}
+    checkpoints = {
+        item.id: item
+        for item in db.scalars(select(models.Checkpoint).where(models.Checkpoint.id.in_(ids_by_type["checkpoint"]))).all()
+    } if ids_by_type["checkpoint"] else {}
+    eval_runs = {
+        item.id: item
+        for item in db.scalars(select(models.EvalRun).where(models.EvalRun.id.in_(ids_by_type["eval_run"]))).all()
+    } if ids_by_type["eval_run"] else {}
+    grids = {
+        item.id: item
+        for item in db.scalars(select(models.GridDefinition).where(models.GridDefinition.id.in_(ids_by_type["grid_definition"]))).all()
+    } if ids_by_type["grid_definition"] else {}
+    jobs = {
+        item.id: item
+        for item in db.scalars(select(models.Job).where(models.Job.id.in_(ids_by_type["job"]))).all()
+    } if ids_by_type["job"] else {}
+    import_jobs = {
+        item.id: item
+        for item in db.scalars(select(models.ImportJob).where(models.ImportJob.id.in_(ids_by_type["import_job"]))).all()
+    } if ids_by_type["import_job"] else {}
+    models_by_id = {
+        item.id: item
+        for item in db.scalars(select(models.Model).where(models.Model.id.in_(ids_by_type["model"]))).all()
+    } if ids_by_type["model"] else {}
+    eval_definitions = {}
+    if eval_runs:
+        definition_ids = {item.definition_id for item in eval_runs.values()}
+        eval_definitions = {
+            item.id: item
+            for item in db.scalars(select(models.EvalDefinition).where(models.EvalDefinition.id.in_(definition_ids))).all()
+        }
+
+    previews: dict[tuple[str, str], str] = {}
+
+    def assign(key: tuple[str, str], asset_id: str | None):
+        if asset_id and key not in previews:
+            previews[key] = asset_id
+
+    if assets:
+        for asset_id, asset in assets.items():
+            if asset.kind == models.AssetKind.image:
+                assign(("asset", asset_id), asset_id)
+
+    if projects:
+        project_assets = db.execute(
+            select(models.Asset.project_id, models.Asset.id)
+            .where(models.Asset.project_id.in_(projects), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.Asset.updated_at.desc(), models.Asset.created_at.desc(), models.Asset.id.desc())
+        ).all()
+        for project_id, asset_id in project_assets:
+            assign(("project", project_id), asset_id)
+        project_eval_assets = db.execute(
+            select(models.EvalDefinition.project_id, models.Asset.id)
+            .join(models.EvalRun, models.EvalRun.definition_id == models.EvalDefinition.id)
+            .join(models.EvalOutput, models.EvalOutput.eval_run_id == models.EvalRun.id)
+            .join(models.Asset, models.Asset.id == models.EvalOutput.asset_id)
+            .where(models.EvalDefinition.project_id.in_(projects), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.EvalOutput.generated_at.desc().nulls_last(), models.EvalOutput.created_at.desc(), models.EvalOutput.id.desc())
+        ).all()
+        for project_id, asset_id in project_eval_assets:
+            assign(("project", project_id), asset_id)
+
+    if datasets:
+        dataset_assets = db.execute(
+            select(models.DatasetVersion.dataset_id, models.Asset.id)
+            .join(models.DatasetItem, models.DatasetItem.dataset_version_id == models.DatasetVersion.id)
+            .join(models.Asset, models.Asset.id == models.DatasetItem.asset_id)
+            .where(
+                models.DatasetVersion.dataset_id.in_(datasets),
+                models.DatasetItem.included.is_(True),
+                models.Asset.kind == models.AssetKind.image,
+            )
+            .order_by(models.DatasetVersion.version_number.desc(), models.DatasetItem.position, models.Asset.id)
+        ).all()
+        for dataset_id, asset_id in dataset_assets:
+            assign(("dataset", dataset_id), asset_id)
+
+    run_ids = set(runs)
+    checkpoint_ids = set(checkpoints)
+    sample_rows = []
+    if run_ids or checkpoint_ids:
+        sample_query = (
+            select(models.Sample.run_id, models.Sample.checkpoint_id, models.Sample.asset_id)
+            .join(models.Asset, models.Asset.id == models.Sample.asset_id)
+            .where(models.Asset.kind == models.AssetKind.image)
+            .order_by(
+                models.Sample.step.desc().nulls_last(),
+                models.Sample.modified_at.desc().nulls_last(),
+                models.Sample.created_at.desc(),
+                models.Sample.id.desc(),
+            )
+        )
+        if run_ids and checkpoint_ids:
+            sample_query = sample_query.where(or_(models.Sample.run_id.in_(run_ids), models.Sample.checkpoint_id.in_(checkpoint_ids)))
+        elif run_ids:
+            sample_query = sample_query.where(models.Sample.run_id.in_(run_ids))
+        else:
+            sample_query = sample_query.where(models.Sample.checkpoint_id.in_(checkpoint_ids))
+        sample_rows = db.execute(sample_query).all()
+    for run_id, checkpoint_id, asset_id in sample_rows:
+        if run_id in run_ids:
+            assign(("run", run_id), asset_id)
+        if checkpoint_id in checkpoint_ids:
+            assign(("checkpoint", checkpoint_id), asset_id)
+
+    if runs:
+        checkpoint_assets = db.execute(
+            select(models.Checkpoint.run_id, models.Asset.id)
+            .join(models.Asset, models.Asset.id == models.Checkpoint.asset_id)
+            .where(models.Checkpoint.run_id.in_(runs), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.Checkpoint.step.desc(), models.Checkpoint.created_at.desc(), models.Checkpoint.id.desc())
+        ).all()
+        for run_id, asset_id in checkpoint_assets:
+            assign(("run", run_id), asset_id)
+
+    if checkpoints:
+        checkpoint_assets = db.execute(
+            select(models.Checkpoint.id, models.Asset.id)
+            .join(models.Asset, models.Asset.id == models.Checkpoint.asset_id)
+            .where(models.Checkpoint.id.in_(checkpoints), models.Asset.kind == models.AssetKind.image)
+        ).all()
+        for checkpoint_id, asset_id in checkpoint_assets:
+            assign(("checkpoint", checkpoint_id), asset_id)
+
+    if eval_runs:
+        eval_assets = db.execute(
+            select(models.EvalOutput.eval_run_id, models.Asset.id)
+            .join(models.Asset, models.Asset.id == models.EvalOutput.asset_id)
+            .where(models.EvalOutput.eval_run_id.in_(eval_runs), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.EvalOutput.generated_at.desc().nulls_last(), models.EvalOutput.created_at.desc(), models.EvalOutput.id.desc())
+        ).all()
+        for eval_run_id, asset_id in eval_assets:
+            assign(("eval_run", eval_run_id), asset_id)
+
+    if grids:
+        grid_assets = db.execute(
+            select(models.GridCell.grid_definition_id, models.Asset.id)
+            .join(models.EvalOutput, models.EvalOutput.id == models.GridCell.eval_output_id)
+            .join(models.Asset, models.Asset.id == models.EvalOutput.asset_id)
+            .where(models.GridCell.grid_definition_id.in_(grids), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.GridCell.y_index, models.GridCell.x_index, models.GridCell.id)
+        ).all()
+        for grid_id, asset_id in grid_assets:
+            assign(("grid_definition", grid_id), asset_id)
+
+    if models_by_id:
+        model_assets = db.execute(
+            select(models.ModelVersion.model_id, models.Asset.id)
+            .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
+            .join(models.Sample, models.Sample.checkpoint_id == models.Checkpoint.id)
+            .join(models.Asset, models.Asset.id == models.Sample.asset_id)
+            .where(models.ModelVersion.model_id.in_(models_by_id), models.Asset.kind == models.AssetKind.image)
+            .order_by(
+                models.Sample.step.desc().nulls_last(),
+                models.Sample.modified_at.desc().nulls_last(),
+                models.Sample.created_at.desc(),
+                models.Sample.id.desc(),
+            )
+        ).all()
+        for model_id, asset_id in model_assets:
+            assign(("model", model_id), asset_id)
+        model_eval_assets = db.execute(
+            select(models.ModelVersion.model_id, models.Asset.id)
+            .join(models.EvalDefinition, models.EvalDefinition.model_version_id == models.ModelVersion.id)
+            .join(models.EvalRun, models.EvalRun.definition_id == models.EvalDefinition.id)
+            .join(models.EvalOutput, models.EvalOutput.eval_run_id == models.EvalRun.id)
+            .join(models.Asset, models.Asset.id == models.EvalOutput.asset_id)
+            .where(models.ModelVersion.model_id.in_(models_by_id), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.EvalOutput.generated_at.desc().nulls_last(), models.EvalOutput.created_at.desc(), models.EvalOutput.id.desc())
+        ).all()
+        for model_id, asset_id in model_eval_assets:
+            assign(("model", model_id), asset_id)
+        model_checkpoint_assets = db.execute(
+            select(models.ModelVersion.model_id, models.Asset.id)
+            .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
+            .join(models.Asset, models.Asset.id == models.Checkpoint.asset_id)
+            .where(models.ModelVersion.model_id.in_(models_by_id), models.Asset.kind == models.AssetKind.image)
+            .order_by(models.Checkpoint.step.desc(), models.Checkpoint.created_at.desc(), models.Checkpoint.id.desc())
+        ).all()
+        for model_id, asset_id in model_checkpoint_assets:
+            assign(("model", model_id), asset_id)
+
+    result: dict[tuple[str, str], dict[str, str | None]] = {}
+    for subject_type, subject_ids in ids_by_type.items():
+        for subject_id in subject_ids:
+            item = (
+                projects.get(subject_id) if subject_type == "project"
+                else datasets.get(subject_id) if subject_type == "dataset"
+                else assets.get(subject_id) if subject_type == "asset" and assets.get(subject_id, None) and assets[subject_id].kind == models.AssetKind.image
+                else runs.get(subject_id) if subject_type == "run"
+                else checkpoints.get(subject_id) if subject_type == "checkpoint"
+                else eval_runs.get(subject_id) if subject_type == "eval_run"
+                else grids.get(subject_id) if subject_type == "grid_definition"
+                else jobs.get(subject_id) if subject_type == "job"
+                else import_jobs.get(subject_id) if subject_type == "import_job"
+                else models_by_id.get(subject_id) if subject_type == "model"
+                else None
+            )
+            if item is None:
+                continue
+            if subject_type == "project":
+                href, label = f"#/project/{item.id}", item.title
+            elif subject_type == "dataset":
+                href, label = f"#/dataset/{item.id}", item.name
+            elif subject_type == "asset":
+                href, label = f"#/image/{item.id}", item.name
+            elif subject_type == "run":
+                href, label = f"#/run/{item.id}", item.name
+            elif subject_type == "checkpoint":
+                href, label = f"#/checkpoint/{item.id}", f"step {item.step}"
+            elif subject_type == "eval_run":
+                definition = eval_definitions.get(item.definition_id)
+                href, label = f"#/eval/{item.id}", definition.name if definition else f"Eval run · {item.status}"
+            elif subject_type == "grid_definition":
+                href, label = f"#/grid/{item.id}", item.name
+            elif subject_type == "job":
+                href, label = f"#/jobs/{item.id}?job=1", f"Transfer job · {item.kind}"
+            elif subject_type == "import_job":
+                descriptor = item.detected_type or item.prefix
+                href, label = f"#/jobs/{item.id}", f"Import job · {descriptor}"
+            else:
+                href, label = f"#/model/{item.id}", item.name
+            result[(subject_type, subject_id)] = {
+                "object_href": href,
+                "object_label": label,
+                "preview_asset_id": previews.get((subject_type, subject_id)),
+            }
+    return result
+
+
 @router.get("/activity")
 def activity(db: DB, project_id: str | None = None, subject_type: str | None = None, subject_id: str | None = None, profile_id: str | None = None, since: str | None = None, limit: int = Query(100, le=500)):
     query = select(models.ActivityEvent).order_by(models.ActivityEvent.created_at.desc())
@@ -165,12 +421,22 @@ def activity(db: DB, project_id: str | None = None, subject_type: str | None = N
         profile.id: profile.display_name
         for profile in db.scalars(select(models.UserProfile).where(models.UserProfile.id.in_(profile_ids))).all()
     } if profile_ids else {}
-    return [{
-        **dump(row),
-        "event_type": row.action,
-        "summary": row.details.get("summary") or row.action.replace(".", " ").replace("_", " ").title(),
-        "profile_name": names.get(row.profile_id),
-    } for row in rows]
+    enrichment = _activity_enrichment(db, rows)
+    result = []
+    for row in rows:
+        details = row.details if isinstance(row.details, dict) else {}
+        result.append({
+            **dump(row),
+            "event_type": row.action,
+            "summary": details.get("summary") or row.action.replace(".", " ").replace("_", " ").title(),
+            "profile_name": names.get(row.profile_id),
+            **enrichment.get(({"training_run": "run", "import_job": "import_job"}.get(row.subject_type, row.subject_type), row.subject_id), {
+                "object_href": None,
+                "object_label": None,
+                "preview_asset_id": None,
+            }),
+        })
+    return result
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)

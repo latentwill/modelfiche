@@ -36,6 +36,18 @@ def active_profile(db: Session, requested_id: str | None = None) -> models.UserP
     return profile
 
 
+
+def apply_generation_prompt_settings(db: Session, prompt: str) -> str:
+    """Apply the workspace-wide prompt affixes at the generation boundary."""
+    preference = db.scalar(select(models.LocalPreference).where(models.LocalPreference.key == "operator_settings"))
+    generation = preference.value.get("generation", {}) if preference and isinstance(preference.value, dict) else {}
+    prepend = str(generation.get("prompt_prepend") or "").strip()
+    append = str(generation.get("prompt_append") or "").strip()
+    result = " ".join(part for part in (prepend, prompt.strip(), append) if part)
+    if len(result) > 64_000:
+        raise HTTPException(status_code=422, detail="prompt plus configured prepend/append exceeds 64000 characters")
+    return result
+
 def record_activity(
     db: Session,
     *,

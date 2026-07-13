@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
-from ..services import active_profile, current_workspace, get_or_404, record_activity
+from ..services import active_profile, apply_generation_prompt_settings, current_workspace, get_or_404, record_activity
 from ..storage.fal_admissions import (
     BILLING_ACKNOWLEDGEMENT,
     BILLING_DISCLOSURE,
@@ -421,12 +421,13 @@ def compile_generation_request(body: GenerationCompileV1, db: DB, x_profile_id: 
         get_adapter(endpoint)
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=f"registered FAL endpoint is unavailable: {endpoint}") from exc
+    prompt = apply_generation_prompt_settings(db, body.prompt)
     inline_prompt_id = str(uuid5(NAMESPACE_URL, f"titles-dam:generation:{body.client_request_id}:0"))
-    inline_prompts = [{"id": inline_prompt_id, "text": body.prompt, "position": 0, "metadata": {"workflow": body.workflow, "client_request_id": str(body.client_request_id), "compile_digest": compile_digest}}]
+    inline_prompts = [{"id": inline_prompt_id, "text": prompt, "position": 0, "metadata": {"workflow": body.workflow, "client_request_id": str(body.client_request_id), "compile_digest": compile_digest}}]
     definition = models.EvalDefinition(project_id=model.project_id, name=f"Image request {body.client_request_id}", endpoint=endpoint, model_version_id=model_version.id, prompt_set_id=None, inline_prompts=inline_prompts, parameters=dict(body.parameters))
     db.add(definition)
     db.flush()
-    projection = create_fal_admission(FalEvalCreateV1(kind="eval", mode="single", project_id=body.context.project_id, model_version_id=body.model_version_id, checkpoint_revision_id=body.checkpoint_revision_id, prompts=[FalPromptV1(prompt_id=inline_prompt_id, prompt=body.prompt)], parameters=body.parameters, client_request_id=body.client_request_id, definition_id=UUID(definition.id)), db, x_profile_id)
+    projection = create_fal_admission(FalEvalCreateV1(kind="eval", mode="single", project_id=body.context.project_id, model_version_id=body.model_version_id, checkpoint_revision_id=body.checkpoint_revision_id, prompts=[FalPromptV1(prompt_id=inline_prompt_id, prompt=prompt)], parameters=body.parameters, client_request_id=body.client_request_id, definition_id=UUID(definition.id)), db, x_profile_id)
     return {"kind": "compiled_generation", "workflow": body.workflow, "provider": body.provider, "definition_id": definition.id, "prompt_set_id": None, "admission": projection.admission.model_dump(mode="json")}
 
 
@@ -467,16 +468,20 @@ def compile_eval_generation_request(body: EvalGenerationCompileV1, db: DB, x_pro
         get_adapter(endpoint)
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=f"registered FAL endpoint is unavailable: {endpoint}") from exc
-    inline_prompts = [{"id": str(prompt.prompt_id), "text": prompt.prompt, "position": index,
+    compiled_prompts = [
+        FalPromptV1(prompt_id=str(prompt.prompt_id), prompt=apply_generation_prompt_settings(db, prompt.prompt))
+        for prompt in body.prompts
+    ]
+    inline_prompts = [{"id": prompt.prompt_id, "text": prompt.prompt, "position": index,
         "metadata": {"workflow": "eval", "client_request_id": str(body.client_request_id), "compile_digest": digest}}
-        for index, prompt in enumerate(body.prompts)]
+        for index, prompt in enumerate(compiled_prompts)]
     definition = models.EvalDefinition(project_id=model.project_id, name=f"Eval · {model.name} · {len(inline_prompts)} prompts",
         endpoint=endpoint, model_version_id=version.id, prompt_set_id=None, inline_prompts=inline_prompts,
         parameters={**body.parameters, "endpoint_id": endpoint})
     db.add(definition); db.flush()
-    projection = create_fal_admission(FalEvalCreateV1(kind="eval", mode="single" if len(body.prompts) == 1 else "prompt_batch",
+    projection = create_fal_admission(FalEvalCreateV1(kind="eval", mode="single" if len(compiled_prompts) == 1 else "prompt_batch",
         project_id=body.context.project_id, model_version_id=body.model_version_id,
-        checkpoint_revision_id=body.checkpoint_revision_id, prompts=body.prompts,
+        checkpoint_revision_id=body.checkpoint_revision_id, prompts=compiled_prompts,
         parameters={**body.parameters, "endpoint_id": endpoint}, client_request_id=body.client_request_id,
         definition_id=UUID(definition.id)), db, x_profile_id)
     return {"kind": "compiled_generation", "workflow": "eval", "provider": body.provider,

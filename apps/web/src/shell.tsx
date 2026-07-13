@@ -28,7 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
-import { activityLabel } from "./activity";
+import { activityLabel, activityObjectHref, previewAssetId } from "./activity";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { Notice, ProfileSelect, Status } from "./ui";
@@ -194,6 +194,8 @@ function Sidebar({ section, id, activeProjectId, projects, workspace, theme, col
   const shownProjects = visibleProjects.length ? visibleProjects : projects;
   const activeSources = rows(sources.data).filter(source => source.is_active !== false).length;
   return <aside className="vela-sidebar" id="vela-navigation" data-mobile-open={mobileOpen} onClick={event => { if ((event.target as HTMLElement).closest("a")) onMobileClose(); }}>
+    <img className="mf-rail-ornament mf-rail-ornament-light" src="/assets/light-blue-labels-corners.svg" alt="" aria-hidden="true" />
+    <img className="mf-rail-ornament mf-rail-ornament-dark" src="/assets/dark-orbital-fragments.svg" alt="" aria-hidden="true" />
     <div className="vela-brand"><a className="vela-wordmark" href="#/dashboard" aria-label="ModelFiche dashboard"><img src={`/assets/modelfiche-logo-${theme}.png`} alt="ModelFiche" /></a><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close navigation" onClick={onMobileClose}><X size={18} /></button></div>
     <nav className="vela-nav" aria-label="Primary navigation" data-layout={SHELL_LAYOUT_CONTRACT.navigation}>
       <VelaNavLink href="#/dashboard" active={section === "dashboard" || section === "projects"} icon={<LayoutDashboard size={16} />}>Dashboard</VelaNavLink>
@@ -243,13 +245,15 @@ function NavBranch({ label, href, items, itemRoute, projectId, section, activeId
 function ContextInspector({ section, id, projectId, collapsed, mobileOpen, onMobileClose, onCollapse }: { section: string; id: string; projectId: string; collapsed: boolean; mobileOpen: boolean; onMobileClose: () => void; onCollapse: () => void }) {
   const entity = useResource<Row>(entityPath(section, id));
   const subject = inspectorSubject(section, id);
-  const activity = useResource<unknown>(`/api/activity${query({ project_id: projectId || undefined, subject_type: subject?.type, subject_id: subject?.id, limit: 20 })}`);
+  const activity = useResource<unknown>(`/api/activity${query({ project_id: projectId || undefined, subject_type: section === "project" ? undefined : subject?.type, subject_id: section === "project" ? undefined : subject?.id, limit: 20 })}`);
   const title = entityTitle(section, entity.data);
   return <aside className="vela-inspector" id="vela-metadata" data-mobile-open={mobileOpen} data-layout={SHELL_LAYOUT_CONTRACT.inspector}>
+    <img className="mf-rail-ornament mf-rail-ornament-light" src="/assets/light-cobalt-xerox-texture.svg" alt="" aria-hidden="true" />
+    <img className="mf-rail-ornament mf-rail-ornament-dark" src="/assets/dark-celestial-catalogue-labels.svg" alt="" aria-hidden="true" />
     <div className="vela-inspector-heading"><h2>Metadata</h2><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand metadata" : "Collapse metadata"} aria-controls="vela-metadata" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronLeft size={17} /> : <PanelRightClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close metadata and notes" onClick={onMobileClose}><X size={18} /></button></div>
     <section className="vela-inspector-card"><div className="vela-context-title"><div><h3>{title}</h3>{section !== "project" && <Status value={str(entity.data?.state ?? entity.data?.status, section === "dashboard" ? "workspace" : "selected")} />}</div></div><Notice error={entity.error} loading={entity.loading} />{entity.data ? <MetadataRows value={entity.data} /> : <p className="vela-muted-copy">Select an object to inspect its metadata and history.</p>}</section>
     {subject && ["project", "dataset", "model"].includes(subject.type) && <NotesPanel subjectType={subject.type} subjectId={subject.id} />}
-    <section className="vela-inspector-card"><div className="vela-section-heading"><h2>{projectId ? "Project activity" : "Workspace activity"}</h2></div><Notice error={activity.error} loading={activity.loading} empty={!rows(activity.data).length} /><div className="vela-activity-list">{rows(activity.data).map(item => { const rawEvent = str(item.action ?? item.event_type); return <article className="vela-activity-item" key={idOf(item)}><div className="vela-activity-thumb"><Activity size={17} /></div><div><h3>{activityLabel(rawEvent)}</h3><p>{str(item.summary ?? item.subject_type)}<br />{formatDate(item.created_at)}</p>{/[._]/.test(rawEvent) && <details className="vela-activity-technical"><summary>Technical details</summary><code>{rawEvent}</code></details>}</div></article>; })}</div></section>
+    <section className="vela-inspector-card"><div className="vela-section-heading"><h2>{projectId ? "Project activity" : "Workspace activity"}</h2></div><Notice error={activity.error} loading={activity.loading} empty={!rows(activity.data).length} /><div className="vela-activity-list">{rows(activity.data).map(item => { const rawEvent = str(item.action ?? item.event_type); const objectHref = activityObjectHref(item.object_href); const objectLabel = str(item.object_label, ""); const summary = str(item.summary ?? item.subject_type); const profileName = str(item.profile_name, ""); const previewId = previewAssetId(item.preview_asset_id); const summaryContent = objectHref ? objectLabel ? <><a href={objectHref}>{objectLabel}</a>{objectLabel !== summary && <> · {summary}</>}</> : <a href={objectHref}>{summary}</a> : <>{summary}{objectLabel && objectLabel !== summary && <> · {objectLabel}</>}</>; return <article className="vela-activity-item" key={idOf(item)}><div className="vela-activity-thumb">{previewId ? <AssetImage assetRevisionId={previewId} alt={objectLabel || summary} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Activity size={17} />}</div><div><h3>{activityLabel(rawEvent)}</h3><div className="vela-activity-copy"><p className="vela-activity-summary">{summaryContent}</p>{profileName && <span className="vela-meta">by {profileName}</span>}<time className="vela-activity-time" dateTime={str(item.created_at)}>{formatDate(item.created_at)}</time></div>{/[._]/.test(rawEvent) && <details className="vela-activity-technical"><summary>Technical details</summary><code>{rawEvent}</code></details>}</div></article>; })}</div></section>
     <button type="button" className="vela-rail-label" aria-label="Expand metadata" aria-controls="vela-metadata" aria-expanded={!collapsed} onClick={onCollapse}>METADATA</button>
   </aside>;
 }

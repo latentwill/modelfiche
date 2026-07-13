@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-13T00:00:00Z",
+  "title": "Design System: ModelFiche Web",
+  "extensions": {
+    "colorMeta": {
+      "light-canvas": { "role": "neutral", "displayName": "Xerox Canvas", "canonical": "#fbfbf8", "tonalRamp": ["oklch(15% 0.008 95)", "oklch(27% 0.008 95)", "oklch(39% 0.008 95)", "oklch(51% 0.008 95)", "oklch(63% 0.008 95)", "oklch(75% 0.008 95)", "oklch(87% 0.008 95)", "#fbfbf8"] },
+      "light-blue-wash": { "role": "neutral", "displayName": "Blue Wash", "canonical": "#f2f4fa", "tonalRamp": ["oklch(15% 0.012 265)", "oklch(27% 0.012 265)", "oklch(39% 0.012 265)", "oklch(51% 0.012 265)", "oklch(63% 0.012 265)", "oklch(75% 0.012 265)", "oklch(87% 0.012 265)", "#f2f4fa"] },
+      "light-paper": { "role": "neutral", "displayName": "Archive Paper", "canonical": "#ffffff", "tonalRamp": ["#262626", "#464646", "#666666", "#878787", "#a7a7a7", "#c7c7c7", "#e7e7e7", "#ffffff"] },
+      "cobalt": { "role": "primary", "displayName": "Cobalt Ink", "canonical": "#1237b8", "tonalRamp": ["oklch(15% 0.18 265)", "oklch(25% 0.18 265)", "oklch(35% 0.18 265)", "#1237b8", "oklch(55% 0.18 265)", "oklch(65% 0.18 265)", "oklch(75% 0.18 265)", "oklch(88% 0.18 265)"] },
+      "cobalt-deep": { "role": "primary", "displayName": "Cobalt Deep", "canonical": "#082689", "tonalRamp": ["oklch(15% 0.16 265)", "oklch(22% 0.16 265)", "#082689", "oklch(38% 0.16 265)", "oklch(50% 0.16 265)", "oklch(62% 0.16 265)", "oklch(74% 0.16 265)", "oklch(86% 0.16 265)"] },
+      "metadata-blue": { "role": "neutral", "displayName": "Metadata Blue", "canonical": "#6573a4", "tonalRamp": ["oklch(15% 0.06 270)", "oklch(27% 0.06 270)", "oklch(39% 0.06 270)", "#6573a4", "oklch(63% 0.06 270)", "oklch(75% 0.06 270)", "oklch(87% 0.06 270)", "oklch(95% 0.06 270)"] },
+      "blue-border": { "role": "neutral", "displayName": "Blue Border", "canonical": "#b8c5ed", "tonalRamp": ["oklch(15% 0.06 270)", "oklch(27% 0.06 270)", "oklch(39% 0.06 270)", "oklch(51% 0.06 270)", "oklch(63% 0.06 270)", "oklch(75% 0.06 270)", "#b8c5ed", "oklch(95% 0.06 270)"] },
+      "archive-green": { "role": "secondary", "displayName": "Archive Green", "canonical": "#176b4a", "tonalRamp": ["oklch(15% 0.09 155)", "oklch(27% 0.09 155)", "oklch(39% 0.09 155)", "#176b4a", "oklch(59% 0.09 155)", "oklch(71% 0.09 155)", "oklch(83% 0.09 155)", "oklch(95% 0.09 155)"] },
+      "archive-amber": { "role": "tertiary", "displayName": "Archive Amber", "canonical": "#8b580e", "tonalRamp": ["oklch(15% 0.1 75)", "oklch(27% 0.1 75)", "oklch(39% 0.1 75)", "#8b580e", "oklch(59% 0.1 75)", "oklch(71% 0.1 75)", "oklch(83% 0.1 75)", "oklch(95% 0.1 75)"] },
+      "archive-red": { "role": "tertiary", "displayName": "Archive Red", "canonical": "#a12b32", "tonalRamp": ["oklch(15% 0.13 25)", "oklch(27% 0.13 25)", "oklch(39% 0.13 25)", "#a12b32", "oklch(59% 0.13 25)", "oklch(71% 0.13 25)", "oklch(83% 0.13 25)", "oklch(95% 0.13 25)"] },
+      "media-night": { "role": "neutral", "displayName": "Media Night", "canonical": "#05104a", "tonalRamp": ["#05104a", "oklch(22% 0.13 275)", "oklch(34% 0.13 275)", "oklch(46% 0.13 275)", "oklch(58% 0.13 275)", "oklch(70% 0.13 275)", "oklch(82% 0.13 275)", "oklch(94% 0.13 275)"] },
+      "observatory-blue": { "role": "neutral", "displayName": "Observatory Blue", "canonical": "#081b78", "tonalRamp": ["oklch(15% 0.17 270)", "#081b78", "oklch(35% 0.17 270)", "oklch(47% 0.17 270)", "oklch(59% 0.17 270)", "oklch(71% 0.17 270)", "oklch(83% 0.17 270)", "oklch(95% 0.17 270)"] },
+      "observatory-ink": { "role": "neutral", "displayName": "Observatory Ink", "canonical": "#f7f5ec", "tonalRamp": ["oklch(15% 0.015 95)", "oklch(27% 0.015 95)", "oklch(39% 0.015 95)", "oklch(51% 0.015 95)", "oklch(63% 0.015 95)", "oklch(75% 0.015 95)", "oklch(87% 0.015 95)", "#f7f5ec"] },
+      "observatory-muted": { "role": "neutral", "displayName": "Observatory Muted", "canonical": "#bfc9f4", "tonalRamp": ["oklch(15% 0.07 270)", "oklch(27% 0.07 270)", "oklch(39% 0.07 270)", "oklch(51% 0.07 270)", "oklch(63% 0.07 270)", "oklch(75% 0.07 270)", "#bfc9f4", "oklch(95% 0.07 270)"] },
+      "observatory-border": { "role": "neutral", "displayName": "Observatory Border", "canonical": "#8fa5ef", "tonalRamp": ["oklch(15% 0.11 270)", "oklch(27% 0.11 270)", "oklch(39% 0.11 270)", "oklch(51% 0.11 270)", "#8fa5ef", "oklch(75% 0.11 270)", "oklch(87% 0.11 270)", "oklch(95% 0.11 270)"] },
+      "observatory-accent": { "role": "primary", "displayName": "Observatory Accent", "canonical": "#87a9ff", "tonalRamp": ["oklch(15% 0.14 270)", "oklch(27% 0.14 270)", "oklch(39% 0.14 270)", "oklch(51% 0.14 270)", "#87a9ff", "oklch(75% 0.14 270)", "oklch(87% 0.14 270)", "oklch(95% 0.14 270)"] },
+      "observatory-success": { "role": "secondary", "displayName": "Observatory Success", "canonical": "#8ed8b3", "tonalRamp": ["oklch(15% 0.09 155)", "oklch(27% 0.09 155)", "oklch(39% 0.09 155)", "oklch(51% 0.09 155)", "oklch(63% 0.09 155)", "#8ed8b3", "oklch(87% 0.09 155)", "oklch(95% 0.09 155)"] },
+      "observatory-warning": { "role": "tertiary", "displayName": "Observatory Warning", "canonical": "#f0c675", "tonalRamp": ["oklch(15% 0.1 75)", "oklch(27% 0.1 75)", "oklch(39% 0.1 75)", "oklch(51% 0.1 75)", "oklch(63% 0.1 75)", "#f0c675", "oklch(87% 0.1 75)", "oklch(95% 0.1 75)"] },
+      "observatory-danger": { "role": "tertiary", "displayName": "Observatory Danger", "canonical": "#ff9aa0", "tonalRamp": ["oklch(15% 0.13 25)", "oklch(27% 0.13 25)", "oklch(39% 0.13 25)", "oklch(51% 0.13 25)", "oklch(63% 0.13 25)", "#ff9aa0", "oklch(87% 0.13 25)", "oklch(95% 0.13 25)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "ModelFiche Display", "purpose": "Condensed uppercase titles, headings, and named records." },
+      "body": { "displayName": "ModelFiche Condensed Body", "purpose": "Operator-facing body copy and control text." },
+      "wordmark": { "displayName": "ModelFiche Wordmark", "purpose": "Supplied brand mark only; never general interface copy." },
+      "mono": { "displayName": "Catalog Mono", "purpose": "Labels, identifiers, dates, status, chart axes, and tabular numerics." }
+    },
+    "shadows": [
+      { "name": "sheet-offset", "value": "2px 2px 0 color-mix(in srgb, #b8c5ed 24%, transparent)", "purpose": "Static panels use a small hard registration offset." },
+      { "name": "menu-offset", "value": "4px 4px 0 rgb(8 38 137 / 14%)", "purpose": "Menus and search results sit over their task surface." },
+      { "name": "dialog-offset", "value": "12px 12px 0 rgb(8 38 137 / 14%)", "purpose": "Rare dialogs and dedicated overlays." }
+    ],
+    "motion": [
+      { "name": "shell-transition", "value": "160ms cubic-bezier(.16, 1, .3, 1)", "purpose": "Rail-column changes and project-card response." },
+      { "name": "chart-draw", "value": "1100ms", "purpose": "DitherKit loss-chart data draw only." },
+      { "name": "reduced-motion", "value": "none", "purpose": "Required override for nonessential animation and transitions." }
+    ],
+    "breakpoints": [
+      { "name": "inspector-drawer-and-eight-columns", "value": "1180px" },
+      { "name": "dashboard-stack", "value": "860px" },
+      { "name": "mobile-shell-and-four-columns", "value": "680px" },
+      { "name": "focused-review-stack", "value": "820px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Cobalt decisive action for creation, save, or the selected tab.",
+      "html": "<button class=\"ds-btn-primary\">SAVE CHANGES</button>",
+      "css": ".ds-btn-primary { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 8px 13px; border: 1px solid #1237b8; border-radius: 0; background: #1237b8; color: #fff; font: 650 14px/1.45 \"Avenir Next Condensed\", \"Avenir Next\", sans-serif; letter-spacing: .02em; cursor: pointer; } .ds-btn-primary:hover { background: color-mix(in srgb, #1237b8 84%, black); } .ds-btn-primary:focus-visible { outline: 1px solid #1237b8; outline-offset: 3px; box-shadow: 0 0 0 1px #fff, 0 0 0 3px #1237b8; } .ds-btn-primary:disabled { cursor: not-allowed; opacity: .5; }"
+    },
+    {
+      "name": "Entry Console Field",
+      "kind": "input",
+      "refersTo": "text-input",
+      "description": "Numbered technical form entry with a strong lower rule and cobalt focus stripe.",
+      "html": "<label class=\"ds-field\"><span><b>01.</b> PROJECT NAME</span><input class=\"ds-input\" placeholder=\"Portrait collection\"><small>Used in navigation and search.</small></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: #082689; font-family: \"Avenir Next Condensed\", \"Avenir Next\", sans-serif; } .ds-field > span { display: flex; gap: 8px; font: 700 10px/1 \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; letter-spacing: .07em; } .ds-field b { color: #1237b8; } .ds-field small { color: #6573a4; font-size: 11px; } .ds-input { width: 100%; min-height: 40px; box-sizing: border-box; padding: 9px 11px; border: 1px solid #b8c5ed; border-bottom: 2px solid #1237b8; border-radius: 0; background: #fff; color: #082689; box-shadow: inset 3px 0 0 #f2f4fa; font: 14px/1.45 \"Avenir Next Condensed\", \"Avenir Next\", sans-serif; } .ds-input:focus { border-color: #1237b8; box-shadow: inset 4px 0 0 #1237b8; outline: 0; } .ds-input:focus-visible { outline: 1px solid #1237b8; outline-offset: 3px; } .ds-input:disabled { cursor: not-allowed; background: #f2f4fa; }"
+    },
+    {
+      "name": "Active Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "Current workspace location in the persistent archival rail.",
+      "html": "<a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><span class=\"ds-nav-icon\">◆</span><span>DASHBOARD</span></a>",
+      "css": ".ds-nav-item { min-height: 40px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid transparent; border-radius: 2px; color: #082689; font: 600 14px/1.45 \"Avenir Next Condensed\", \"Avenir Next\", sans-serif; text-decoration: none; } .ds-nav-item:hover { border-color: #b8c5ed; background: #f2f4fa; } .ds-nav-item:focus-visible { outline: 1px solid #1237b8; outline-offset: 3px; box-shadow: 0 0 0 1px #fff, 0 0 0 3px #1237b8; } .ds-nav-icon { width: 18px; color: currentColor; text-align: center; font: 11px \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; } .ds-nav-item-active { border-color: #1237b8; background: #1237b8; color: #fff; } .ds-nav-item-active:hover { background: #1237b8; }"
+    },
+    {
+      "name": "Archive Sheet",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "A bordered technical sheet with a strong top rule and hard registration offset.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-header\"><h2>RECENT RUNS</h2><button class=\"ds-link\">VIEW ALL</button></header><p>Group a coherent operator task or evidence set in one sheet.</p></section>",
+      "css": ".ds-panel { padding: 16px; border: 1px solid #b8c5ed; border-top-color: #1237b8; border-radius: 4px; background: #fff; box-shadow: 2px 2px 0 color-mix(in srgb, #b8c5ed 24%, transparent); color: #082689; font: 14px/1.45 \"Avenir Next Condensed\", \"Avenir Next\", sans-serif; } .ds-panel-header { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 3px double #1237b8; } .ds-panel h2 { margin: 0; font: 700 15px/1.05 \"Helvetica Neue Condensed Bold\", \"Arial Narrow\", sans-serif; letter-spacing: -.025em; } .ds-panel p { margin: 0; color: #6573a4; } .ds-link { padding: 0; border: 0; background: transparent; color: #1237b8; font: 700 10px/1 \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; letter-spacing: .04em; cursor: pointer; } .ds-link:hover { text-decoration: underline; } .ds-link:focus-visible { outline: 1px solid #1237b8; outline-offset: 3px; }"
+    },
+    {
+      "name": "Semantic Status",
+      "kind": "chip",
+      "refersTo": "status-success",
+      "description": "Square mono state label with a colored inset registration bar.",
+      "html": "<span class=\"ds-status ds-status-success\">■ READY</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; width: fit-content; padding: 4px 7px; border-radius: 0; background: #fff; color: #6573a4; box-shadow: inset 3px 0 0 currentColor; font: 700 10px/1 \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; letter-spacing: .055em; text-transform: uppercase; } .ds-status-success { color: #176b4a; } .ds-status-warning { color: #8b580e; } .ds-status-danger { color: #a12b32; }"
+    },
+    {
+      "name": "Asset Specimen",
+      "kind": "custom",
+      "refersTo": "asset-card",
+      "description": "Content-first gallery record with a square media well and clipped catalog metadata.",
+      "html": "<article class=\"ds-asset-card\"><div class=\"ds-asset-preview\">IMAGE</div><div class=\"ds-asset-footer\"><strong>portrait-014.png</strong><small>DATASET IMAGE · 1024 × 1024</small></div></article>",
+      "css": ".ds-asset-card { min-width: 0; display: grid; grid-template-rows: auto auto; gap: 5px; padding: 7px; overflow: hidden; border: 1px solid transparent; border-radius: 2px; color: #082689; background: transparent; font: 14px/1.3 \"Avenir Next Condensed\", \"Avenir Next\", sans-serif; } .ds-asset-card:hover { border-color: #1237b8; background: color-mix(in srgb, #1237b8 8%, #fff); } .ds-asset-card:focus-within { outline: 1px solid #1237b8; outline-offset: 3px; } .ds-asset-preview { display: grid; place-items: center; aspect-ratio: 1; overflow: hidden; border-radius: 2px; background: #05104a; color: #fff; font: 10px \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; } .ds-asset-footer { display: grid; gap: 2px; min-width: 0; } .ds-asset-footer strong, .ds-asset-footer small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-asset-footer small { color: #6573a4; font: 9px \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; letter-spacing: .055em; }"
+    },
+    {
+      "name": "Theme Toggle",
+      "kind": "button",
+      "refersTo": "theme-toggle",
+      "description": "Explicit light/dark switch with a retained registration mark and pressed state.",
+      "html": "<button class=\"ds-theme-toggle\" aria-pressed=\"false\" aria-label=\"Switch to dark mode\">◐</button>",
+      "css": ".ds-theme-toggle { position: relative; width: 40px; min-height: 40px; padding: 0; border: 1px solid #1237b8; border-radius: 0; background: #fff; color: #082689; font: 18px/1 \"SFMono-Regular\", \"Roboto Mono\", Menlo, monospace; cursor: pointer; } .ds-theme-toggle::after { content: \"\"; position: absolute; right: 3px; bottom: 3px; width: 5px; height: 5px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; } .ds-theme-toggle:hover { background: #f2f4fa; } .ds-theme-toggle:focus-visible { outline: 1px solid #1237b8; outline-offset: 3px; box-shadow: 0 0 0 1px #fff, 0 0 0 3px #1237b8; } .ds-theme-toggle[aria-pressed=\"true\"] { background: #1237b8; color: #fff; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Cobalt Xerox Archive",
+    "overview": "ModelFiche is a serious, precise, production-minded archive workbench. It uses the legibility of a cobalt photocopy, catalog sheet, and technical observation log: paper-light or observatory-dark grounds; sharply ruled blue structure; compact numbered labels; and dense information that stays navigable. Visual assets remain the focal material while the UI makes lineage, status, comparison, and review state explicit.",
+    "keyCharacteristics": ["Cobalt-blue archival identity with paper-light and observatory-dark modes.", "Squared geometry, double rules, technical grid lines, and small offset shadows—not soft consumer cards.", "Condensed display hierarchy, condensed body copy, serif wordmark, and mono metadata.", "Images are inspectable specimens: contained for fidelity and cover-cropped only for scanning.", "Context-preserving rails, local scrolling surfaces, responsive drawers, and no horizontal page overflow."],
+    "rules": [
+      { "name": "The Identity-Over-Implementation Rule", "body": "ModelFiche is the design-system name. An inherited CSS compatibility namespace exists in source, but it is not a product, theme, component, or typography name for new work.", "section": "overview" },
+      { "name": "The Cobalt Allocation Rule", "body": "Cobalt carries active state, decision, and structural hierarchy. It must not become background decoration on inactive cards, empty space, or every icon. In dark mode, use the observatory roles rather than forcing light-mode values onto a dark surface.", "section": "colors" },
+      { "name": "The Catalog-Role Rule", "body": "Display type names a thing; body type explains it; mono classifies and measures it. Do not use display type for editable values, table body data, or general button labels. Do not use serif except through the wordmark asset.", "section": "typography" },
+      { "name": "The Registration Rule", "body": "Depth must look constructed: a rule, double rule, inset line, or hard offset. Do not add rounded floating cards, ambient blur, or soft elevation to static work regions.", "section": "elevation" },
+      { "name": "The Motion Rule", "body": "Use the existing 160ms exponential transition for rail changes and the two-pixel project-card hover translation. The DitherKit loss chart has an 1100ms data-draw animation; do not add page-load choreography. Disable nonessential movement under reduced-motion preferences.", "section": "elevation" }
+    ],
+    "dos": ["Do name the system, typography role, token vocabulary, and visual conventions ModelFiche. Treat inherited CSS compatibility names as implementation details only.", "Do use the active theme's semantic roles for every surface, text, state, border, media well, reader symbol, and logo variant.", "Do use cobalt rules, mono catalog labels, numbered form fields, and hard registration offsets to establish the archival visual language.", "Do preserve the three-rail context model for task work; use focused review workspaces for visual inspection that needs the canvas.", "Do use contained previews for fidelity and cover crops only for scan-oriented groups.", "Do keep charts and grids technical: explicit axes, semantic traces, tabular labels, local scrolling, and no horizontal page overflow.", "Do preserve keyboard focus, semantic status, reduced-motion behavior, responsive rails/drawers, and the persistent theme preference on new interactions."],
+    "donts": ["Don't call the product, design system, a theme, or a visual component Vela. ModelFiche is the user-facing and design-system identity.", "Don't collapse light and dark into a single palette or use a light-mode logo, reader symbol, or state color in dark mode.", "Don't use marketing-page ornament, decorative gradients, playful consumer styling, pop-up-heavy flows, queue-based planning metaphors, or static screenshot mockups that do not support comparison.", "Don't reach for a modal first. Prefer the established drawers and inspectors; the dedicated full-screen image lightbox is the explicit exception for visual review.", "Don't add rounded floating SaaS cards, soft ambient shadows, glassmorphism, color washes on inactive surfaces, or generic icon-card grids.", "Don't place decorative texture, imagery, or atmospheric effects inside technical charts and grid boards.", "Don't let a dense tool surface overflow horizontally. Wrap content, reduce responsive columns, use a drawer, or provide a local scroll/zoom surface."]
+  }
+}

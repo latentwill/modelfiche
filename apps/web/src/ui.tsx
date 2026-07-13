@@ -4,7 +4,7 @@ import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
 
 export function Page(props: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
-  return <main className="vela-main"><header className="vela-page-header"><div><h1>{props.title}</h1>{props.subtitle && <p>{props.subtitle}</p>}</div>{props.actions && <div className="vela-page-actions">{props.actions}</div>}</header>{props.children}</main>;
+  return <main className="vela-main"><header className="vela-page-header"><div><h1>{props.title}</h1>{props.subtitle && <p>{props.subtitle}</p>}</div>{props.actions && <div className="vela-page-actions">{props.actions}</div>}<img className="mf-observation-plate mf-observation-plate-light" src="/assets/microfiche-header-ornament.webp" alt="" aria-hidden="true" /><img className="mf-observation-plate mf-observation-plate-dark" src="/assets/dark-astronomy-header-ornament.webp" alt="" aria-hidden="true" /></header>{props.children}</main>;
 }
 
 export function Panel(props: { title?: string; children: ReactNode; className?: string }) {
@@ -32,10 +32,10 @@ export function Field(props: { label: string; children: ReactNode; hint?: string
   return <label className="vela-field field"><span>{props.label}</span>{props.children}{props.hint && <small>{props.hint}</small>}</label>;
 }
 
-export function Form(props: { onSubmit: (form: FormData) => void | Promise<void>; children: ReactNode; submit?: string }) {
+export function Form(props: { onSubmit: (form: FormData) => void | Promise<void>; children: ReactNode; submit?: string; submitDisabled?: boolean }) {
   const [error, setError] = useState(""); const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setError(""); setSaved(false); setSaving(true); try { await props.onSubmit(new FormData(event.currentTarget)); setSaved(true); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setSaving(false); } };
-  return <form className="vela-form" onSubmit={event => void submit(event)}>{props.children}{error && <div role="alert" className="vela-notice vela-notice-error">{error}</div>}<button className="vela-button vela-button-primary" type="submit" disabled={saving}>{saving ? <><LoaderCircle className="vela-spin" size={15} /> Working...</> : saved ? <><Check size={15} /> Saved</> : props.submit ?? "Save"}</button></form>;
+  return <form className="vela-form" onSubmit={event => void submit(event)}>{props.children}{error && <div role="alert" className="vela-notice vela-notice-error">{error}</div>}<button className="vela-button vela-button-primary" type="submit" disabled={saving || props.submitDisabled}>{saving ? <><LoaderCircle className="vela-spin" size={15} /> Working...</> : saved ? <><Check size={15} /> Saved</> : props.submit ?? "Save"}</button></form>;
 }
 
 export function Json({ value }: { value: unknown }) { return <pre className="vela-code">{JSON.stringify(value, null, 2)}</pre>; }
@@ -54,7 +54,7 @@ export function Pagination({ page, pageSize, total, onPage, onPageSize }: { page
 }
 
 export function DataTable(props: { rows: Record<string, unknown>[]; columns: Array<[string, string]>; onRow?: (row: Record<string, unknown>) => void }) {
-  return <div className="vela-table-wrap table-wrap"><table className="vela-table"><thead><tr>{props.columns.map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={String(row.id ?? index)} role={props.onRow ? "link" : undefined} aria-label={props.onRow ? `Open ${str(row[props.columns[0]?.[0]], "record")}` : undefined} onClick={() => props.onRow?.(row)} onKeyDown={event => { if (props.onRow && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); props.onRow(row); } }} tabIndex={props.onRow ? 0 : undefined} className={props.onRow ? "is-clickable" : ""}>{props.columns.map(([key]) => <td key={key}>{renderCell(row[key])}</td>)}</tr>)}</tbody></table></div>;
+  return <div className="vela-table-wrap table-wrap" role="region" aria-label="Scrollable data table" tabIndex={0}><p className="vela-table-scroll-hint">Scroll horizontally for all columns</p><table className="vela-table"><thead><tr>{props.columns.map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={String(row.id ?? index)} role={props.onRow ? "link" : undefined} aria-label={props.onRow ? `Open ${str(row[props.columns[0]?.[0]], "record")}` : undefined} onClick={() => props.onRow?.(row)} onKeyDown={event => { if (props.onRow && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); props.onRow(row); } }} tabIndex={props.onRow ? 0 : undefined} className={props.onRow ? "is-clickable" : ""}>{props.columns.map(([key]) => <td key={key}>{renderCell(row[key])}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function renderCell(value: unknown): ReactNode { if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.map(String).join(", "); if (value && typeof value === "object") return JSON.stringify(value); if (typeof value === "string" && /^https?:\/\//.test(value)) return <a href={value} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Open</a>; return str(value); }

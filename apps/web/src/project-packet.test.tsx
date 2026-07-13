@@ -36,7 +36,8 @@ describe("project packet timestamp", () => {
     failed.unmount();
 
     const completed = render(<LatestTrainingRun projectId="project-1" loading={false} runs={[{ id: "run-ok", name: "Finished", status: "completed", created_at: "2026-07-12T00:00:00Z", result_model_id: "model-1", result_model_name: "vcribb" }]} />);
-    expect(completed.getByRole("link", { name: "Open result model: vcribb" })).toHaveAttribute("href", "#/model/model-1");
+    expect(completed.getByRole("link", { name: "Result model vcribb" })).toHaveAttribute("href", "#/model/model-1");
+    expect(completed.getByRole("link", { name: "View all training runs" })).toHaveAttribute("href", "#/runs?project=project-1");
   });
 });
 

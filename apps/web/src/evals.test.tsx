@@ -10,7 +10,7 @@ describe("Eval workflow contracts", () => {
   });
 
   it("uses the shared model/checkpoint picker and Generate Eval action with square previews", () => {
-    const generator = evalSource.slice(evalSource.indexOf("export function EvalsScreen"), evalSource.indexOf("function EndpointFields"));
+    const generator = evalSource.slice(evalSource.indexOf("export function EvalsScreen"), evalSource.indexOf("export function EvalScreen"));
     expect(generator).toContain("Ordered manual prompts");
     expect(generator).toContain("<ModelCheckpointPicker models={generationModels}");
     expect(generator).toContain("submit=\"Generate Eval\"");

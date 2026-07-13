@@ -1,6 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DashboardScreen } from "./screens-wireframe";
 import { WorkbenchShell } from "./shell";
+
+vi.mock("./asset-image", () => ({
+  AssetImage: ({ assetRevisionId, alt }: { assetRevisionId: string; alt: string }) => <img data-testid={`asset-image-${assetRevisionId}`} alt={alt} />,
+}));
 
 const workspace = { id: "workspace-1", name: "Workspace One" };
 const projects = [
@@ -37,7 +42,56 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings");
     expect(screen.getByText(/Local cache/)).toBeInTheDocument();
+
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toHaveAttribute("data-layout", "scroll-region");
     expect(document.querySelector(".vela-inspector")).toHaveAttribute("data-layout", "scroll-region");
+    fireEvent.click(screen.getByRole("button", { name: "Create or import" }));
+    const createItems = screen.getAllByRole("menuitem").map(item => item.textContent);
+    expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Eval"));
+    expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
+  });
+  it("renders activity previews and only links API-provided contextual objects", async () => {
+    const activity = [
+      { id: "event-image", action: "FAL.RESULT_INGESTED", summary: "Image created", object_label: "Portrait sample", object_href: "#/image/image-1", preview_asset_id: "revision-1", profile_name: "Operator", created_at: "2026-07-13T10:00:00Z" },
+      { id: "event-other", action: "workspace.updated", summary: "Workspace metadata updated", object_label: "Workspace One", object_href: null, preview_asset_id: null, profile_name: null, created_at: "2026-07-13T09:00:00Z" },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      switch (new URL(raw, "http://test.local").pathname) {
+        case "/api/workspaces": return response([workspace]);
+        case "/api/projects": return response(projects);
+        case "/api/import-sources": return response([]);
+        case "/api/activity": return response(activity);
+        case "/api/dashboard": return response({});
+        default: return response({});
+      }
+    }));
+
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    render(<WorkbenchShell section="dashboard" id="" params={new URLSearchParams()}><main>Screen</main></WorkbenchShell>);
+    await waitFor(() => expect(screen.getByRole("link", { name: "Portrait sample" })).toBeInTheDocument());
+    expect(screen.getByTestId("asset-image-revision-1")).toBeInTheDocument();
+    expect(screen.getByText("by Operator")).toBeInTheDocument();
+    expect(screen.getByText(/Image created/)).toBeInTheDocument();
+    expect(document.querySelector('time[datetime="2026-07-13T10:00:00Z"]')).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Portrait sample" })).toHaveAttribute("href", "#/image/image-1");
+    expect(screen.getByText(/Workspace metadata updated/).closest("a")).toBeNull();
+    expect(screen.getByText("Workspace · Updated")).toBeInTheDocument();
+  });
+
+  it("renders a recent-run preview without changing the run route", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/projects")) return response([]);
+      if (path.includes("/api/runs")) return response([{ id: "run-1", name: "Recent Run", status: "completed", base_model: "base-v1", preview_asset_id: "revision-run-1", updated_at: "2026-07-13T10:00:00Z" }]);
+      return response({});
+    }));
+
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DashboardScreen />);
+    await waitFor(() => expect(screen.getByText("Recent Run")).toBeInTheDocument());
+    expect(screen.getByTestId("asset-image-revision-run-1")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Recent Run/ })).toHaveAttribute("href", "#/run/run-1");
   });
 });

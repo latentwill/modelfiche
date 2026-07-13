@@ -115,8 +115,77 @@ def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: P
     _upgrade_to_head(database_path)
 
     with _connection(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0011_generation_queue_children",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015_backfill_legacy_krea_endpoints",)
 
+
+def test_0012_backfills_training_sample_asset_project_and_category(tmp_path: Path) -> None:
+    database_path = tmp_path / "sample-project-backfill.sqlite3"
+    _create_baseline(database_path, "0001", version="0001_initial")
+    _upgrade_to_revision(database_path, "0011_generation_queue_children")
+    with _connection(database_path) as connection:
+        connection.executescript(
+            """
+            INSERT INTO workspaces(name, id, created_at, updated_at) VALUES ('Workspace', 'workspace', '2026-01-01', '2026-01-01');
+            INSERT INTO projects(workspace_id, title, state, trigger_words, id, created_at, updated_at) VALUES ('workspace', 'Project', 'active', '[]', 'project', '2026-01-01', '2026-01-01');
+            INSERT INTO training_runs(project_id, name, status, raw_manifest, raw_state, normalized_config, id, created_at, updated_at) VALUES ('project', 'Run', 'completed', '{}', '{}', '{}', 'run', '2026-01-01', '2026-01-01');
+            INSERT INTO assets(workspace_id, kind, name, metadata, id, created_at, updated_at) VALUES ('workspace', 'image', 'sample.png', '{}', 'asset', '2026-01-01', '2026-01-01');
+            INSERT INTO samples(run_id, asset_id, generation_metadata, id, created_at, updated_at) VALUES ('run', 'asset', '{}', 'sample', '2026-01-01', '2026-01-01');
+            """
+        )
+
+    _upgrade_to_head(database_path)
+
+    with _connection(database_path) as connection:
+        assert connection.execute("SELECT project_id, json_extract(metadata, '$.category') FROM assets WHERE id = 'asset'").fetchone() == ("project", "sample")
+
+def test_0013_moves_run_and_samples_to_the_unambiguous_trigger_project(tmp_path: Path) -> None:
+    database_path = tmp_path / "run-trigger-reclassification.sqlite3"
+    _create_baseline(database_path, "0001", version="0001_initial")
+    _upgrade_to_revision(database_path, "0012_backfill_sample_project_ownership")
+    with _connection(database_path) as connection:
+        connection.executescript(
+            """
+            INSERT INTO workspaces(name, id, created_at, updated_at) VALUES ('Workspace', 'workspace', '2026-01-01', '2026-01-01');
+            INSERT INTO projects(workspace_id, title, state, trigger_words, id, created_at, updated_at) VALUES
+                ('workspace', 'vcribb', 'active', '["vcribb"]', 'vcribb', '2026-01-01', '2026-01-01'),
+                ('workspace', 'Modern Times', 'active', '["kzapata"]', 'modern-times', '2026-01-01', '2026-01-01');
+            INSERT INTO training_runs(project_id, name, source_prefix, status, raw_manifest, raw_state, normalized_config, id, created_at, updated_at)
+                VALUES ('vcribb', 'titlesxyz-kzapata-v001', 'runs/titlesxyz-kzapata-v001/', 'completed', '{}', '{}', '{}', 'run', '2026-01-01', '2026-01-01');
+            INSERT INTO assets(workspace_id, project_id, kind, name, metadata, id, created_at, updated_at)
+                VALUES ('workspace', 'vcribb', 'image', 'sample.png', '{"category":"sample"}', 'asset', '2026-01-01', '2026-01-01');
+            INSERT INTO samples(run_id, asset_id, generation_metadata, id, created_at, updated_at)
+                VALUES ('run', 'asset', '{}', 'sample', '2026-01-01', '2026-01-01');
+            """
+        )
+
+    _upgrade_to_head(database_path)
+
+    with _connection(database_path) as connection:
+        assert connection.execute("SELECT project_id FROM training_runs WHERE id = 'run'").fetchone() == ("modern-times",)
+        assert connection.execute("SELECT project_id FROM assets WHERE id = 'asset'").fetchone() == ("modern-times",)
+
+def test_0014_registers_uploaded_supported_lora_checkpoints(tmp_path: Path) -> None:
+    database_path = tmp_path / "fal-endpoint-backfill.sqlite3"
+    _create_baseline(database_path, "0001", version="0001_initial")
+    _upgrade_to_revision(database_path, "0013_reclassify_runs_by_trigger")
+    with _connection(database_path) as connection:
+        connection.executescript(
+            """
+            INSERT INTO workspaces(name, id, created_at, updated_at) VALUES ('Workspace', 'workspace', '2026-01-01', '2026-01-01');
+            INSERT INTO projects(workspace_id, title, state, trigger_words, id, created_at, updated_at) VALUES ('workspace', 'Project', 'active', '[]', 'project', '2026-01-01', '2026-01-01');
+            INSERT INTO training_runs(project_id, name, status, raw_manifest, raw_state, normalized_config, id, created_at, updated_at) VALUES ('project', 'Run', 'completed', '{}', '{}', '{}', 'run', '2026-01-01', '2026-01-01');
+            INSERT INTO assets(workspace_id, project_id, kind, name, metadata, id, created_at, updated_at) VALUES ('workspace', 'project', 'model', 'checkpoint.safetensors', '{}', 'asset', '2026-01-01', '2026-01-01');
+            INSERT INTO checkpoints(run_id, step, asset_id, state, id, created_at, updated_at) VALUES ('run', 2500, 'asset', 'available', 'checkpoint', '2026-01-01', '2026-01-01');
+            INSERT INTO models(project_id, name, id, created_at, updated_at) VALUES ('project', 'Krea', 'model', '2026-01-01', '2026-01-01');
+            INSERT INTO model_versions(model_id, checkpoint_id, name, trigger_words, base_model, lifecycle_state, readiness, id, created_at, updated_at)
+                VALUES ('model', 'checkpoint', 'v1', '[]', 'krea/Krea-2-Raw', 'candidate', '{"fal_url":"https://v3b.fal.media/files/model.safetensors"}', 'version', '2026-01-01', '2026-01-01');
+            """
+        )
+
+    _upgrade_to_head(database_path)
+
+    with _connection(database_path) as connection:
+        assert connection.execute("SELECT json_extract(readiness, '$.endpoint_id') FROM model_versions WHERE id = 'version'").fetchone() == ("fal-ai/krea-2/turbo/lora",)
 
 def test_0007_backfills_canonical_origin_timestamps(tmp_path: Path) -> None:
     database_path = tmp_path / "origin-backfill.sqlite3"

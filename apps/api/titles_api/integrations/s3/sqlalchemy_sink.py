@@ -22,6 +22,15 @@ from .reconciliation import StoredObject
 
 _STEP = re.compile(r"(?:step|checkpoint|ckpt|iteration|iter)[-_]?(\d+)", re.IGNORECASE)
 
+def _supported_fal_endpoint(base_model: str | None) -> str | None:
+    normalized = (base_model or "").casefold()
+    if "krea-2" in normalized or "krea 2" in normalized or "krea2" in normalized:
+        return "fal-ai/krea-2/turbo/lora"
+    if "ideogram" in normalized:
+        return "ideogram/v4/lora"
+    return None
+
+
 
 class SQLAlchemyImportSink:
     def __init__(self, session: Session):
@@ -309,12 +318,6 @@ class SQLAlchemyImportSink:
         return captions
 
     def _finalize_run(self, context: ImportContext, result: ImportResult) -> str:
-        run = self.session.scalar(
-            select(models.TrainingRun).where(
-                models.TrainingRun.project_id == context.project_id,
-                models.TrainingRun.source_prefix == context.prefix,
-            )
-        )
         source = self._source(context.source_id)
         manifest = result.detection.metadata.get("manifest", {})
         state = self._json_named("run_state.json")
@@ -346,9 +349,16 @@ class SQLAlchemyImportSink:
                 "training_config": training_config,
             }
         status = _public_run_status(_first(state, "status", "state"))
+        project_id = self._run_project_id(context, f"{context.prefix} {config_name or ''} {json.dumps(normalized, sort_keys=True)}")
+        run = self.session.scalar(
+            select(models.TrainingRun).where(
+                models.TrainingRun.origin_source_id == source.id,
+                models.TrainingRun.source_prefix == context.prefix,
+            )
+        )
         if run is None:
             run = models.TrainingRun(
-                project_id=context.project_id,
+                project_id=project_id,
                 name=str(config_name or PurePosixPath(context.prefix.rstrip("/")).name),
                 trainer=trainer,
                 base_model=base_model,
@@ -363,6 +373,7 @@ class SQLAlchemyImportSink:
             self.session.add(run)
             self.session.flush()
         else:
+            run.project_id = project_id
             run.origin_source_id = source.id
             run.origin_source_fingerprint = source.identity_fingerprint
             run.raw_manifest = manifest
@@ -372,6 +383,10 @@ class SQLAlchemyImportSink:
             run.base_model = base_model or run.base_model
             run.normalized_config = normalized
             run.status = status
+        for asset_id in self._assets.values():
+            asset = self.session.get(models.Asset, asset_id)
+            if asset is not None:
+                asset.project_id = run.project_id
         stage_names = {
             name
             for key in self._assets
@@ -416,6 +431,8 @@ class SQLAlchemyImportSink:
             asset = self.session.get(models.Asset, asset_id)
             if not asset or asset.metadata_.get("category") != "sample":
                 continue
+            asset.project_id = run.project_id
+            asset.metadata_ = {**dict(asset.metadata_ or {}), "category": "sample"}
             step = _extract_step(PurePosixPath(key).name)
             stage_name = _stage_name(context.prefix, key)
             stage_id = stages[stage_name].id if stage_name else None
@@ -456,7 +473,11 @@ class SQLAlchemyImportSink:
 
     def _link_dataset(self, run: models.TrainingRun) -> None:
         if run.dataset_version_id:
-            return
+            linked_version = self.session.get(models.DatasetVersion, run.dataset_version_id)
+            linked_dataset = self.session.get(models.Dataset, linked_version.dataset_id) if linked_version else None
+            if linked_dataset and linked_dataset.project_id == run.project_id:
+                return
+            run.dataset_version_id = None
         sources = run.normalized_config.get("dataset_sources", []) if isinstance(run.normalized_config, dict) else []
         source_names = [PurePosixPath(str(source)).name for source in sources if source]
         if sources:
@@ -487,6 +508,22 @@ class SQLAlchemyImportSink:
             self.session.flush()
         run.dataset_version_id = version.id
 
+    def _run_project_id(self, context: ImportContext, evidence: str) -> str:
+        requested_project = self.session.get(models.Project, context.project_id)
+        if requested_project is None:
+            return context.project_id
+        matches = []
+        for project in self.session.scalars(
+            select(models.Project).where(
+                models.Project.workspace_id == requested_project.workspace_id,
+                models.Project.state != "archived",
+            )
+        ):
+            triggers = [str(trigger).strip().casefold() for trigger in project.trigger_words if str(trigger).strip()]
+            if any(re.search(rf"(?<![a-z0-9]){re.escape(trigger)}(?![a-z0-9])", evidence.casefold()) for trigger in triggers):
+                matches.append(project.id)
+        return matches[0] if len(matches) == 1 else context.project_id
+
     def _reconcile_model(self, run: models.TrainingRun, checkpoints) -> None:
         marker = f"Imported from training run {run.id}"
         model = self.session.scalar(
@@ -515,7 +552,11 @@ class SQLAlchemyImportSink:
             )
             if version is not None:
                 version.model_id = model.id
-                version.readiness = {**dict(version.readiness or {}), "imported": True, "training_run_id": run.id}
+                readiness = {**dict(version.readiness or {}), "imported": True, "training_run_id": run.id}
+                endpoint = _supported_fal_endpoint(version.base_model or run.base_model or model.name)
+                if readiness.get("fal_url") and not any(readiness.get(key) for key in ("endpoint_id", "endpoint", "fal_endpoint")) and endpoint:
+                    readiness["endpoint_id"] = endpoint
+                version.readiness = readiness
                 continue
             asset = self.session.get(models.Asset, checkpoint.asset_id)
             version_name = PurePosixPath(asset.name).stem if asset else f"step-{checkpoint.step}"
