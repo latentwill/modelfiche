@@ -304,12 +304,11 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-activity-list { display: grid; gap: 8px; margin-top: 12px; }
 .vela-activity-item { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 10px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-md); }
 .vela-activity-thumb { position: relative; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; border-radius: var(--vela-radius-sm); background: var(--vela-accent-soft); color: var(--vela-accent); }
+.vela-activity-link { grid-column: 1 / -1; min-width: 0; display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; border-radius: var(--vela-radius-sm); }
+.vela-activity-link:hover h3, .vela-activity-link:focus-visible h3 { color: var(--vela-accent); }
 .vela-activity-item h3 { font-size: .9375rem; line-height: 1.2; }
 .vela-activity-summary { margin: 5px 0 0; color: var(--vela-muted); font-size: .8125rem; line-height: 1.45; }
 .vela-activity-time { display: block; margin-top: 4px; color: var(--vela-muted); font: .625rem/1.4 var(--vela-font-mono); }
-.vela-activity-technical { margin-top: 6px; color: var(--vela-muted); font: 9px/1.4 var(--vela-font-mono); }
-.vela-activity-technical summary { cursor: pointer; }
-.vela-activity-technical code { display: block; margin-top: 4px; overflow-wrap: anywhere; }
 
 .vela-responsive-nav, .vela-responsive-inspector, .vela-mobile-close, .vela-drawer-scrim { display: none; }
 @media (max-width: 1180px) {

@@ -146,6 +146,20 @@ def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[
     """Resolve activity subjects in batches, keeping unknown subjects entirely null."""
     aliases = {"training_run": "run", "import_job": "import_job"}
     ids_by_type: dict[str, set[str]] = defaultdict(set)
+    fal_targets: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    for row in rows:
+        if row.subject_type != "fal_admission":
+            continue
+        details = row.details if isinstance(row.details, dict) else {}
+        eval_run_id = details.get("eval_run_id")
+        job_id = details.get("job_id")
+        eval_run_id = str(eval_run_id) if eval_run_id else None
+        job_id = str(job_id) if job_id else None
+        fal_targets[("fal_admission", row.subject_id)] = (eval_run_id, job_id)
+        if eval_run_id:
+            ids_by_type["eval_run"].add(eval_run_id)
+        if job_id:
+            ids_by_type["job"].add(job_id)
     for row in rows:
         subject_type = aliases.get(row.subject_type, row.subject_type)
         if subject_type in {"project", "dataset", "asset", "run", "checkpoint", "eval_run", "grid_definition", "job", "import_job", "model"}:
@@ -183,6 +197,45 @@ def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[
         item.id: item
         for item in db.scalars(select(models.Job).where(models.Job.id.in_(ids_by_type["job"]))).all()
     } if ids_by_type["job"] else {}
+
+    def job_preview_ids(value: Any) -> list[str]:
+        if isinstance(value, dict):
+            found: list[str] = []
+            for field in ("asset_id", "preview_asset_id"):
+                candidate = value.get(field)
+                if candidate:
+                    found.append(str(candidate))
+            candidates = value.get("asset_ids")
+            if isinstance(candidates, str):
+                found.append(candidates)
+            elif isinstance(candidates, (list, tuple)):
+                found.extend(str(candidate) for candidate in candidates if candidate)
+            for field in ("outputs", "result", "payload"):
+                found.extend(job_preview_ids(value.get(field)))
+            return found
+        if isinstance(value, (list, tuple)):
+            return [candidate for item in value for candidate in job_preview_ids(item)]
+        return []
+
+    job_preview_candidates: dict[str, list[str]] = {}
+    job_asset_ids: set[str] = set()
+    for job_id in {job_id for _, job_id in fal_targets.values() if job_id}:
+        item = jobs.get(job_id)
+        if item is None:
+            continue
+        candidates = job_preview_ids(item.payload) + job_preview_ids(item.result)
+        if candidates:
+            job_preview_candidates[job_id] = candidates
+            job_asset_ids.update(candidates)
+    job_preview_assets = {
+        item.id: item
+        for item in db.scalars(
+            select(models.Asset).where(
+                models.Asset.id.in_(job_asset_ids),
+                models.Asset.kind == models.AssetKind.image,
+            )
+        ).all()
+    } if job_asset_ids else {}
     import_jobs = {
         item.id: item
         for item in db.scalars(select(models.ImportJob).where(models.ImportJob.id.in_(ids_by_type["import_job"]))).all()
@@ -393,6 +446,27 @@ def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[
                 "object_href": href,
                 "object_label": label,
                 "preview_asset_id": previews.get((subject_type, subject_id)),
+            }
+    for key, (eval_run_id, job_id) in fal_targets.items():
+        run = eval_runs.get(eval_run_id) if eval_run_id else None
+        if run is not None:
+            definition = eval_definitions.get(run.definition_id)
+            result[key] = {
+                "object_href": f"#/eval/{run.id}",
+                "object_label": definition.name if definition and definition.name else f"Eval run · {run.status}",
+                "preview_asset_id": previews.get(("eval_run", run.id)),
+            }
+            continue
+        job = jobs.get(job_id) if job_id else None
+        if job is not None:
+            preview_asset_id = next(
+                (asset_id for asset_id in job_preview_candidates.get(job.id, []) if asset_id in job_preview_assets),
+                None,
+            )
+            result[key] = {
+                "object_href": f"#/jobs/{job.id}?job=1",
+                "object_label": f"Transfer job · {job.kind}",
+                "preview_asset_id": preview_asset_id,
             }
     return result
 

@@ -50,9 +50,9 @@ describe("workspace navigation", () => {
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Eval"));
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
   });
-  it("renders activity previews and only links API-provided contextual objects", async () => {
+  it("renders linked FAL/eval previews and leaves fallback activity unlinked", async () => {
     const activity = [
-      { id: "event-image", action: "FAL.RESULT_INGESTED", summary: "Image created", object_label: "Portrait sample", object_href: "#/image/image-1", preview_asset_id: "revision-1", profile_name: "Operator", created_at: "2026-07-13T10:00:00Z" },
+      { id: "event-eval", action: "fal.admission_admitted", summary: "Generation admitted", object_label: "Eval run 42", object_href: "#/eval/eval-42", preview_asset_id: "revision-eval-42", profile_name: "Operator", created_at: "2026-07-13T10:00:00Z" },
       { id: "event-other", action: "workspace.updated", summary: "Workspace metadata updated", object_label: "Workspace One", object_href: null, preview_asset_id: null, profile_name: null, created_at: "2026-07-13T09:00:00Z" },
     ];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -69,12 +69,15 @@ describe("workspace navigation", () => {
 
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
     render(<WorkbenchShell section="dashboard" id="" params={new URLSearchParams()}><main>Screen</main></WorkbenchShell>);
-    await waitFor(() => expect(screen.getByRole("link", { name: "Portrait sample" })).toBeInTheDocument());
-    expect(screen.getByTestId("asset-image-revision-1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("link", { name: "Eval run 42" })).toBeInTheDocument());
+    const evalLink = screen.getByRole("link", { name: "Eval run 42" });
+    expect(evalLink).toHaveAttribute("href", "#/eval/eval-42");
+    expect(evalLink).toContainElement(screen.getByTestId("asset-image-revision-eval-42"));
+    expect(evalLink).toHaveTextContent("Generation admitted");
     expect(screen.getByText("by Operator")).toBeInTheDocument();
-    expect(screen.getByText(/Image created/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Generation admitted" })).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-13T10:00:00Z"]')).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Portrait sample" })).toHaveAttribute("href", "#/image/image-1");
+    expect(screen.queryByText("fal.admission_admitted")).not.toBeInTheDocument();
     expect(screen.getByText(/Workspace metadata updated/).closest("a")).toBeNull();
     expect(screen.getByText("Workspace · Updated")).toBeInTheDocument();
   });

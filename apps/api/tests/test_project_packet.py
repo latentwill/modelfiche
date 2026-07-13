@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 from titles_api import app as app_module, models
 
@@ -55,9 +57,132 @@ def test_activity_and_recent_runs_expose_safe_object_enrichment(client: TestClie
     assert by_subject[("not_routable", "missing")]["object_href"] is None
     assert by_subject[("not_routable", "missing")]["object_label"] is None
     assert by_subject[("not_routable", "missing")]["preview_asset_id"] is None
-
     listed = client.get("/api/runs", params={"project_id": project["id"]}).json()[0]
     assert listed["preview_asset_id"] == image["id"]
+
+
+def test_fal_admission_activity_resolves_eval_run_and_latest_image(client: TestClient):
+    profile, project = _profile_and_project(client)
+    older_image = client.post(
+        "/api/assets",
+        json={"project_id": project["id"], "kind": "image", "name": "older.png", "mime_type": "image/png"},
+    ).json()
+    latest_image = client.post(
+        "/api/assets",
+        json={"project_id": project["id"], "kind": "image", "name": "latest.png", "mime_type": "image/png"},
+    ).json()
+    model_asset = client.post(
+        "/api/assets",
+        json={"project_id": project["id"], "kind": "model", "name": "weights.safetensors"},
+    ).json()
+
+    with app_module.SessionLocal.begin() as session:
+        workspace_id = session.get(models.Project, project["id"]).workspace_id
+        prompt_set = models.PromptSet(project_id=project["id"], name="Admission prompts")
+        session.add(prompt_set)
+        session.flush()
+        definition = models.EvalDefinition(
+            project_id=project["id"],
+            name="FAL quality",
+            endpoint="fal-ai/test",
+            prompt_set_id=prompt_set.id,
+        )
+        session.add(definition)
+        session.flush()
+        run = models.EvalRun(definition_id=definition.id, status="running")
+        session.add(run)
+        session.flush()
+        session.add_all(
+            [
+                models.EvalOutput(
+                    eval_run_id=run.id,
+                    asset_id=older_image["id"],
+                    generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+                models.EvalOutput(
+                    eval_run_id=run.id,
+                    asset_id=model_asset["id"],
+                    generated_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                ),
+                models.EvalOutput(
+                    eval_run_id=run.id,
+                    asset_id=latest_image["id"],
+                    generated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        session.add(
+            models.ActivityEvent(
+                workspace_id=workspace_id,
+                project_id=project["id"],
+                profile_id=profile["id"],
+                action="fal.admission_admitted",
+                subject_type="fal_admission",
+                subject_id="admission-eval",
+                details={"eval_run_id": run.id, "job_id": "missing-job"},
+            )
+        )
+
+    event = client.get("/api/activity", params={"project_id": project["id"]}).json()[0]
+    assert event["object_href"] == f"#/eval/{run.id}"
+    assert event["object_label"] == "FAL quality"
+    assert event["preview_asset_id"] == latest_image["id"]
+
+
+def test_fal_admission_activity_falls_back_to_job(client: TestClient):
+    profile, project = _profile_and_project(client)
+    image = client.post(
+        "/api/assets",
+        json={"project_id": project["id"], "kind": "image", "name": "job-preview.png", "mime_type": "image/png"},
+    ).json()
+    with app_module.SessionLocal.begin() as session:
+        workspace_id = session.get(models.Project, project["id"]).workspace_id
+        job = models.Job(
+            workspace_id=workspace_id,
+            profile_id=profile["id"],
+            kind="fal.eval_admission",
+            result={"asset_ids": [image["id"]]},
+        )
+        session.add(job)
+        session.flush()
+        session.add(
+            models.ActivityEvent(
+                workspace_id=workspace_id,
+                project_id=project["id"],
+                profile_id=profile["id"],
+                action="fal.admission_admitted",
+                subject_type="fal_admission",
+                subject_id="admission-job",
+                details={"eval_run_id": "missing-eval", "job_id": job.id},
+            )
+        )
+
+    event = client.get("/api/activity", params={"project_id": project["id"]}).json()[0]
+    assert event["object_href"] == f"#/jobs/{job.id}?job=1"
+    assert event["object_label"] == "Transfer job · fal.eval_admission"
+    assert event["preview_asset_id"] == image["id"]
+
+
+def test_fal_admission_activity_leaves_stale_targets_unenriched(client: TestClient):
+    profile, project = _profile_and_project(client)
+    with app_module.SessionLocal.begin() as session:
+        workspace_id = session.get(models.Project, project["id"]).workspace_id
+        session.add(
+            models.ActivityEvent(
+                workspace_id=workspace_id,
+                project_id=project["id"],
+                profile_id=profile["id"],
+                action="fal.admission_admitted",
+                subject_type="fal_admission",
+                subject_id="admission-stale",
+                details={"eval_run_id": "missing-eval", "job_id": "missing-job"},
+            )
+        )
+
+    event = client.get("/api/activity", params={"project_id": project["id"]}).json()[0]
+    assert event["object_href"] is None
+    assert event["object_label"] is None
+    assert event["preview_asset_id"] is None
 
 
 def test_workspace_rename_persists_and_is_returned_without_cache_delay(client: TestClient):
