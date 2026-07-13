@@ -20,7 +20,6 @@ import {
   PanelLeftClose,
   PanelRightClose,
   PanelRightOpen,
-  Pencil,
   Plus,
   Search,
   Settings,
@@ -157,7 +156,7 @@ function Topbar({ section, id, projectId, workspaces, theme, onToggleTheme, onOp
   const fallback = !projectName && !entityName ? routeLabel(section) : "";
   return <header className="vela-topbar">
     <button className="vela-icon-button vela-responsive-nav" type="button" aria-label="Open navigation" onClick={onOpenNavigation}><Menu size={18} /></button>
-    <div className="vela-breadcrumbs"><strong>{workspace}</strong>{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}{section === "project" && id && <a className="vela-icon-button" href={`#/project/${id}?edit=1`} aria-label={`Edit ${projectName || "project"}`} title="Edit project"><Pencil size={13} /></a>}</div>
+    <div className="vela-breadcrumbs"><strong>{workspace}</strong>{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}</div>
     <GlobalSearch />
     <div className="vela-create-wrap" onKeyDown={event => { if (event.key === "Escape") setCreateOpen(false); }}>
       <button className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} aria-hidden="true" /></button>

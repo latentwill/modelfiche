@@ -707,7 +707,7 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-theme .project-image-mosaic {
   height: auto;
   aspect-ratio: auto;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: none;
   align-content: start;
 }
@@ -936,6 +936,8 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-project-identity span { border: 1px solid var(--mf-border-strong); border-radius: var(--vela-radius-lg); background: var(--mf-active-fill); color: var(--mf-active-text); }
 .vela-project-card-body { padding: var(--vela-space-4); }
 .vela-project-card-body h3 { color: var(--mf-ink-primary); font-size: 16px; }
+.vela-project-card-heading { border-bottom: 1px solid var(--mf-border-strong); }
+.vela-project-card-heading + .vela-project-preview { border-top: 0; }
 .vela-data-cell,
 .vela-stat { border-left: 2px solid var(--mf-border); border-radius: var(--vela-radius-md); background: var(--mf-surface-muted); }
 .vela-run-list { gap: 0; border-top: 1px solid var(--mf-border); }
