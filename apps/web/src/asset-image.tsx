@@ -41,7 +41,7 @@ async function resolveDelivery(assetRevisionId: string, variant: AssetImageVaria
 }
 
 /** Resolve the server-owned delivery descriptor before assigning an image URL. */
-export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels = 512, alt = "", ...props }: AssetImageProps) {
+export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels = 512, alt = "", className, ...props }: AssetImageProps) {
   const [delivery, setDelivery] = useState<{ src: string; error?: string }>();
   const [visible, setVisible] = useState(props.loading !== "lazy");
   const imageRef = useRef<HTMLImageElement>(null);
@@ -71,7 +71,8 @@ export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels =
     return () => { active = false; };
   }, [assetRevisionId, maxPixels, variant, visible]);
 
-  return <img {...props} ref={imageRef} src={delivery?.src || unavailablePlaceholder} alt={alt} aria-busy={visible && !delivery} data-delivery-state={delivery?.error ? "unavailable" : delivery?.src ? "loaded" : "loading"} data-delivery-error={delivery?.error || undefined} onError={event => {
+  const deliveryState = delivery?.error ? "unavailable" : delivery?.src ? "loaded" : "loading";
+  return <img {...props} ref={imageRef} className={`asset-image asset-image-${deliveryState}${className ? ` ${className}` : ""}`} src={delivery?.src || unavailablePlaceholder} alt={alt} aria-busy={deliveryState === "loading"} data-delivery-state={deliveryState} data-delivery-error={delivery?.error || undefined} onError={event => {
     props.onError?.(event);
     if (!delivery?.src || retriedRef.current) return;
     retriedRef.current = true;

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from pathlib import Path
 import re
@@ -266,7 +266,8 @@ def _gallery_rows(db: Session, rows: list[models.Asset]) -> list[dict]:
     for row in rows:
         review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == row.id).order_by(models.Review.created_at.desc()))
         rich_metadata = _gallery_asset_metadata(db, row)
-        origin_type = rich_metadata.get("origin_type", "ASSET")
+        contract_metadata = schemas.GalleryMetadataOut.model_validate(rich_metadata).model_dump(mode="json", exclude_none=False)
+        origin_type = contract_metadata.get("origin_type", "ASSET")
         result.append({
             "id": row.id,
             "asset_revision_id": row.id,
@@ -275,16 +276,16 @@ def _gallery_rows(db: Session, rows: list[models.Asset]) -> list[dict]:
             "name": row.name,
             "mime_type": row.mime_type,
             "sha256": row.sha256,
-            "metadata": rich_metadata,
-            "model_id": rich_metadata.get("model_id"),
-            "model_name": rich_metadata.get("model_name"),
-            "base_model": rich_metadata.get("base_model"),
-            "dataset_id": rich_metadata.get("dataset_id"),
-            "dataset_name": rich_metadata.get("dataset_name"),
-            "run_id": rich_metadata.get("run_id"),
-            "run_name": rich_metadata.get("run_name"),
-            "step": rich_metadata.get("step"),
-            "seed": rich_metadata.get("seed"),
+            "metadata": contract_metadata,
+            "model_id": contract_metadata.get("model_id"),
+            "model_name": contract_metadata.get("model_name"),
+            "base_model": contract_metadata.get("base_model"),
+            "dataset_id": contract_metadata.get("dataset_id"),
+            "dataset_name": contract_metadata.get("dataset_name"),
+            "run_id": contract_metadata.get("run_id"),
+            "run_name": contract_metadata.get("run_name"),
+            "step": contract_metadata.get("step"),
+            "seed": contract_metadata.get("seed"),
             "locations": [schemas.AssetLocationOut.model_validate(location).model_dump(mode="json") for location in row.locations],
             "rating": review.rating if review else None,
             "decision": review.decision if review else None,
@@ -292,8 +293,8 @@ def _gallery_rows(db: Session, rows: list[models.Asset]) -> list[dict]:
             "comment_count": int(db.scalar(select(func.count()).select_from(models.Comment).where(models.Comment.subject_type == "asset", models.Comment.subject_id == row.id)) or 0),
             "created_at": row.created_at,
             "origin_type": origin_type,
-            "generated_at": rich_metadata.get("generated_at") if origin_type == "EVAL" else None,
-            "modified_at": rich_metadata.get("modified_at") if origin_type == "SAMPLE" else None,
+            "generated_at": contract_metadata.get("generated_at") if origin_type == "EVAL" else None,
+            "modified_at": contract_metadata.get("modified_at") if origin_type == "SAMPLE" else None,
         })
     return result
 
@@ -366,13 +367,49 @@ def gallery(
 
 
 def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
-    """Project the richest reliable provenance available for a gallery image."""
+    """Return one evidence-ordered provenance contract for a gallery asset."""
     metadata = dict(asset.metadata_ or {})
-    if "origin_type" not in metadata:
-        metadata["origin_type"] = {"eval_output": "EVAL", "sample": "SAMPLE", "dataset_image": "DATASET"}.get(str(metadata.get("category", "")), "ASSET")
+    relationship_keys = (
+        "dataset_id", "dataset_name", "dataset_version_id", "dataset_version_name",
+        "run_id", "run_name", "model_id", "model_name", "model_version_id",
+        "model_version_name", "checkpoint_id", "checkpoint_name", "base_model",
+        "provider", "asset_type", "origin_type",
+    )
+    source_rank = {
+        "explicit": 0,
+        "canonical": 1,
+        "eval-sample": 2,
+        "dataset-membership": 3,
+        "deterministic-import": 4,
+        "unknown": 99,
+    }
+    evidence = {
+        key: ("explicit" if metadata.get(key) is not None else "unknown")
+        for key in relationship_keys
+    }
+
+    def assign(key: str, value: Any, source: str) -> None:
+        if value is None or value == "":
+            return
+        current = evidence.get(key, "unknown")
+        if source_rank[source] <= source_rank[current]:
+            metadata[key] = value
+            evidence[key] = source
+
+    # The asset row and its persisted metadata are canonical/explicit.  Never
+    # infer an entity from the filename or substitute one entity for another.
+    assign("asset_type", asset.kind.value if hasattr(asset.kind, "value") else asset.kind, "canonical")
+    category = str(metadata.get("category", ""))
+    category_origin = {"eval_output": "EVAL", "sample": "SAMPLE", "dataset_image": "DATASET"}.get(category)
+    assign("origin_type", category_origin, "canonical")
+
     normalized_fal = normalize_fal_image_metadata(metadata)
     for key, value in normalized_fal.items():
-        metadata.setdefault(key, value)
+        if key in relationship_keys:
+            assign(key, value, "deterministic-import")
+        else:
+            metadata.setdefault(key, value)
+
     image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset.id))
     if image:
         metadata.update({key: value for key, value in {
@@ -386,12 +423,15 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         filename_match = re.search(r"__(\d{6,})_(\d+)(?:\.[^.]+)?$", asset.name)
         source_step = int(filename_match.group(1)) if filename_match else sample.step
         sample_index = int(filename_match.group(2)) if filename_match else None
+        assign("origin_type", "SAMPLE", "eval-sample")
+        assign("run_id", sample.run_id, "eval-sample")
+        assign("run_name", run.name if run else None, "eval-sample")
+        assign("base_model", run.base_model if run else None, "eval-sample")
+        assign("provider", (sample.generation_metadata or {}).get("provider"), "eval-sample")
         metadata.update({key: value for key, value in {
-            "origin_type": "SAMPLE", "modified_at": sample.modified_at,
-            "run_id": sample.run_id, "run_name": run.name if run else None,
-            "base_model": run.base_model if run else None, "trainer": run.trainer if run else None,
-            "step": source_step, "sample_index": sample_index, "prompt": sample.prompt, "seed": sample.seed,
-            "generation_settings": sample.generation_metadata or None,
+            "modified_at": sample.modified_at, "trainer": run.trainer if run else None,
+            "step": source_step, "sample_index": sample_index, "prompt": sample.prompt,
+            "seed": sample.seed, "generation_settings": sample.generation_metadata or None,
             "training_settings": run.normalized_config if run and run.normalized_config else None,
         }.items() if value is not None})
         if run and sample.checkpoint_id:
@@ -402,12 +442,21 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
                 .distinct()
             ).all()
             if model_rows:
-                metadata["model_id"], metadata["model_name"], metadata["model_version_id"], metadata["model_version_name"] = model_rows[0]
-                metadata["models"] = [{"id": model_id, "name": name, "model_version_id": version_id, "model_version_name": version_name} for model_id, name, version_id, version_name in model_rows]
+                model_id, model_name, version_id, version_name = model_rows[0]
+                assign("model_id", model_id, "eval-sample")
+                assign("model_name", model_name, "eval-sample")
+                assign("checkpoint_name", f"step {db.get(models.Checkpoint, sample.checkpoint_id).step}", "eval-sample")
+                assign("model_version_id", version_id, "eval-sample")
+                assign("model_version_name", version_name, "eval-sample")
+                assign("checkpoint_id", sample.checkpoint_id, "eval-sample")
+                metadata["models"] = [{"id": item[0], "name": item[1], "model_version_id": item[2], "model_version_name": item[3]} for item in model_rows]
             if run.dataset_version_id:
                 version = db.get(models.DatasetVersion, run.dataset_version_id)
                 dataset = db.get(models.Dataset, version.dataset_id) if version else None
-                metadata.update({"dataset_version_id": run.dataset_version_id, "dataset_version_name": version.name if version else None, "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None})
+                assign("dataset_version_id", run.dataset_version_id, "eval-sample")
+                assign("dataset_version_name", version.name if version else None, "eval-sample")
+                assign("dataset_id", dataset.id if dataset else None, "eval-sample")
+                assign("dataset_name", dataset.name if dataset else None, "eval-sample")
 
     output = db.scalar(select(models.EvalOutput).where(models.EvalOutput.asset_id == asset.id).order_by(models.EvalOutput.created_at.desc()))
     if output:
@@ -423,19 +472,28 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         request_input = metadata.get("fal_request_input")
         if not isinstance(request_input, dict):
             request_input = output.provider_metadata.get("_request_input") if isinstance(output.provider_metadata, dict) else None
+        assign("origin_type", "EVAL", "eval-sample")
+        assign("eval_run_id", output.eval_run_id, "eval-sample")
+        assign("model_id", model.id if model else None, "eval-sample")
+        assign("model_name", model.name if model else None, "eval-sample")
+        assign("model_version_id", version.id if version else None, "eval-sample")
+        assign("model_version_name", version.name if version else None, "eval-sample")
+        assign("base_model", version.base_model if version else None, "eval-sample")
+        assign("run_id", training_run.id if training_run else None, "eval-sample")
+        assign("run_name", training_run.name if training_run else None, "eval-sample")
+        assign("dataset_id", dataset.id if dataset else None, "eval-sample")
+        assign("dataset_name", dataset.name if dataset else None, "eval-sample")
+        assign("dataset_version_id", dataset_version.id if dataset_version else None, "eval-sample")
+        assign("dataset_version_name", dataset_version.name if dataset_version else None, "eval-sample")
+        assign("checkpoint_id", checkpoint.id if checkpoint else None, "eval-sample")
+        assign("checkpoint_name", f"step {checkpoint.step}" if checkpoint else None, "eval-sample")
+        assign("provider", output.provider_metadata.get("provider") if isinstance(output.provider_metadata, dict) else None, "eval-sample")
         metadata.update({key: value for key, value in {
-            "origin_type": "EVAL", "generated_at": output.generated_at,
-            "eval_run_id": output.eval_run_id, "eval_name": definition.name if definition else None,
-            "endpoint": definition.endpoint if definition else None, "model_id": model.id if model else None,
-            "model_name": model.name if model else metadata.get("inferred_model_name"), "model_version_id": version.id if version else None,
-            "model_version_name": version.name if version else None, "base_model": version.base_model if version else None,
-            "run_id": training_run.id if training_run else None, "run_name": training_run.name if training_run else None,
-            "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None,
-            "dataset_version_id": dataset_version.id if dataset_version else None, "dataset_version_name": dataset_version.name if dataset_version else None,
+            "generated_at": output.generated_at, "eval_name": definition.name if definition else None,
+            "endpoint": definition.endpoint if definition else None,
             "prompt": prompt.text if prompt else None, "seed": output.seed,
             "generation_settings": request_input or (eval_run.parameters_snapshot if eval_run and eval_run.parameters_snapshot else (definition.parameters if definition else None)),
             "provider_metadata": output.provider_metadata or None,
-            "checkpoint_id": checkpoint.id if checkpoint else None,
             "model_attribution": "explicit" if model else None,
         }.items() if value is not None})
 
@@ -443,11 +501,14 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
     if item:
         version = db.get(models.DatasetVersion, item.dataset_version_id)
         dataset = db.get(models.Dataset, version.dataset_id) if version else None
+        assign("origin_type", "DATASET", "dataset-membership")
+        assign("dataset_id", dataset.id if dataset else None, "dataset-membership")
+        assign("dataset_name", dataset.name if dataset else None, "dataset-membership")
+        assign("dataset_version_id", version.id if version else None, "dataset-membership")
+        assign("dataset_version_name", version.name if version else None, "dataset-membership")
         metadata.update({key: value for key, value in {
-            "origin_type": "DATASET",
-            "dataset_id": dataset.id if dataset else None, "dataset_name": dataset.name if dataset else None,
-            "dataset_version_id": version.id if version else None, "dataset_version_name": version.name if version else None,
-            "caption": item.caption, "caption_format": item.caption_format, "included": item.included, "tags": item.tags or None,
+            "caption": item.caption, "caption_format": item.caption_format,
+            "included": item.included, "tags": item.tags or None,
         }.items() if value is not None})
 
     remote = next((location for location in asset.locations if location.provider != "local"), asset.locations[0] if asset.locations else None)
@@ -457,7 +518,21 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
             "uri": remote.uri, "size": remote.size, "modified_at": remote.modified_at,
             "hydration_state": remote.hydration_state,
         }.items() if value is not None}
+        assign("provider", remote.provider, "deterministic-import")
     metadata["provenance_kind"] = asset.provenance_kind
+    for key in relationship_keys:
+        evidence.setdefault(key, "unknown")
+    metadata["evidence"] = evidence
+    metadata["metadata_contract_version"] = 1
+    metadata["relationships"] = {
+        "dataset": {"id": metadata.get("dataset_id"), "name": metadata.get("dataset_name"), "evidence": evidence["dataset_id"]},
+        "training_run": {"id": metadata.get("run_id"), "name": metadata.get("run_name"), "evidence": evidence["run_id"]},
+        "model": {"id": metadata.get("model_id"), "name": metadata.get("model_name"), "evidence": evidence["model_id"]},
+        "checkpoint": {"id": metadata.get("checkpoint_id"), "name": metadata.get("checkpoint_name"), "evidence": evidence["checkpoint_id"]},
+        "base_model": {"id": None, "name": metadata.get("base_model"), "evidence": evidence["base_model"]},
+        "asset_type": {"id": None, "name": metadata.get("asset_type"), "evidence": evidence["asset_type"]},
+        "provider": {"id": None, "name": metadata.get("provider"), "evidence": evidence["provider"]},
+    }
     return metadata
 
 

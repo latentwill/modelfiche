@@ -266,3 +266,23 @@ pre { overflow: auto; background: #efeff1; padding: 10px; font-size: 0.72rem; wh
 }
 @media (max-width: 820px) { .project-visual-grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
+:root { --selection: #2563eb; }
+button:focus-visible, .button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: var(--selection); }
+.asset-grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--asset-size, 150px), 100%), 1fr)); }
+.asset-card { box-sizing: border-box; grid-template-rows: auto auto auto; min-width: 0; }
+.asset-card img { width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: contain; }
+.asset-card:hover, .asset-card:focus-visible { border-color: var(--selection); background: #eff6ff; }
+.asset-card-name, .asset-card-footer { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-card-footer { display: grid; gap: 2px; line-height: 1.3; }
+.asset-card-footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-image-loading { background: #d1d5db !important; opacity: .72; }
+.asset-image-unavailable { border: 2px solid var(--danger); background: #d1d5db !important; opacity: .9; }
+.image-review-inspector h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.image-review-inspector h2 .asset-origin-badge { position: static; }
+.filmstrip a.active { border-color: var(--selection); box-shadow: inset 0 0 0 2px var(--selection); }
+.project-image-mosaic { height: auto; aspect-ratio: 1 / 1; }
+.project-image-mosaic img { aspect-ratio: 1 / 1; }
+.caption-item.selected { background: #eff6ff; outline-color: var(--selection); }
+.caption-version.active { background: #eff6ff; box-shadow: inset 3px 0 0 var(--selection); }
+.caption-version.active .caption-version-number { border-color: var(--selection); background: var(--selection); }
+.checkpoint-timeline button.active, .grid-board > button.active, .grid-board > .grid-cell > button.active { outline-color: var(--selection); }

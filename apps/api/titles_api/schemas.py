@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -116,6 +117,27 @@ class AssetOut(ORMModel):
     @property
     def asset_revision_id(self) -> str:
         return self.id
+
+class GalleryEvidence(str, Enum):
+    explicit = "explicit"
+    canonical = "canonical"
+    eval_sample = "eval-sample"
+    dataset_membership = "dataset-membership"
+    deterministic_import = "deterministic-import"
+    unknown = "unknown"
+
+
+class GalleryEntityRef(BaseModel):
+    id: str | None = None
+    name: str | None = None
+    evidence: GalleryEvidence = GalleryEvidence.unknown
+
+
+class GalleryMetadataOut(BaseModel):
+    origin_type: str = "ASSET"
+    evidence: dict[str, GalleryEvidence] = Field(default_factory=dict)
+    relationships: dict[str, GalleryEntityRef] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="allow")
 
 
 class DatasetCreate(BaseModel):

@@ -791,6 +791,11 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const next = (galleryContext.data?.next as Row | undefined) ?? (index >= 0 ? navigationItems[index + 1] : undefined);
   const currentRating = Number(rows(reviews.data)[0]?.rating ?? 0);
   const metadata = context.data?.metadata && typeof context.data.metadata === "object" ? context.data.metadata as Row : {};
+  const relationships = metadata.relationships && typeof metadata.relationships === "object" ? metadata.relationships as Row : {};
+  const relationName = (key: string, fallback = "Unknown") => {
+    const ref = relationships[key] && typeof relationships[key] === "object" ? relationships[key] as Row : {};
+    return str(ref.name, fallback);
+  };
   const hrefFor = (item: Row) => galleryHash(filters, page, pageSize, str(item.asset_revision_id ?? item.asset_id ?? item.id), returnTarget);
   const rate = async (value: number) => { setRatingBusy(true); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: id, rating: value, decision: "candidate" })); await reviews.reload(); } catch (reason) { setRatingError(errorText(reason)); } finally { setRatingBusy(false); } };
   useEffect(() => {
@@ -813,9 +818,9 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const prompt = str(metadata.prompt ?? metadata.caption, "");
   const replay = generationReplayFromMetadata({ ...metadata, project_id: metadata.project_id ?? asset.data?.project_id });
   return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`}><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
-    <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></div><div className="image-review-media"><span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{originType}</span><AssetImage className="fit" assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} /></div>{prompt && <p className="image-review-prompt">{prompt}</p>}
+    <main className="image-review-stage"><div className="image-review-main"><div className="image-nav"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><strong>{str(asset.data?.name, "Image")}</strong><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></div><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} /></div>{prompt && <p className="image-review-prompt">{prompt}</p>}
       <div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
-      <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} x {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{str(metadata.model_name, "Unknown")}</dd><dt>Checkpoint</dt><dd>{str(metadata.model_version_name, "Unknown")}</dd><dt>Base model</dt><dd>{str(metadata.base_model, "Unknown")}</dd></dl>
+      <aside id="storage_details" className="image-review-inspector"><h2>Image review <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{originType}</span></h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} x {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{relationName("model")}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></dl>
         {replay && <a className="button vela-button" href={generatorHref("image", replay.context, id)}><ImagePlus size={15} /> Generate with these settings</a>}
         <div className="rating-control"><span>Image rating (keys 1–5)</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={() => void rate(value)}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
         <div className="image-delete-control"><button className="vela-button vela-button-danger" disabled={deleteBusy} onClick={async () => { if (!confirm(`Delete ${str(asset.data?.name, "this image")}? This removes DAM metadata and supported local content.`)) return; setDeleteBusy(true); setDeleteError(""); try { const result = await api<Row>(`/api/assets/${id}?report=true&delete_content=true`, { method: "DELETE" }); const retained = rows(result.storage).filter(item => item.status !== "deleted"); onDeleteNotice(retained.length ? `${retained.length} storage object(s) retained; DAM metadata deleted.` : "Image and local content deleted."); const destination = next ? hrefFor(next) : previous ? hrefFor(previous) : closeHref; await onDeleted(); location.hash = destination.slice(1); } catch (reason) { setDeleteError(errorText(reason)); } finally { setDeleteBusy(false); } }}><Trash2 size={15} />{deleteBusy ? "Deleting…" : "Delete image"}</button>{deleteError && <div className="vela-notice vela-notice-error" role="alert">{deleteError}</div>}</div>
@@ -824,22 +829,31 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   </div>;
 }
 
+export function galleryPreviewGeometry(containerWidth: number, preferredSize: number) {
+  const width = Math.max(0, Math.min(containerWidth, preferredSize));
+  return { width, height: width, reflows: width < preferredSize, overflows: width > containerWidth };
+}
+
 export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsset?: (asset: Row) => string }) {
   return <div className="asset-grid">{assets.map((asset, index) => {
-    const name = str(asset.filename ?? asset.name, "Generated image");
     const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata as Row : {};
-    const step = asset.step ?? metadata.step;
-    const seed = asset.seed ?? metadata.seed;
-    const model = str(asset.model_name ?? metadata.model_name, "");
-    const checkpoint = str(metadata.model_version_name, "");
-    const baseModel = str(asset.base_model ?? metadata.base_model, "");
-    const dataset = str(asset.dataset_name ?? metadata.dataset_name, "");
-    const run = str(asset.run_name ?? metadata.run_name, "");
-    const originType = str(asset.origin_type ?? metadata.origin_type, "ASSET");
-    const secondary = [model, checkpoint && `Checkpoint: ${checkpoint}`, run && `Run: ${run}`, baseModel, dataset, step !== undefined && step !== null ? `Step ${step}` : "", seed !== undefined && seed !== null ? `Seed ${seed}` : ""].filter(Boolean).join(" · ") || str(asset.kind, "Image");
-    return <a className="asset-card" key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)} title={`Open ${name}`}>
-      <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{originType}</span><AssetImage assetRevisionId={String(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={name} loading="lazy" />
-      <span>{name}</span><small>{secondary}</small>
+    const relationships = metadata.relationships && typeof metadata.relationships === "object" ? metadata.relationships as Row : {};
+    const refName = (key: string) => {
+      const ref = relationships[key] && typeof relationships[key] === "object" ? relationships[key] as Row : {};
+      return str(ref.name, "");
+    };
+    const originType = str(metadata.origin_type ?? asset.origin_type, "ASSET").toUpperCase();
+    const baseModel = refName("base_model");
+    const model = refName("model");
+    const checkpoint = refName("checkpoint");
+    const originLine = [baseModel, originType].filter(Boolean).join(" · ");
+    const modelLine = [model, checkpoint].filter(Boolean).join(" · ");
+    const assetId = String(asset.asset_revision_id ?? asset.asset_id ?? asset.id);
+    const name = str(asset.filename ?? asset.name, "Generated image");
+    return <a className="asset-card" key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}>
+      <AssetImage assetRevisionId={assetId} alt={name} loading="lazy" />
+      <span className="asset-card-name">{name}</span>
+      <small className="asset-card-footer"><span>{originLine || "Unknown"}</span><span>{modelLine || "Unknown"}</span></small>
     </a>;
   })}</div>;
 }

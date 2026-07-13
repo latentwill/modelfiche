@@ -625,3 +625,23 @@
   .vela-focus-workspace .image-review-main > img { height: 62vh; }
   .vela-focus-workspace .image-review-inspector { border-left: 0; border-top: 1px solid var(--vela-border); }
 }
+
+.vela-theme { --vela-selection: #2563eb; }
+.vela-theme button:focus-visible, .vela-theme .button:focus-visible, .vela-theme a:focus-visible, .vela-theme input:focus-visible, .vela-theme select:focus-visible, .vela-theme textarea:focus-visible { outline-color: var(--vela-selection); }
+.vela-theme .asset-grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--asset-size, 160px), 100%), 1fr)); }
+.vela-theme .asset-card { box-sizing: border-box; grid-template-rows: auto auto auto; }
+.vela-theme .asset-card img { height: auto; aspect-ratio: 1 / 1; }
+.vela-theme .asset-card:hover, .vela-theme .asset-card:focus-visible { border-color: var(--vela-selection); background: color-mix(in oklch, var(--vela-selection) 8%, var(--vela-surface)); }
+.vela-theme .asset-card-footer { display: grid; gap: 2px; line-height: 1.3; }
+.vela-theme .asset-card-footer span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vela-theme .asset-image-loading { background: #d1d5db !important; opacity: .72; }
+.vela-theme .asset-image-unavailable { border: 2px solid var(--vela-danger); background: #d1d5db !important; }
+.vela-theme .image-review-inspector h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vela-theme .image-review-inspector h2 .asset-origin-badge { position: static; }
+.vela-theme .filmstrip a.active { border-color: var(--vela-selection); box-shadow: inset 0 0 0 2px var(--vela-selection); }
+.vela-theme .project-image-mosaic { height: auto; aspect-ratio: 1 / 1; }
+.vela-theme .project-image-mosaic img { aspect-ratio: 1 / 1; }
+.vela-theme .caption-item.selected { background: color-mix(in oklch, var(--vela-selection) 8%, var(--vela-surface)); outline-color: var(--vela-selection); }
+.vela-theme .caption-version.active { background: color-mix(in oklch, var(--vela-selection) 8%, var(--vela-surface)); box-shadow: inset 3px 0 0 var(--vela-selection); }
+.vela-theme .caption-version.active .caption-version-number { border-color: var(--vela-selection); background: var(--vela-selection); }
+.vela-theme .checkpoint-timeline button.active, .vela-theme .grid-board > button.active, .vela-theme .grid-board > .grid-cell > button.active { outline-color: var(--vela-selection); }

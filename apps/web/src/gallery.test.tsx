@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AssetGrid, galleryHash, galleryOpenHref, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
+import { AssetGrid, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
 
 vi.mock("./asset-image", () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 
@@ -13,10 +13,29 @@ describe("gallery navigation contracts", () => {
     expect(safeReturnTarget("eval/run-1?page=2")).toBe("eval/run-1?page=2");
   });
 
-  it("shows canonical asset badges and separate model/run metadata", () => {
-    render(<AssetGrid assets={[{ id: "a1", name: "sample.png", origin_type: "SAMPLE", model_name: "Checkpoint model", run_name: "Training run 4" }]} />);
-    expect(screen.getByText("SAMPLE")).toBeInTheDocument();
-    expect(screen.getByText(/Checkpoint model · Run: Training run 4/)).toBeInTheDocument();
+  it("renders the canonical two-line metadata footer without entity substitution", () => {
+    render(<AssetGrid assets={[{
+      id: "a1", name: "sample.png", origin_type: "SAMPLE",
+      metadata: {
+        origin_type: "SAMPLE",
+        relationships: {
+          base_model: { name: "Flux" },
+          model: { name: "Checkpoint model" },
+          checkpoint: { name: "step 1200" },
+        },
+      },
+    }]} />);
+    expect(screen.getByText("Flux · SAMPLE")).toBeInTheDocument();
+    expect(screen.getByText("Checkpoint model · step 1200")).toBeInTheDocument();
+    expect(screen.getByRole("link")).not.toHaveAttribute("title");
+  });
+
+  it("keeps gallery tiles square and responsive at boundary widths", () => {
+    for (const [container, preferred, expectedReflow] of [[181, 208, true], [208, 208, false], [320, 208, false]] as const) {
+      const geometry = galleryPreviewGeometry(container, preferred);
+      expect(geometry).toMatchObject({ width: geometry.width, height: geometry.width, reflows: expectedReflow, overflows: false });
+      expect(geometry.width).toBeLessThanOrEqual(container);
+    }
   });
 
   it("opens sample-viewer assets in the filtered gallery with exact origin", () => {

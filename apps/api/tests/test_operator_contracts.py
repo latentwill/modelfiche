@@ -67,6 +67,38 @@ def test_gallery_filters_and_attributed_collaboration_context(client: TestClient
     assert all("event_type" in row and "summary" in row and "profile_name" in row for row in activity)
 
 
+
+def test_gallery_metadata_contract_preserves_evidence_precedence_and_entities(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    headers = {"X-Profile-ID": profile["id"]}
+    project = client.post("/api/projects", headers=headers, json={"title": "Metadata project"}).json()
+    asset = client.post("/api/assets", headers=headers, json={
+        "project_id": project["id"], "kind": "image", "name": "contract.png",
+        "metadata": {
+            "model_id": "explicit-model", "model_name": "Explicit model",
+            "dataset_id": "explicit-dataset", "dataset_name": "Explicit dataset",
+            "base_model": "Explicit base", "provider": "explicit-provider",
+        },
+    }).json()
+    dataset = client.post("/api/datasets", headers=headers, json={
+        "project_id": project["id"], "name": "Relational dataset",
+        "items": [{"asset_id": asset["id"], "caption": "contract"}],
+    })
+    assert dataset.status_code == 201
+
+    row = client.get("/api/gallery", params={"project_id": project["id"], "include_dataset_assets": True}).json()[0]
+    metadata = row["metadata"]
+    assert metadata["metadata_contract_version"] == 1
+    assert metadata["evidence"]["model_id"] == "explicit"
+    assert metadata["evidence"]["dataset_id"] == "explicit"
+    assert metadata["evidence"]["asset_type"] == "canonical"
+    assert metadata["relationships"]["model"] == {"id": "explicit-model", "name": "Explicit model", "evidence": "explicit"}
+    assert metadata["relationships"]["dataset"]["name"] == "Explicit dataset"
+    assert metadata["relationships"]["base_model"]["name"] == "Explicit base"
+    assert metadata["relationships"]["provider"]["name"] == "explicit-provider"
+    assert row["model_id"] == metadata["model_id"]
+    assert row["dataset_id"] == metadata["dataset_id"]
+
 def test_gallery_opt_in_pagination_reports_total(client: TestClient):
     _profile, headers, project, _asset, _dataset = _seed(client)
     for index in range(3):
@@ -176,6 +208,10 @@ def test_gallery_model_filter_uses_run_lineage_and_returns_rich_metadata(client:
     assert row["dataset_name"] == "Faces"
     assert row["metadata"]["generation_settings"] == {"guidance": 3.5}
     assert row["metadata"]["training_settings"] == {"rank": 16}
+    assert row["metadata"]["relationships"]["model"]["name"] == "Portrait LoRA"
+    assert row["metadata"]["relationships"]["checkpoint"]["id"] == checkpoint["id"]
+    assert row["metadata"]["relationships"]["checkpoint"]["name"] == "step 250"
+    assert row["metadata"]["relationships"]["dataset"]["name"] == "Faces"
 
 
 def test_fal_endpoint_schema_is_adapter_driven(client: TestClient):
