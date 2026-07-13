@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 24" fill="none" aria-hidden="true">
+  <title>Shared ruler strip</title>
+  <path d="M1 1.5h254" stroke="#082689" stroke-width="1"/>
+  <path d="M1 1.5v12M17 1.5v6M33 1.5v9M49 1.5v6M65 1.5v12M81 1.5v6M97 1.5v9M113 1.5v6M129 1.5v12M145 1.5v6M161 1.5v9M177 1.5v6M193 1.5v12M209 1.5v6M225 1.5v9M241 1.5v6M255 1.5v12" stroke="#1237B8" stroke-width="1"/>
+  <path d="M1 19.5h254" stroke="#B8C5ED" stroke-width="1"/>
+  <path d="M1 19.5v-5M33 19.5v-5M65 19.5v-5M97 19.5v-5M129 19.5v-5M161 19.5v-5M193 19.5v-5M225 19.5v-5M255 19.5v-5" stroke="#6573A4" stroke-width="1"/>
+</svg>

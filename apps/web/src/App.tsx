@@ -3,7 +3,7 @@ import { ImportScreen, JobScreen, ProjectScreen, ProjectsScreen, SettingsScreen 
 import { CheckpointScreen, DatasetScreen, DatasetsScreen, GalleryScreen, ModelScreen, ModelsScreen, RunScreen, RunsScreen } from "./screens-assets";
 import { EvalComparisonScreen, EvalScreen, EvalsScreen, PromptSetsScreen, ReviewsScreen } from "./screens-evals";
 import { GridScreen, GridsScreen } from "./screens-grids";
-import { WorkbenchShell } from "./shell";
+import { WorkbenchShell, useThemeController } from "./shell";
 import { DashboardScreen, ImageReviewScreen, SampleViewerScreen, TransfersScreen } from "./screens-wireframe";
 import { GenerationQueueScreen, ImageGeneratorScreen } from "./generator";
 
@@ -14,13 +14,14 @@ export function App() {
   const section = parts[0] || "dashboard";
   const id = parts[1] || "";
   const params = new URLSearchParams(rawQuery);
+  const { theme, toggleTheme } = useThemeController();
   let content;
   if (section === "image") content = <ImageReviewScreen id={id} />;
   else if (section === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
   else if (section === "eval") content = <EvalScreen id={id} />;
   else if (section === "eval-comparison") content = <EvalComparisonScreen id={id} />;
   else if (section === "grid") content = <GridScreen id={id} />;
-  else content = <WorkbenchShell section={section} id={id} params={params}>{renderScreen(section, id, params)}</WorkbenchShell>;
+  else content = <WorkbenchShell section={section} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}>{renderScreen(section, id, params)}</WorkbenchShell>;
   return <div className="vela-theme">{content}</div>;
 }
 

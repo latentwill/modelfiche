@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" fill="none" aria-hidden="true">
+  <title>Dark splash environment</title>
+  <path d="M0 205c72-38 120-40 184-10 76 36 111-19 172-25 49-5 82 16 124 0v70H0z" fill="#05104A" fill-opacity=".78"/>
+  <path d="M0 178c72-39 127-16 181 10 67 32 107-25 170-29 57-4 89 17 129 0" stroke="#0C258E" stroke-opacity=".58"/>
+  <path d="M17 56c72 27 116-4 172 14 67 22 114 26 171 2 52-22 87-7 116 2" stroke="#87A9FF" stroke-opacity=".22"/>
+  <g fill="#F7F5EC" opacity=".75"><circle cx="48" cy="36" r="1"/><circle cx="209" cy="49" r="1.2"/><circle cx="386" cy="28" r="1"/><circle cx="437" cy="96" r="1.4"/></g>
+</svg>

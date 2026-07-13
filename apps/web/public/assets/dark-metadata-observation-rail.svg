@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 640" fill="none" aria-hidden="true">
+  <title>Metadata observation rail</title>
+  <path d="M14 0v640" stroke="#8FA5EF" stroke-opacity=".55"/>
+  <path d="M26 28h264M26 124h264M26 312h264M26 504h264" stroke="#87A9FF" stroke-opacity=".38"/>
+  <g stroke="#BFC9F4" stroke-opacity=".65"><path d="M26 42h120M26 50h180M26 58h94M26 76h152M26 84h208"/><path d="M26 144h196M26 152h112M26 160h170M26 178h224"/><path d="M26 332h210M26 340h148M26 348h194M26 366h120"/><path d="M26 524h180M26 532h236M26 540h100"/></g>
+  <g fill="#F7F5EC"><circle cx="276" cy="35" r="2"/><circle cx="256" cy="131" r="2"/><circle cx="274" cy="319" r="2"/><circle cx="252" cy="511" r="2"/></g>
+</svg>

@@ -35,7 +35,10 @@ titles server stop
 titles doctor
 ```
 
-`server start` runs or supervises the local API and worker. Other commands fail clearly when the service is unavailable; they do not silently start background processes.
+`server start` runs or supervises the local API, worker, and frontend as one
+stack. If any service exits or fails its startup check, the supervisor stops
+the remaining services. Other commands fail clearly when the service is
+unavailable; they do not silently start background processes.
 
 ## 3. Agent Contract
 

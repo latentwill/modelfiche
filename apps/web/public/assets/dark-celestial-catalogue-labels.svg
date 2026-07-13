@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 96" fill="none" aria-hidden="true">
+  <title>Celestial catalogue labels</title>
+  <g stroke="#8FA5EF" stroke-width="1"><path d="M10 20h62v22H10zM112 10h74v20h-74zM210 54h60v24h-60z"/><path d="M72 31h28M186 20h16M210 66h-28"/></g>
+  <g stroke="#F7F5EC" stroke-width="2"><path d="M18 28h40M18 34h28M120 17h50M120 23h32M218 62h38M218 69h26"/></g>
+  <g fill="#87A9FF"><circle cx="96" cy="31" r="2"/><circle cx="202" cy="20" r="2"/><circle cx="182" cy="66" r="2"/></g>
+</svg>

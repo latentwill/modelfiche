@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160" fill="none" aria-hidden="true">
+  <title>Orbital fragments</title>
+  <g stroke="#87A9FF" stroke-opacity=".7"><ellipse cx="136" cy="78" rx="112" ry="42" transform="rotate(-18 136 78)"/><ellipse cx="136" cy="78" rx="70" ry="24" transform="rotate(32 136 78)"/><path d="M26 136c24-22 47-31 66-29M188 28c24 4 42 16 58 35M92 18c-8 16-11 29-10 42"/></g>
+  <g fill="#F7F5EC"><circle cx="25" cy="136" r="2"/><circle cx="92" cy="18" r="2"/><circle cx="246" cy="63" r="2.5"/></g>
+</svg>

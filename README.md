@@ -69,21 +69,26 @@ selected and admitted.
 
 ## Run
 
-Start API and worker together:
+Start the API, worker, and frontend together:
 
 ```bash
 uv run titles server start
 uv run titles server status
 ```
 
-Start the deliberately minimal frontend in a second terminal:
+`server start` waits for the API and frontend health checks, then supervises
+all three processes. If any process exits, the supervisor stops the remaining
+services and `server status` reports failure. The frontend runs at
+`http://127.0.0.1:5173`; the API runs at `http://127.0.0.1:8400`.
+
+Stop the complete service stack with:
 
 ```bash
-pnpm --dir apps/web dev
+uv run titles server stop
 ```
 
-Stop backend processes with `uv run titles server stop`. Logs are written to
-`var/server.log` and `var/worker.log`.
+Logs are written to `var/server.log`, `var/worker.log`, `var/web.log`, and
+`var/supervisor.log`.
 
 ## Agentic CLI
 

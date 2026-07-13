@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowDownToLine,
@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   List,
   Menu,
+  Moon,
   PanelLeftClose,
   PanelRightClose,
   PanelRightOpen,
@@ -24,6 +25,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Sun,
   X,
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
@@ -40,8 +42,75 @@ export const SHELL_LAYOUT_CONTRACT = {
   inspector: "scroll-region",
   viewport: "100dvh",
 } as const;
+export type ThemeMode = "light" | "dark";
+export const THEME_STORAGE_KEY = "modelfiche.theme";
 
-export function WorkbenchShell({ section, id, params, children }: { section: string; id: string; params: URLSearchParams; children: ReactNode }) {
+function validTheme(value: string | null | undefined): ThemeMode | null {
+  return value === "light" || value === "dark" ? value : null;
+}
+
+function themeStorage(): Storage | null {
+  try {
+    return typeof globalThis !== "undefined" && "localStorage" in globalThis ? globalThis.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function initialTheme(): ThemeMode {
+  let stored: ThemeMode | null = null;
+  try {
+    stored = validTheme(themeStorage()?.getItem(THEME_STORAGE_KEY));
+  } catch {
+    stored = null;
+  }
+  if (stored) return stored;
+  const declared = typeof document !== "undefined" ? validTheme(document.documentElement.dataset.theme) : null;
+  if (declared) return declared;
+  try {
+    return typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function applyTheme(theme: ThemeMode) {
+  if (typeof document !== "undefined") document.documentElement.dataset.theme = theme;
+}
+
+export function useThemeController() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const next = initialTheme();
+    applyTheme(next);
+    return next;
+  });
+  useLayoutEffect(() => { applyTheme(theme); }, [theme]);
+  useEffect(() => {
+    try {
+      themeStorage()?.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Storage may be unavailable in privacy-restricted contexts.
+    }
+    if (typeof window === "undefined") return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== THEME_STORAGE_KEY) return;
+      const next = validTheme(event.newValue);
+      if (next) setTheme(next);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [theme]);
+  return {
+    theme,
+    toggleTheme: () => setTheme(current => current === "dark" ? "light" : "dark"),
+  };
+}
+
+
+export function WorkbenchShell({ section, id, params, children, theme: controlledTheme, onToggleTheme: controlledToggleTheme }: { section: string; id: string; params: URLSearchParams; children: ReactNode; theme?: ThemeMode; onToggleTheme?: () => void }) {
+  const localTheme = useThemeController();
+  const theme = controlledTheme ?? localTheme.theme;
+  const toggleTheme = controlledToggleTheme ?? localTheme.toggleTheme;
   const [leftCollapsed, setLeftCollapsed] = useStoredBoolean("titles.leftCollapsed");
   const [rightCollapsed, setRightCollapsed] = useStoredBoolean("titles.rightCollapsed");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -68,15 +137,16 @@ export function WorkbenchShell({ section, id, params, children }: { section: str
   return <div className="vela-shell" data-nav-collapsed={leftCollapsed} data-inspector-collapsed={rightCollapsed}>
     <Sidebar section={section} id={id} activeProjectId={projectId} projects={scopedProjects} workspace={workspace} collapsed={leftCollapsed} mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onCollapse={() => setLeftCollapsed(!leftCollapsed)} />
     <div className="vela-workspace">
-      <Topbar section={section} id={id} projectId={projectId} workspaces={rows(workspaces.data)} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
+      <Topbar section={section} id={id} projectId={projectId} workspaces={rows(workspaces.data)} theme={theme} onToggleTheme={toggleTheme} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
       <div className="vela-route-stage">{children}</div>
     </div>
     <ContextInspector section={section} id={id} projectId={projectId} collapsed={rightCollapsed} mobileOpen={mobileInspectorOpen} onMobileClose={() => setMobileInspectorOpen(false)} onCollapse={() => setRightCollapsed(!rightCollapsed)} />
     {(mobileNavOpen || mobileInspectorOpen) && <button className="vela-drawer-scrim" aria-label="Close open panel" onClick={() => { setMobileNavOpen(false); setMobileInspectorOpen(false); }} />}
   </div>;
 }
+ 
 
-function Topbar({ section, id, projectId, workspaces, onOpenNavigation, onOpenInspector }: { section: string; id: string; projectId: string; workspaces: Row[]; onOpenNavigation: () => void; onOpenInspector: () => void }) {
+function Topbar({ section, id, projectId, workspaces, theme, onToggleTheme, onOpenNavigation, onOpenInspector }: { section: string; id: string; projectId: string; workspaces: Row[]; theme: ThemeMode; onToggleTheme: () => void; onOpenNavigation: () => void; onOpenInspector: () => void }) {
   const [createOpen, setCreateOpen] = useState(false);
   const workspace = str(workspaces[0]?.name, "Titles XYZ");
   const entity = useResource<Row>(entityPath(section, id));
@@ -102,6 +172,7 @@ function Topbar({ section, id, projectId, workspaces, onOpenNavigation, onOpenIn
       </div>}
     </div>
     <ProfileSelect compact workspaceName={workspace} />
+    <button className="vela-icon-button vela-theme-toggle" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"} title={`Use ${theme === "dark" ? "light" : "dark"} mode`} onClick={onToggleTheme}>{theme === "dark" ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}</button>
     <button className="vela-icon-button vela-responsive-inspector" type="button" aria-label="Open metadata and notes" onClick={onOpenInspector}><PanelRightOpen size={18} /></button>
   </header>;
 }
@@ -123,9 +194,11 @@ function Sidebar({ section, id, activeProjectId, projects, workspace, collapsed,
   const visibleProjects = projects.filter(project => project.state !== "archived");
   const shownProjects = visibleProjects.length ? visibleProjects : projects;
   const activeSources = rows(sources.data).filter(source => source.is_active !== false).length;
+  const workspaceKey = str(workspace?.id, "");
+  const archiveIdentifier = workspaceKey ? workspaceKey.slice(0, 8).toUpperCase() : "LOCAL";
   return <aside className="vela-sidebar" id="vela-navigation" data-mobile-open={mobileOpen} onClick={event => { if ((event.target as HTMLElement).closest("a")) onMobileClose(); }}>
-    <div className="vela-brand"><a className="vela-wordmark" href="#/dashboard">MODELFICHE</a><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close navigation" onClick={onMobileClose}><X size={18} /></button></div>
-    <div className="vela-workspace-context" data-workspace-id={str(workspace?.id, "")}><span className="vela-meta">Workspace</span><strong>{str(workspace?.name, "Workspace")}</strong></div>
+    <div className="vela-brand"><a className="vela-wordmark" href="#/dashboard" aria-label="ModelFiche dashboard"><picture><source media="(prefers-color-scheme: dark)" srcSet="/assets/modelfiche-logo-dark.png" /><source media="(prefers-color-scheme: light)" srcSet="/assets/modelfiche-logo-light.png" /><img src="/assets/modelfiche-logo.png" alt="ModelFiche" style={{ display: "block", maxWidth: "100%", height: "28px", width: "auto" }} /></picture></a><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close navigation" onClick={onMobileClose}><X size={18} /></button></div>
+    <div className="vela-workspace-context" data-workspace-id={workspaceKey}><span className="vela-meta">Archive / Workspace {archiveIdentifier}</span><strong>{str(workspace?.name, "Workspace")}</strong></div>
     <nav className="vela-nav" aria-label="Primary navigation" data-layout={SHELL_LAYOUT_CONTRACT.navigation}>
       <VelaNavLink href="#/dashboard" active={section === "dashboard" || section === "projects"} icon={<LayoutDashboard size={16} />}>Dashboard</VelaNavLink>
       <VelaNavLink href="#/gallery" active={section === "gallery" || section === "image"} icon={<Images size={16} />}>Gallery</VelaNavLink>
@@ -139,6 +212,7 @@ function Sidebar({ section, id, activeProjectId, projects, workspace, collapsed,
     <div className="vela-sidebar-footer" data-layout={SHELL_LAYOUT_CONTRACT.footer}>
       <VelaNavLink href="#/settings" active={section === "settings"} icon={<Settings size={16} />}>Settings</VelaNavLink>
       <div className="vela-storage"><strong><Database size={14} /> Storage</strong><span className="vela-meta">Local cache · {sources.loading ? "checking sources" : `${activeSources} S3 source${activeSources === 1 ? "" : "s"}`}</span></div>
+      <div className="vela-meta" aria-label="Archive record footer">END OF SHEET · ARCHIVE RECORD</div>
     </div>
     <button type="button" className="vela-rail-label" aria-label="Expand navigation" aria-controls="vela-navigation" aria-expanded={!collapsed} onClick={onCollapse}>NAVIGATION</button>
   </aside>;
@@ -181,6 +255,7 @@ function ContextInspector({ section, id, projectId, collapsed, mobileOpen, onMob
     <section className="vela-inspector-card"><div className="vela-context-title"><div><h3>{title}</h3><Status value={str(entity.data?.state ?? entity.data?.status, section === "dashboard" ? "workspace" : "selected")} /></div></div><Notice error={entity.error} loading={entity.loading} />{entity.data ? <MetadataRows value={entity.data} /> : <p className="vela-muted-copy">Select an object to inspect its metadata and history.</p>}</section>
     {subject && ["project", "dataset", "model"].includes(subject.type) && <NotesPanel subjectType={subject.type} subjectId={subject.id} />}
     <section className="vela-inspector-card"><div className="vela-section-heading"><h2>{projectId ? "Project activity" : "Workspace activity"}</h2></div><Notice error={activity.error} loading={activity.loading} empty={!rows(activity.data).length} /><div className="vela-activity-list">{rows(activity.data).map(item => { const rawEvent = str(item.action ?? item.event_type); return <article className="vela-activity-item" key={idOf(item)}><div className="vela-activity-thumb"><Activity size={17} /></div><div><h3>{activityLabel(rawEvent)}</h3><p>{str(item.summary ?? item.subject_type)}<br />{formatDate(item.created_at)}</p>{/[._]/.test(rawEvent) && <details className="vela-activity-technical"><summary>Technical details</summary><code>{rawEvent}</code></details>}</div></article>; })}</div></section>
+    <div className="vela-meta" aria-label="Metadata archive record">END OF SHEET / ARCHIVE RECORD · {projectId ? projectId.slice(0, 8).toUpperCase() : "WORKSPACE"}</div>
     <button type="button" className="vela-rail-label" aria-label="Expand metadata" aria-controls="vela-metadata" aria-expanded={!collapsed} onClick={onCollapse}>METADATA</button>
   </aside>;
 }

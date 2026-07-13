@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" fill="none" aria-hidden="true">
+  <title>Dark constellation overlay</title>
+  <g stroke="#87A9FF" stroke-width="1" stroke-opacity=".7"><path d="M30 124 78 76l44 21 36-62 48 71 52-29"/><path d="M78 76 96 34l26 63M158 35l13-18M206 106l19 40"/></g>
+  <g fill="#F7F5EC"><circle cx="30" cy="124" r="2"/><circle cx="78" cy="76" r="2.5"/><circle cx="122" cy="97" r="1.5"/><circle cx="158" cy="35" r="2.5"/><circle cx="206" cy="106" r="2"/><circle cx="258" cy="77" r="2.5"/><circle cx="96" cy="34" r="1.5"/><circle cx="171" cy="17" r="1"/><circle cx="225" cy="146" r="1.5"/></g>
+</svg>

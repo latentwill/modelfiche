@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 96" fill="none" aria-hidden="true">
+  <title>Left and right microfiche reader silhouettes</title>
+  <g stroke="#082689" stroke-width="2" stroke-linejoin="round">
+    <path d="M18 76V28l28-12h54l20 12v48z"/><path d="M36 28h58v36H36z" fill="#F2F4FA"/><path d="M34 76h76M26 84h80"/><path d="m120 45 20-12 12 8v35h-28z"/><path d="M152 41h44l20 12v23h-64z"/><path d="M160 50h34v18h-34z" fill="#F2F4FA"/><path d="M154 76h56M148 84h70"/>
+  </g>
+  <g stroke="#1237B8" stroke-width="1"><path d="M45 38h36M45 47h24M45 56h40"/><path d="M170 56h18M170 61h12"/></g>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 36" fill="none" aria-hidden="true">
+  <title>Dark azimuth ruler</title>
+  <path d="M0 27.5h256" stroke="#8FA5EF" stroke-opacity=".75"/>
+  <path d="M0 27.5V14M16 27.5v-7M32 27.5v-10M48 27.5v-7M64 27.5V10M80 27.5v-7M96 27.5v-10M112 27.5v-7M128 27.5V5M144 27.5v-7M160 27.5v-10M176 27.5v-7M192 27.5V10M208 27.5v-7M224 27.5v-10M240 27.5v-7M256 27.5V14" stroke="#87A9FF"/>
+  <path d="M122 5h12M128 1v8" stroke="#F7F5EC"/>
+</svg>

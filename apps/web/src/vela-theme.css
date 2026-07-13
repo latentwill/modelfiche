@@ -12,42 +12,101 @@
  * wireframe styles during migration. Remove the scope only after full adoption.
  */
 .vela-theme {
-  --vela-bg: oklch(98.8% 0.003 255);
-  --vela-surface: oklch(100% 0 0);
-  --vela-surface-soft: oklch(97.2% 0.008 255);
-  --vela-fg: oklch(18% 0.025 255);
-  --vela-muted: oklch(50% 0.025 255);
-  --vela-border: oklch(91% 0.012 255);
-  --vela-accent: oklch(52% 0.245 260);
-  --vela-accent-soft: oklch(95% 0.035 265);
-  --vela-success: oklch(47% 0.13 150);
-  --vela-warning: oklch(58% 0.14 70);
-  --vela-danger: oklch(50% 0.18 28);
-  --vela-font-display: "Vela Display", "Helvetica Neue", "Arial Narrow", sans-serif;
-  --vela-font-body: "Avenir Next", "Helvetica Neue", Helvetica, sans-serif;
+  /* ModelFiche semantic archive palette — cobalt xerox sheet (light). */
+  --mf-bg: #fbfbf8;
+  --mf-bg-deep: #f2f4fa;
+  --mf-surface: #ffffff;
+  --mf-surface-muted: #f2f4fa;
+  --mf-surface-raised: #ffffff;
+  --mf-ink-primary: #1237b8;
+  --mf-ink-strong: #082689;
+  --mf-ink-muted: #6573a4;
+  --mf-border: #b8c5ed;
+  --mf-border-strong: #1237b8;
+  --mf-active-fill: #1237b8;
+  --mf-active-text: #ffffff;
+  --mf-accent: #1237b8;
+  --mf-success: #176b4a;
+  --mf-warning: #8b580e;
+  --mf-danger: #a12b32;
+  --mf-shadow: rgb(8 38 137 / 14%);
+  --mf-grid: rgb(18 55 184 / 6%);
+  --mf-media-bed: #05104a;
+
+  /* Existing Vela API mapped onto semantic ModelFiche roles. */
+  --vela-bg: var(--mf-bg);
+  --vela-surface: var(--mf-surface);
+  --vela-surface-soft: var(--mf-surface-muted);
+  --vela-fg: var(--mf-ink-strong);
+  --vela-muted: var(--mf-ink-muted);
+  --vela-border: var(--mf-border);
+  --vela-accent: var(--mf-accent);
+  --vela-accent-soft: color-mix(in srgb, var(--mf-accent) 9%, var(--mf-surface));
+  --vela-success: var(--mf-success);
+  --vela-warning: var(--mf-warning);
+  --vela-danger: var(--mf-danger);
+  --vela-selection: var(--mf-border-strong);
+  --vela-font-display: "Vela Display", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --vela-font-body: "Avenir Next Condensed", "Avenir Next", "Helvetica Neue", sans-serif;
   --vela-font-serif: "Iowan Old Style", Charter, Georgia, serif;
-  --vela-font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --vela-radius-sm: 6px;
-  --vela-radius-md: 8px;
-  --vela-radius-lg: 12px;
+  --vela-font-mono: "SFMono-Regular", "Roboto Mono", Menlo, monospace;
+  --vela-radius-sm: 0;
+  --vela-radius-md: 2px;
+  --vela-radius-lg: 4px;
   --vela-space-1: 4px;
   --vela-space-2: 8px;
   --vela-space-3: 12px;
   --vela-space-4: 16px;
-  --vela-space-5: 20px;
-  --vela-space-6: 24px;
-  --vela-left-rail: 252px;
-  --vela-right-rail: 316px;
-  --vela-collapsed-rail: 44px;
-  --vela-topbar: 72px;
-  --vela-duration: 180ms;
+  --vela-space-5: 24px;
+  --vela-space-6: 32px;
+  --vela-left-rail: 248px;
+  --vela-right-rail: 312px;
+  --vela-collapsed-rail: 48px;
+  --vela-topbar: 64px;
+  --vela-duration: 160ms;
   --vela-ease: cubic-bezier(.16, 1, .3, 1);
   min-height: 100vh;
   overflow-x: hidden;
-  background: var(--vela-bg);
+  background-color: var(--vela-bg);
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgb(18 55 184 / 2%) 3px 4px),
+    radial-gradient(circle at 18% 23%, rgb(8 38 137 / 4%) 0 .5px, transparent .7px);
+  background-size: auto, 5px 5px;
   color: var(--vela-fg);
   font: 14px/1.45 var(--vela-font-body);
   -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="light"] .vela-theme {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] .vela-theme {
+  color-scheme: dark;
+  --mf-bg: #081b78;
+  --mf-bg-deep: #05104a;
+  --mf-surface: #0c258e;
+  --mf-surface-muted: #112d9d;
+  --mf-surface-raised: #112d9d;
+  --mf-ink-primary: #f7f5ec;
+  --mf-ink-strong: #f7f5ec;
+  --mf-ink-muted: #bfc9f4;
+  --mf-border: #8fa5ef;
+  --mf-border-strong: #f7f5ec;
+  --mf-active-fill: #f7f5ec;
+  --mf-active-text: #081b78;
+  --mf-accent: #87a9ff;
+  --mf-success: #8ed8b3;
+  --mf-warning: #f0c675;
+  --mf-danger: #ff9aa0;
+  --mf-shadow: rgb(5 16 74 / 48%);
+  --mf-grid: rgb(143 165 239 / 8%);
+  --mf-media-bed: #05104a;
+  background-color: var(--vela-bg);
+  background-image:
+    linear-gradient(var(--mf-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mf-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 .vela-theme *, .vela-theme *::before, .vela-theme *::after { box-sizing: border-box; }
@@ -166,7 +225,7 @@
   background: var(--vela-surface);
 }
 .vela-create-wrap { position: relative; }
-.vela-create-button { width: 42px; min-height: 42px; padding: 0; border: 0; border-radius: 50%; background: var(--vela-accent); color: #fff; font-size: 22px; font-weight: 700; }
+.vela-create-button { width: 42px; min-height: 42px; padding: 0; border: 0; border-radius: 50%; background: var(--vela-accent); color: var(--mf-active-text); font-size: 22px; font-weight: 700; }
 .vela-create-menu { position: absolute; right: 0; top: 49px; z-index: 30; width: 170px; display: grid; padding: 6px; border: 1px solid var(--vela-border); border-radius: 10px; background: var(--vela-surface); box-shadow: 0 6px 8px color-mix(in oklch, var(--vela-fg) 11%, transparent); }
 .vela-create-menu button { padding: 9px; border: 0; border-radius: 7px; background: transparent; text-align: left; font: 700 11px var(--vela-font-display); }
 .vela-create-menu button:hover { background: var(--vela-surface-soft); }
@@ -599,13 +658,13 @@
 .vela-focus-workspace .viewer-topbar > a:first-child { font: 700 13px var(--vela-font-display); text-transform: uppercase; }
 .vela-focus-workspace .viewer-actions { display: flex; align-items: center; gap: 8px; }
 .vela-focus-workspace .image-review-stage { min-height: calc(100vh - 64px); grid-template-columns: minmax(0, 1fr) 340px; }
-.vela-focus-workspace .image-review-main { background: oklch(16% 0.015 255); }
+.vela-focus-workspace .image-review-main { background: var(--mf-media-bed); }
 .vela-focus-workspace .image-review-main > img { height: calc(100vh - 208px); }
-.vela-focus-workspace .image-nav { align-items: center; background: oklch(21% 0.015 255); }
-.vela-focus-workspace .image-nav a { display: flex; align-items: center; gap: 5px; color: white; font-size: 12px; }
+.vela-focus-workspace .image-nav { align-items: center; background: var(--mf-bg-deep); }
+.vela-focus-workspace .image-nav a { display: flex; align-items: center; gap: 5px; color: var(--mf-ink-primary); font-size: 12px; }
 .vela-focus-workspace .image-nav a:last-child { justify-self: end; }
 .vela-focus-workspace .image-nav a[aria-disabled="true"] { pointer-events: none; opacity: .35; }
-.vela-focus-workspace .filmstrip { min-height: 80px; align-items: center; justify-content: center; background: oklch(18% 0.015 255); }
+.vela-focus-workspace .filmstrip { min-height: 80px; align-items: center; justify-content: center; background: var(--mf-media-bed); }
 .vela-focus-workspace .filmstrip a.active { border-color: var(--vela-accent); }
 .vela-focus-workspace .image-review-inspector { padding: 18px; border-color: var(--vela-border); background: var(--vela-surface); }
 .vela-focus-workspace .image-review-inspector h2 { font: 700 15px var(--vela-font-display); }
@@ -626,7 +685,7 @@
   .vela-focus-workspace .image-review-inspector { border-left: 0; border-top: 1px solid var(--vela-border); }
 }
 
-.vela-theme { --vela-selection: #2563eb; }
+.vela-theme { --vela-selection: var(--mf-border-strong); }
 .vela-theme button:focus-visible, .vela-theme .button:focus-visible, .vela-theme a:focus-visible, .vela-theme input:focus-visible, .vela-theme select:focus-visible, .vela-theme textarea:focus-visible { outline-color: var(--vela-selection); }
 .vela-theme .asset-grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--asset-size, 160px), 100%), 1fr)); }
 .vela-theme .asset-card { box-sizing: border-box; grid-template-rows: auto auto auto; }
@@ -634,8 +693,8 @@
 .vela-theme .asset-card:hover, .vela-theme .asset-card:focus-visible { border-color: var(--vela-selection); background: color-mix(in oklch, var(--vela-selection) 8%, var(--vela-surface)); }
 .vela-theme .asset-card-footer { display: grid; gap: 2px; line-height: 1.3; }
 .vela-theme .asset-card-footer span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vela-theme .asset-image-loading { background: #d1d5db !important; opacity: .72; }
-.vela-theme .asset-image-unavailable { border: 2px solid var(--vela-danger); background: #d1d5db !important; }
+.vela-theme .asset-image-loading { background: var(--mf-surface-muted) !important; opacity: .72; }
+.vela-theme .asset-image-unavailable { border: 2px solid var(--vela-danger); background: var(--mf-surface-muted) !important; }
 .vela-theme .image-review-inspector h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vela-theme .image-review-inspector h2 .asset-origin-badge { position: static; }
 .vela-theme .filmstrip a.active { border-color: var(--vela-selection); box-shadow: inset 0 0 0 2px var(--vela-selection); }
@@ -645,3 +704,455 @@
 .vela-theme .caption-version.active { background: color-mix(in oklch, var(--vela-selection) 8%, var(--vela-surface)); box-shadow: inset 3px 0 0 var(--vela-selection); }
 .vela-theme .caption-version.active .caption-version-number { border-color: var(--vela-selection); background: var(--vela-selection); }
 .vela-theme .checkpoint-timeline button.active, .vela-theme .grid-board > button.active, .vela-theme .grid-board > .grid-cell > button.active { outline-color: var(--vela-selection); }
+
+/* ModelFiche archival interface. This final layer keeps the established
+   component geometry while replacing Vela's visual language. */
+.vela-theme {
+  --line: var(--mf-border);
+  --ink: var(--mf-ink-strong);
+  --muted: var(--mf-ink-muted);
+  --surface: var(--mf-surface);
+  --block: var(--mf-surface-muted);
+  --block-2: var(--mf-surface-raised);
+  --active: var(--mf-active-fill);
+  --accent: var(--mf-accent);
+  --selection: var(--mf-border-strong);
+  --danger: var(--mf-danger);
+}
+
+.vela-theme ::selection { background: var(--mf-active-fill); color: var(--mf-active-text); }
+.vela-theme :is(h1, h2, h3, .vela-wordmark, .vela-nav-group, .vela-section-label) {
+  color: var(--mf-ink-strong);
+  font-family: var(--vela-font-display);
+  font-weight: 700;
+  letter-spacing: -.025em;
+  text-transform: uppercase;
+}
+.vela-theme :is(.vela-meta, .vela-status, .status, th, dt, .vela-run-time, .vela-chart-labels, .grid-preview-tools) {
+  font-family: var(--vela-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.vela-theme :is(button, .button, .vela-button, input, select, textarea) { border-radius: var(--vela-radius-md); }
+.vela-theme :is(button, .button, .vela-button) { letter-spacing: .02em; }
+.vela-theme :is(button, .button, .vela-button, a, input, select, textarea):focus-visible {
+  outline: 1px solid var(--mf-border-strong);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px var(--mf-surface), 0 0 0 3px var(--mf-border-strong);
+}
+
+/* Shell rails and ruler infrastructure. */
+.vela-sidebar,
+.vela-inspector {
+  background-color: var(--mf-surface);
+  background-image: repeating-linear-gradient(0deg, transparent 0 15px, var(--mf-grid) 15px 16px);
+  border-color: var(--mf-border-strong);
+}
+.vela-sidebar { padding: 16px 12px; border-right-width: 2px; }
+.vela-inspector { padding: 16px; border-left-width: 2px; }
+.vela-sidebar::after,
+.vela-inspector::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, var(--mf-border-strong) 0 1px, transparent 1px 8px);
+  opacity: .32;
+}
+.vela-sidebar::after { right: 0; }
+.vela-inspector::before { left: 0; }
+.vela-brand { min-height: 48px; padding: 0 8px 16px; border-bottom: 3px double var(--mf-border-strong); }
+.vela-wordmark {
+  width: 160px;
+  height: 32px;
+  overflow: hidden;
+  color: transparent;
+  background: url("/assets/modelfiche-logo.png") left center / contain no-repeat;
+}
+.vela-workspace-context,
+.vela-storage {
+  border: 1px solid var(--mf-border);
+  border-left: 3px solid var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface-muted);
+  box-shadow: none;
+}
+.vela-nav { gap: 0; }
+.vela-nav-group { margin: 20px 8px 6px; color: var(--mf-ink-muted); font: 700 10px var(--vela-font-mono); letter-spacing: .1em; }
+.vela-nav-group::before { content: "§ "; color: var(--mf-accent); }
+.vela-nav-item { min-height: 38px; padding: 9px 10px; border: 1px solid transparent; border-radius: 0; }
+.vela-nav-item:hover { border-color: var(--mf-border); background: var(--mf-surface-muted); }
+.vela-nav-item[aria-current="page"] { border-color: var(--mf-active-fill); background: var(--mf-active-fill); color: var(--mf-active-text); }
+.vela-project-tree { border-left-color: var(--mf-border-strong); }
+.vela-sidebar-footer { border-top: 3px double var(--mf-border-strong); background: var(--mf-surface); }
+.vela-rail-label { font-family: var(--vela-font-mono); letter-spacing: .14em; text-transform: uppercase; }
+
+.vela-topbar {
+  height: var(--vela-topbar);
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 3px double var(--mf-border-strong);
+  background: var(--mf-surface);
+  backdrop-filter: none;
+}
+.vela-topbar::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -7px;
+  left: 0;
+  height: 4px;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg, var(--mf-border-strong) 0 1px, transparent 1px 8px);
+  opacity: .4;
+}
+.vela-breadcrumbs { color: var(--mf-ink-muted); font: 10px var(--vela-font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.vela-breadcrumbs strong { color: var(--mf-ink-strong); }
+.vela-search,
+.vela-global-search .vela-search {
+  min-height: 40px;
+  border-color: var(--mf-border);
+  border-bottom-color: var(--mf-border-strong);
+  background: var(--mf-surface);
+  box-shadow: inset 3px 0 0 var(--mf-surface-muted);
+}
+.vela-create-button {
+  border: 1px solid var(--mf-active-fill);
+  border-radius: 0;
+  background: var(--mf-active-fill);
+  color: var(--mf-active-text);
+}
+.vela-create-menu,
+.vela-search-results {
+  border: 2px solid var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface);
+  box-shadow: 8px 8px 0 var(--mf-shadow);
+}
+.vela-profile-select.is-compact { border-radius: 0; }
+
+/* Twelve-column workspace and archival title sheets. */
+.vela-main {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  padding: 24px;
+}
+.vela-main > * { grid-column: 1 / -1; min-width: 0; }
+.vela-page-header,
+.vela-hero {
+  position: relative;
+  min-height: 136px;
+  border: 2px solid var(--mf-border-strong);
+  border-radius: 0;
+  background-color: var(--mf-surface);
+  background-image:
+    linear-gradient(90deg, var(--mf-grid) 1px, transparent 1px),
+    linear-gradient(var(--mf-grid) 1px, transparent 1px);
+  background-size: 16px 16px;
+  box-shadow: inset 0 0 0 4px var(--mf-surface), inset 0 0 0 5px var(--mf-border);
+}
+.vela-page-header { padding: 24px 28px; }
+.vela-page-header::before,
+.vela-hero::before {
+  content: "MF / ARCHIVE REGISTER";
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: var(--mf-ink-muted);
+  font: 8px var(--vela-font-mono);
+  letter-spacing: .12em;
+}
+.vela-page-header::after,
+.vela-hero::after {
+  content: "⌜  +  ⌝";
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  color: var(--mf-border-strong);
+  font: 10px var(--vela-font-mono);
+  letter-spacing: .6em;
+}
+.vela-page-header h1,
+.vela-hero h1 { color: var(--mf-ink-primary); font-size: clamp(26px, 3vw, 38px); letter-spacing: -.045em; }
+.vela-page-header p,
+.vela-hero p { color: var(--mf-ink-muted); font-size: 13px; }
+.vela-hero-art::before,
+.vela-hero-art::after { border: 1px solid var(--mf-border-strong); border-radius: 0; background: transparent; }
+.vela-hero-art::before { background-image: repeating-linear-gradient(90deg, var(--mf-grid) 0 1px, transparent 1px 8px); }
+.vela-section { margin-top: 16px; }
+.vela-section-heading { padding-bottom: 8px; border-bottom: 3px double var(--mf-border-strong); }
+.vela-section-heading h2::before { content: "▰ "; color: var(--mf-accent); font-size: .72em; }
+
+/* Sheets, archive cards, microfiche and run records. */
+.vela-panel,
+.vela-theme .panel,
+.vela-inspector-card,
+.vela-theme .inspector-panel {
+  border: 1px solid var(--mf-border);
+  border-top: 2px solid var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--mf-border) 35%, transparent);
+}
+.vela-project-grid,
+.vela-theme .project-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.vela-project-card,
+.vela-theme .project-card {
+  border: 1px solid var(--mf-border);
+  border-radius: 0;
+  background: var(--mf-surface);
+  box-shadow: inset 0 3px 0 var(--mf-border-strong);
+}
+.vela-project-card:hover,
+.vela-theme .project-card:hover { border-color: var(--mf-border-strong); transform: translateY(-2px); box-shadow: 4px 4px 0 var(--mf-shadow); }
+.vela-project-card::before {
+  content: "MF–" counter(mf-card, decimal-leading-zero);
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: 8px;
+  padding: 3px 5px;
+  background: var(--mf-active-fill);
+  color: var(--mf-active-text);
+  font: 8px var(--vela-font-mono);
+  letter-spacing: .08em;
+}
+.vela-project-grid { counter-reset: mf-card; }
+.vela-project-card { counter-increment: mf-card; }
+.vela-project-preview,
+.project-image-mosaic,
+.vela-theme .asset-card img,
+.vela-theme .comparison-image img {
+  border-radius: 0;
+  background: var(--mf-media-bed);
+}
+.vela-project-preview { gap: 3px; padding: 3px; border-bottom: 1px solid var(--mf-border-strong); }
+.vela-project-identity { border-bottom-color: var(--mf-border-strong); background: var(--mf-surface-muted); }
+.vela-project-identity span { border: 1px solid var(--mf-border-strong); border-radius: 0; background: var(--mf-active-fill); color: var(--mf-active-text); }
+.vela-project-card-body h3 { color: var(--mf-ink-primary); }
+.vela-data-cell,
+.vela-stat { border-left: 2px solid var(--mf-border); border-radius: 0; background: var(--mf-surface-muted); }
+.vela-run-list { gap: 0; border-top: 1px solid var(--mf-border); }
+.vela-run-row {
+  min-height: 64px;
+  border: 0;
+  border-bottom: 1px solid var(--mf-border);
+  border-radius: 0;
+  background: var(--mf-surface);
+}
+.vela-run-row:hover { padding-left: 16px; border-color: var(--mf-border-strong); background: var(--mf-surface-muted); }
+.vela-run-mark { border: 1px solid var(--mf-border-strong); border-radius: 0; background: transparent; }
+.vela-run-mark::before { inset: 6px; border-style: solid; border-radius: 50%; }
+.vela-run-tag,
+.vela-theme :is(.vela-meta, .caption-version-state) { border-radius: 0; }
+
+/* Entry Console / Input Sheet. Editable areas remain fully opaque and clean. */
+.vela-form,
+.vela-theme form {
+  position: relative;
+  counter-reset: mf-field;
+  padding: 16px;
+  border: 3px double var(--mf-border-strong);
+  background: var(--mf-surface);
+}
+.vela-form::before,
+.vela-theme form::before {
+  content: "ENTRY CONSOLE / INPUT SHEET";
+  grid-column: 1 / -1;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--mf-border);
+  color: var(--mf-ink-muted);
+  font: 9px var(--vela-font-mono);
+  letter-spacing: .12em;
+}
+.vela-field { counter-increment: mf-field; gap: 6px; }
+.vela-field > span { display: flex; gap: 8px; color: var(--mf-ink-strong); font: 700 10px var(--vela-font-mono); letter-spacing: .07em; }
+.vela-field > span::before { content: counter(mf-field, decimal-leading-zero) "."; color: var(--mf-accent); }
+.vela-theme :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  border: 1px solid var(--mf-border);
+  border-bottom: 2px solid var(--mf-border-strong);
+  border-radius: 0;
+  background-color: var(--mf-surface);
+  background-image: none;
+  box-shadow: inset 3px 0 0 var(--mf-surface-muted);
+}
+.vela-theme :is(input, select, textarea):focus {
+  border-color: var(--mf-border-strong);
+  box-shadow: inset 4px 0 0 var(--mf-accent);
+}
+.vela-theme :is(input, select, textarea):disabled { background: var(--mf-surface-muted); }
+.vela-theme :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--mf-active-fill); }
+.vela-theme progress { width: 100%; height: 8px; border: 1px solid var(--mf-border-strong); border-radius: 0; background: var(--mf-surface-muted); }
+.vela-theme progress::-webkit-progress-bar { background: var(--mf-surface-muted); }
+.vela-theme progress::-webkit-progress-value { background: var(--mf-active-fill); }
+.vela-theme .local-import-dropzone {
+  padding: 24px;
+  border: 3px double var(--mf-border-strong);
+  background: var(--mf-surface-muted);
+  text-align: center;
+}
+
+/* Controls, status, tables, tooltips and modal surfaces. */
+.vela-theme :is(.vela-button-primary, .primary, .tabs button.active, .chiplets button.active) {
+  border-color: var(--mf-active-fill);
+  background: var(--mf-active-fill);
+  color: var(--mf-active-text);
+}
+.vela-theme .vela-button,
+.vela-theme .button,
+.vela-theme button:not([class]) { border-radius: 0; box-shadow: none; }
+.vela-icon-button { border-radius: 0; }
+.vela-text-button { color: var(--mf-accent); font-family: var(--vela-font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.vela-notice,
+.vela-theme .notice {
+  border: 1px solid var(--mf-border);
+  border-left: 4px solid var(--mf-accent);
+  border-radius: 0;
+  background: var(--mf-surface-muted);
+}
+.vela-notice-error,
+.vela-theme .notice.error { border-color: var(--mf-danger); background: color-mix(in srgb, var(--mf-danger) 8%, var(--mf-surface)); color: var(--mf-danger); }
+.vela-empty {
+  min-height: 112px;
+  place-content: center;
+  border: 1px dashed var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface-muted);
+}
+.vela-empty::before { content: "□"; color: var(--mf-accent); font: 20px var(--vela-font-mono); }
+.vela-status,
+.vela-theme .status {
+  border-radius: 0;
+  background: var(--mf-surface);
+  box-shadow: inset 3px 0 0 currentColor;
+}
+.vela-status::before { content: "■"; font-size: 7px; }
+.vela-table-wrap,
+.vela-theme .table-wrap { border: 1px solid var(--mf-border-strong); border-radius: 0; background: var(--mf-surface); }
+.vela-table th,
+.vela-theme table th { border-bottom: 2px solid var(--mf-border-strong); background: var(--mf-surface-muted); color: var(--mf-ink-strong); }
+.vela-table :is(th, td),
+.vela-theme table :is(th, td) { padding: 12px; border-color: var(--mf-border); }
+.vela-table tbody tr:nth-child(even),
+.vela-theme table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--mf-surface-muted) 55%, var(--mf-surface)); }
+.vela-table tr.is-clickable:hover,
+.vela-theme tr.clickable:hover { background: var(--vela-accent-soft); box-shadow: inset 3px 0 0 var(--mf-accent); }
+.vela-theme :is([role="tooltip"], .tooltip, [data-tooltip]::after) {
+  border: 1px solid var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-ink-strong);
+  color: var(--mf-surface);
+  font: 10px var(--vela-font-mono);
+}
+.vela-theme :is(dialog, .modal, .dialog, [role="dialog"]) {
+  border: 3px double var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface);
+  color: var(--mf-ink-strong);
+  box-shadow: 12px 12px 0 var(--mf-shadow);
+}
+.vela-theme dialog::backdrop { background: color-mix(in srgb, var(--mf-bg-deep) 72%, transparent); }
+
+/* Technical charts and grids: clean plotting planes, no atmosphere. */
+.vela-chart,
+.vela-theme .loss-graph,
+.vela-theme .loss-graph-empty,
+.vela-theme .throughput-chart {
+  border: 1px solid var(--mf-border);
+  border-left: 2px solid var(--mf-border-strong);
+  border-bottom: 2px solid var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface);
+}
+.vela-chart svg,
+.vela-theme .loss-graph-svg { background: var(--mf-surface); }
+.vela-theme .loss-graph-svg path { stroke: var(--mf-accent); stroke-width: 2; }
+.vela-theme .loss-graph-svg line { stroke: var(--mf-border); opacity: 1; }
+.vela-theme .grid-board { gap: 4px; padding: 8px; border: 1px solid var(--mf-border); background: var(--mf-surface); }
+.vela-theme .grid-board > strong { border-bottom: 1px solid var(--mf-border-strong); }
+.vela-theme .grid-board > :is(button, .grid-cell > button) { border-radius: 0; background: var(--mf-media-bed); }
+.vela-theme .comparison-toolbar { border-radius: 0; background: var(--mf-surface-muted); }
+
+/* Dark observatory atmosphere is confined to open shell/title regions. */
+html[data-theme="dark"] .vela-workspace {
+  background-color: var(--mf-bg);
+  background-image:
+    radial-gradient(circle at 11% 14%, rgb(247 245 236 / 90%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 68% 8%, rgb(135 169 255 / 75%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 86% 29%, rgb(247 245 236 / 60%) 0 1px, transparent 1.5px),
+    linear-gradient(var(--mf-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mf-grid) 1px, transparent 1px);
+  background-size: 173px 173px, 241px 241px, 311px 311px, 32px 32px, 32px 32px;
+}
+html[data-theme="dark"] .vela-topbar {
+  background-color: var(--mf-bg-deep);
+  background-image: radial-gradient(circle at 18% 50%, rgb(247 245 236 / 55%) 0 1px, transparent 1.5px);
+  background-size: 149px 64px;
+}
+html[data-theme="dark"] :is(.vela-page-header, .vela-hero) {
+  background-color: var(--mf-surface);
+  background-image:
+    radial-gradient(circle at 82% 22%, rgb(247 245 236 / 80%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 91% 64%, rgb(135 169 255 / 70%) 0 1px, transparent 1.5px),
+    linear-gradient(118deg, transparent 76%, rgb(143 165 239 / 10%) 76.2%, transparent 76.7%),
+    linear-gradient(var(--mf-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mf-grid) 1px, transparent 1px);
+  background-size: 181px 181px, 227px 227px, auto, 16px 16px, 16px 16px;
+}
+html[data-theme="dark"] .vela-hero-art::before {
+  border-radius: 50% 50% 0 0;
+  background: radial-gradient(circle at 50% 100%, transparent 0 42%, var(--mf-border) 42.5% 43%, transparent 43.5%);
+}
+html[data-theme="dark"] .vela-hero-art::after { border-radius: 50%; box-shadow: 0 0 0 8px rgb(135 169 255 / 8%); }
+html[data-theme="dark"] :is(.vela-panel, .panel, .vela-form, form, .vela-table-wrap, .table-wrap, .vela-chart, .loss-graph, .asset-card img, .comparison-image img) {
+  background-image: none;
+}
+html[data-theme="dark"] .vela-theme .vela-button-primary,
+html[data-theme="dark"] .vela-theme .primary { color: var(--mf-active-text); }
+
+.vela-theme .vela-theme-toggle {
+  position: relative;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 1px solid var(--mf-border-strong);
+  border-radius: 0;
+  background: var(--mf-surface);
+  color: var(--mf-ink-strong);
+}
+.vela-theme .vela-theme-toggle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+}
+.vela-theme .vela-theme-toggle:hover { background: var(--mf-surface-muted); }
+.vela-theme .vela-theme-toggle[aria-pressed="true"] { background: var(--mf-active-fill); color: var(--mf-active-text); }
+
+/* 12 / 8 / 4 responsive grid, preserving drawer and media behavior. */
+@media (max-width: 1180px) {
+  .vela-main { grid-template-columns: repeat(8, minmax(0, 1fr)); padding: 24px; }
+  .vela-project-grid,
+  .vela-theme .project-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .vela-main { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; }
+  .vela-topbar { height: 60px; padding: 0 12px; }
+  .vela-page-header,
+  .vela-hero { min-height: auto; padding: 24px 16px 20px; }
+  .vela-page-header::before,
+  .vela-hero::before { right: 8px; font-size: 7px; }
+  .vela-project-grid,
+  .vela-theme .project-card-grid { grid-template-columns: 1fr; }
+  .vela-form,
+  .vela-theme form { padding: 12px; }
+  .vela-theme .prompt-editor-row { grid-template-columns: 24px minmax(0, 1fr) auto auto; }
+  .vela-theme .prompt-editor-row > :last-child { grid-column: 2 / -1; }
+}

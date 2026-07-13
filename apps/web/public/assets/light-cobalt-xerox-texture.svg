@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" fill="none" aria-hidden="true">
+  <title>Light cobalt xerox texture</title>
+  <defs><pattern id="cobalt-grain" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M1 3h2M10 6h1M5 13h3M14 14h1" stroke="#1237B8" stroke-width="1" opacity=".14"/><path d="M3 9h1M12 2h2" stroke="#082689" opacity=".1"/></pattern></defs>
+  <rect width="160" height="160" fill="url(#cobalt-grain)"/>
+</svg>
