@@ -21,7 +21,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015_backfill_legacy_krea_endpoints",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
 
 
 def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) -> None:
@@ -30,13 +30,45 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015_backfill_legacy_krea_endpoints",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='training_metrics'"
         ).fetchone() == (1,)
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert {
+            "wandb_ingest_credentials",
+            "training_launches",
+            "run_metric_summaries",
+            "run_events",
+            "run_uploads",
+            "run_artifact_handoffs",
+        } <= tables
+        assert {
+            "wandb_run_id",
+            "wandb_project",
+            "current_step",
+            "last_event_at",
+            "exit_code",
+        } <= {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(training_runs)").fetchall()
+        }
+        assert {"value_text", "value_type", "batch_key"} <= {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(training_metrics)").fetchall()
+        }
+        assert {"parent_version_id", "lineage_kind", "content_digest"} <= {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(dataset_versions)").fetchall()
+        }
         source_capability_columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(source_capabilities)").fetchall()
@@ -67,7 +99,7 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0015_backfill_legacy_krea_endpoints",
+            "0018_run_uploads_and_handoffs",
         )
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(eval_definitions)").fetchall()}
         assert columns["prompt_set_id"][3] == 0
@@ -92,7 +124,7 @@ def test_upgrade_installed_database_accepts_checkpoint_revision_head(tmp_path: P
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0015_backfill_legacy_krea_endpoints",
+            "0018_run_uploads_and_handoffs",
         )
 
 
@@ -105,7 +137,7 @@ def test_upgrade_installed_database_accepts_live_inline_prompts_head(tmp_path: P
         connection.execute("UPDATE alembic_version SET version_num = ?", ("0009_inline_generation_prompts",))
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015_backfill_legacy_krea_endpoints",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_items'").fetchone() == (1,)
 
 
@@ -118,7 +150,7 @@ def test_upgrade_installed_database_accepts_live_generation_queue_head(tmp_path:
         connection.execute("UPDATE alembic_version SET version_num = ?", ("0010_generation_queue",))
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015_backfill_legacy_krea_endpoints",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_children'").fetchone() == (1,)
 
 

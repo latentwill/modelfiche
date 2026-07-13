@@ -33,16 +33,16 @@ def _terminate(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+        process.terminate()
+    except (ProcessLookupError, PermissionError):
         return
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+            process.kill()
+        except (ProcessLookupError, PermissionError):
+            return
 
 
 def _write_pid(path: Path, process: subprocess.Popen[bytes]) -> None:

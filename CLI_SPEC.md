@@ -233,11 +233,42 @@ Scopes use explicit filters rather than UI selection state:
 
 Batch mutation without an explicit scope is rejected.
 
+### W&B credentials and training launches
+
+```text
+titles wandb key generate --private-key-output <path>
+titles wandb key public --private-key-file <path>
+titles wandb credential register --alias <alias> --public-key <key> [--project <id>]
+titles wandb credential list [--project <id>]
+titles wandb credential rotate <credential> --public-key <key>
+titles wandb credential revoke <credential>
+
+titles training-launch create --input <launch.json>
+titles training-launch show <launch>
+titles training-launch manifest <launch> [--output <path>]
+titles training-launch environment <launch> [--output <path>]
+titles training-launch agent-environment <launch> --private-key-file <path> [--output <path>]
+titles training-launch inspect <launch>
+titles training-launch wait <launch> [--timeout <seconds>] [--poll-interval <seconds>]
+```
+
+Private key generation is local. `credential register` sends only the public
+key to the API. `agent-environment` signs the exact launch claims locally; with
+`--output`, it writes the secret-bearing shell environment with mode `0600`.
+Agents should avoid emitting that environment into command transcripts.
+
+`training-launch inspect` returns `{launch, run}` so an agent can evaluate
+launch state, live metrics, upload counts, and handoff state without joining
+multiple responses. `training-launch wait` exits `0` only for completion and
+exits `7` for failed or interrupted launches.
+
 ### Runs, checkpoints, samples, and models
 
 ```text
 titles run list [--project <project>] [--status <status>]
 titles run show <run>
+titles run live <run>
+titles run metrics <run> [--name <metric>]
 titles run refresh <run>
 titles run config <run> [--raw|--normalized]
 titles run checkpoints <run>

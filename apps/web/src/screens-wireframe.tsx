@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, Maximize2, Minimize2, Star, X } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { ActiveTrainingPanel } from "./active-training";
 import { previewAssetId } from "./activity";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -19,6 +20,7 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
   return <main className="vela-main">
     <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and evaluation activity.</p></div><div className="vela-hero-art" aria-hidden="true"><img className="vela-reader-symbol vela-reader-symbol-light" src="/assets/modelfiche-reader-symbol-light.png" alt="" /><img className="vela-reader-symbol vela-reader-symbol-dark" src="/assets/modelfiche-reader-symbol-dark.png" alt="" /></div></section>
     {createProject && <section className="vela-section"><ProjectCreatePanel onCreated={projects.reload} /></section>}
+    <ActiveTrainingPanel />
     <section className="vela-section">
       <div className="vela-section-heading"><h2>Available projects</h2><a className="vela-text-button" href="#/projects" aria-label="View all projects">View all</a></div>
       <Notice error={projects.error} loading={projects.loading} empty={!displayed.length} />
@@ -59,7 +61,7 @@ export function TransfersScreen({ mode = "", params = new URLSearchParams() }: {
   const exportRows = rows(transfers.data).map(job => ({ ...job, kind: "export.package", direction: "export" }));
   const data = [...exportRows, ...importRows].filter(job => filter === "all" || job.direction === filter);
   return <Page title="Import / Export History" subtitle="Transfer training runs and DAM packages without overwriting existing work." actions={<><button aria-pressed={panel === "import"} onClick={() => setPanel(panel === "import" ? "" : "import")}><ArrowDownToLine size={16} /> Import</button><button className="primary" aria-pressed={panel === "export"} onClick={() => setPanel(panel === "export" ? "" : "export")}><ArrowUpFromLine size={16} /> Export</button></>}>
-    {panel === "import" && <TransferImport />}
+    {panel === "import" && <TransferImport params={params} />}
     {panel === "export" && <TransferExport onCreated={transfers.reload} params={params} />}
     <Panel><div className="tabs" role="tablist" aria-label="Transfer filters">{["all", "export", "import"].map(value => <button role="tab" aria-selected={filter === value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
       <Notice error={jobs.error || transfers.error} loading={jobs.loading || transfers.loading} empty={!data.length} /><DataTable rows={data} columns={[["name", "Name"], ["direction", "Type"], ["state", "State"], ["progress", "Progress"], ["created_at", "Date"]]} onRow={job => { if (job.direction === "export" && job.download_ready) window.location.href = `/api/transfers/${idOf(job)}/download`; else location.hash = `jobs/${idOf(job)}?job=1`; }} />
@@ -67,7 +69,7 @@ export function TransfersScreen({ mode = "", params = new URLSearchParams() }: {
   </Page>;
 }
 
-function TransferImport() {
+function TransferImport({ params }: { params: URLSearchParams }) {
   const sources = useResource<unknown>("/api/import-sources");
   const projects = useResource<unknown>("/api/projects?limit=100");
   const [message, setMessage] = useState("");
@@ -76,7 +78,7 @@ function TransferImport() {
     const detection = await api<Row>(`/api/import-sources/${sourceId}/detect`, jsonBody({ prefix }));
     const created = await api<Row>("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: form.get("project_id"), prefix, kind: detection.kind }));
     setMessage(`${str(detection.kind, "Unknown")} detected at ${Math.round(Number(detection.confidence ?? 0) * 100)}% confidence. Import queued as ${str(created.id)}.`);
-  }}><div className="form-grid"><Field label="S3 source"><Dropdown name="source_id" options={rows(sources.data).map(source => ({ value: idOf(source), label: str(source.name) }))} required placeholder="Select..." /></Field><Field label="Target project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select..." /></Field><Field label="Prefix"><input name="prefix" required /></Field></div></Form>{message && <div className="vela-notice" role="status"><strong>Import queued</strong><span>{message}</span></div>}<a href="#/import">Open full S3 browser</a></Panel>;
+  }}><div className="form-grid"><Field label="S3 source"><Dropdown name="source_id" options={rows(sources.data).map(source => ({ value: idOf(source), label: str(source.name) }))} required placeholder="Select..." /></Field><Field label="Target project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select..." /></Field><Field label="Prefix"><input name="prefix" required /></Field></div></Form>{message && <div className="vela-notice" role="status"><strong>Import queued</strong><span>{message}</span></div>}<a href={`#/import${query({ source: "s3", project: params.get("project") })}`}>Open full S3 browser</a></Panel>;
 }
 
 function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>; params: URLSearchParams }) {

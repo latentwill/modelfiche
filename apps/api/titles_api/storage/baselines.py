@@ -31,7 +31,20 @@ ALEMBIC_ASSET_TIMESTAMP_HEAD = "0007_asset_origin_timestamps"
 ALEMBIC_CHECKPOINT_REVISION_HEAD = "0008_checkpoint_revisions"
 ALEMBIC_INLINE_PROMPTS_HEAD = "0009_inline_generation_prompts"
 ALEMBIC_GENERATION_QUEUE_HEAD = "0010_generation_queue"
-ALEMBIC_HEAD = "0015_backfill_legacy_krea_endpoints"
+ALEMBIC_HEAD = "0018_run_uploads_and_handoffs"
+ALEMBIC_POST_QUEUE_REVISIONS = frozenset(
+    {
+        "0011_generation_queue_children",
+        "0012_backfill_sample_project_ownership",
+        "0013_reclassify_runs_by_trigger",
+        "0014_backfill_supported_fal_endpoints",
+        "0015_backfill_legacy_krea_endpoints",
+        "0016_training_launch_foundation",
+        "0017_live_training_telemetry",
+        "0018_run_uploads_and_handoffs",
+    }
+)
+
 
 
 _OLD_HEAD_REQUIRED_TABLES = frozenset(
@@ -177,6 +190,9 @@ def _classify_connection(connection: sqlite3.Connection) -> BaselineState:
         return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
     if version == ALEMBIC_GENERATION_QUEUE_HEAD and _HEAD_REQUIRED_TABLES <= names:
         return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
+    if version in ALEMBIC_POST_QUEUE_REVISIONS and _HEAD_REQUIRED_TABLES <= names:
+        return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
+
     if version == ALEMBIC_HEAD and _HEAD_REQUIRED_TABLES <= names:
         return BaselineState.HEAD_MARKED if _has_committed_marker(connection) else BaselineState.HEAD_UNMARKED
     raise SchemaMismatch("database version and schema shape do not match a supported baseline")

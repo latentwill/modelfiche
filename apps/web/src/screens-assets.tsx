@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings2,
   Sparkles,
   Maximize2,
   Minimize2,
@@ -27,7 +28,7 @@ import {
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
-import { useResource } from "./hooks";
+import { useResource, useRunLive } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status } from "./ui";
 import { generationReplayFromMetadata, generatorHref } from "./generation";
 import { DitherLossChart } from "./dither-loss-chart";
@@ -35,6 +36,7 @@ import { DitherLossChart } from "./dither-loss-chart";
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
 const errorText = (reason: unknown) => reason instanceof Error ? reason.message : String(reason);
+const DEFAULT_VISIBLE_SCENE_CAPTION_PROMPT = "Caption each image in one concise sentence describing only what is visibly present in the scene: subjects, objects, actions, setting, and spatial relationships. Do not describe style, lighting, mood, quality, or camera characteristics.";
 const formatBytes = (value: unknown) => {
   const bytes = Number(value);
   if (!Number.isFinite(bytes) || bytes < 0) return "Unknown";
@@ -46,8 +48,11 @@ const formatBytes = (value: unknown) => {
   return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
 };
 export const scientificNotation = (value: unknown) => {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return str(value, "Unavailable");
+  const scalar = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Row).value_text ?? (value as Row).value
+    : value;
+  const number = Number(scalar);
+  if (!Number.isFinite(number)) return str(scalar, "Unavailable");
   const scientific = number.toExponential().replace(/\.0+e/, "e").replace(/(\.\d*?[1-9])0+e/, "$1e").replace("e+", "e");
   return `${number} (${scientific})`;
 };
@@ -92,11 +97,11 @@ export function LossGraph({ points }: { points: unknown }) {
   return <DitherLossChart points={normalized} />;
 }
 
-function FlintMetricChart({ points, label, color }: { points: LossMetricPoint[]; label: string; color: string }) {
+function FlintMetricChart({ points, label }: { points: LossMetricPoint[]; label: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const context = canvas.current?.getContext?.("2d");
-    if (!context || !points.length) return;
+    if (!context || !points.length || !canvas.current) return;
     const assembled = assembleChartjs({
       data: { values: points.map(point => ({ step: point.step, value: point.value })) },
       semantic_types: { step: "Quantity", value: "Quantity" },
@@ -107,12 +112,15 @@ function FlintMetricChart({ points, label, color }: { points: LossMetricPoint[];
       },
       options: { addTooltips: true },
     }) as ChartConfiguration;
+    const styles = getComputedStyle(canvas.current);
+    const color = styles.getPropertyValue("--vela-accent").trim() || styles.color;
+    const backgroundColor = styles.getPropertyValue("--vela-accent-soft").trim() || "transparent";
     const dataset = assembled.data?.datasets?.[0];
-    if (dataset) Object.assign(dataset, { label, borderColor: color, backgroundColor: `${color}22`, pointRadius: points.length > 300 ? 0 : 1.5, borderWidth: 2, tension: .18, fill: true });
+    if (dataset) Object.assign(dataset, { label, borderColor: color, backgroundColor, pointRadius: points.length > 300 ? 0 : 1.5, borderWidth: 2, tension: .18, fill: true });
     assembled.options = { ...assembled.options, responsive: true, maintainAspectRatio: false, animation: false };
     const chart = new Chart(context, assembled);
     return () => chart.destroy();
-  }, [color, label, points]);
+  }, [label, points]);
   return <div className="flint-metric-chart" role="img" aria-label={`${label} over training step`}><canvas ref={canvas} /></div>;
 }
 
@@ -123,9 +131,20 @@ function ActionMessage({ message, error }: { message?: string; error?: string })
   return null;
 }
 
-function ObjectImageStrip({ assets, label }: { assets: Row[]; label: string }) {
+function ObjectImageStrip({ assets, label, showTrainingDetails = false }: { assets: Row[]; label: string; showTrainingDetails?: boolean }) {
   if (!assets.length) return null;
-  return <div className="object-image-strip" aria-label={label}>{assets.slice(0, 4).map(asset => <a href={galleryOpenHref(asset)} key={idOf(asset)}><AssetImage assetRevisionId={str(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={str(asset.name, label)} loading="lazy" /></a>)}</div>;
+  return <div className="object-image-strip" aria-label={label}>{assets.slice(0, 4).map(asset => {
+    const caption = str(asset.caption ?? asset.prompt, "");
+    const step = str(asset.training_step ?? asset.step, "");
+    const uploadState = str(asset.upload_status ?? asset.upload_state ?? asset.availability, "");
+    return <a href={galleryOpenHref(asset)} key={idOf(asset)}>
+      <AssetImage assetRevisionId={str(asset.asset_revision_id ?? asset.asset_id ?? asset.id)} alt={caption || str(asset.name, label)} loading="lazy" />
+      {showTrainingDetails && (caption || step || uploadState) && <span className="training-sample-details">
+        {caption && <strong>{caption}</strong>}
+        <small>{[step && `Step ${step}`, uploadState && `Upload ${uploadState}`].filter(Boolean).join(" · ")}</small>
+      </span>}
+    </a>;
+  })}</div>;
 }
 
 export function DatasetsScreen({ projectId = "" }: { projectId?: string }) {
@@ -146,12 +165,25 @@ export function DatasetsScreen({ projectId = "" }: { projectId?: string }) {
 export function DatasetScreen({ id }: { id: string }) {
   const resource = useResource<Row>(`/api/datasets/${id}`);
   const versionsResource = useResource<unknown>(`/api/datasets/${id}/versions`);
+  const captionSettings = useResource<Row>("/api/operator-settings");
+  const activeDraftResource = useResource<Row>(id ? `/api/datasets/${id}/drafts/active` : null);
   const [draft, setDraft] = useState<Row | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [find, setFind] = useState("");
   const [replace, setReplace] = useState("");
   const [word, setWord] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [captionMethod, setCaptionMethod] = useState<"manual" | "ai">("manual");
+  const [captionPrompt, setCaptionPrompt] = useState(DEFAULT_VISIBLE_SCENE_CAPTION_PROMPT);
+  const [captionFormat, setCaptionFormat] = useState<"text" | "json">("text");
+  const [captionModel, setCaptionModel] = useState("");
+  const [captionModelFilter, setCaptionModelFilter] = useState("");
+  const [captionPreset, setCaptionPreset] = useState("");
+  const [captionPresetName, setCaptionPresetName] = useState("Visible scene");
+  const [captionScope, setCaptionScope] = useState<"all" | "selected">("all");
+  const [captionBusy, setCaptionBusy] = useState(false);
+  const [captionProgress, setCaptionProgress] = useState<{ completed: number; total: number; filename: string } | null>(null);
+  const [captionPresetBusy, setCaptionPresetBusy] = useState(false);
   const [preview, setPreview] = useState<unknown>(null);
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -159,6 +191,37 @@ export function DatasetScreen({ id }: { id: string }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const data = resource.data;
+  const captioning = (captionSettings.data?.captioning ?? {}) as Row;
+  const captionPresets = rows(captioning.presets);
+  const captionLlm = (captionSettings.data?.llm ?? {}) as Row;
+  const captionProvider = str(captionLlm.provider, "openai");
+  const configuredCaptionModel = str(captionLlm.model, "");
+  const captionCatalog = useResource<Row>(
+    captionMethod === "ai"
+      ? `/api/operator-settings/llm-models${query({
+          provider: captionProvider,
+          base_url: str(captionLlm.base_url, "") || undefined,
+          capability: "image",
+        })}`
+      : null,
+  );
+  const captionCatalogModels = rows(captionCatalog.data);
+  const captionModelOptions = captionCatalogModels.map(model => ({
+    value: str(model.id),
+    label: str(model.label, str(model.id)),
+    description: [str(model.id) !== str(model.label) ? str(model.id) : "", str(model.description)].filter(Boolean).join(" · "),
+  }));
+  if (captionModel && !captionModelOptions.some(option => option.value === captionModel)) {
+    captionModelOptions.unshift({
+      value: captionModel,
+      label: captionModel,
+      description: captionCatalog.loading ? "Loading provider catalog…" : "Configured model (modality not published by provider)",
+    });
+  }
+  const normalizedCaptionModelFilter = captionModelFilter.trim().toLowerCase();
+  const visibleCaptionModelOptions = normalizedCaptionModelFilter
+    ? captionModelOptions.filter(option => option.value === captionModel || `${option.label} ${option.value} ${option.description}`.toLowerCase().includes(normalizedCaptionModelFilter))
+    : captionModelOptions;
   const versions = rows(data?.versions).length ? rows(data?.versions) : rows(versionsResource.data);
   const currentVersionId = str(data?.current_version_id ?? data?.version_id ?? versions[0]?.id, "");
   const activeVersionId = selectedVersionId || currentVersionId;
@@ -169,13 +232,27 @@ export function DatasetScreen({ id }: { id: string }) {
   const visibleItems = items.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => setPage(1), [activeVersionId, draft?.id, pageSize]);
+  useEffect(() => {
+    if (!draft) setCaptionFormat(str(activeVersion?.caption_format, "text") === "json" ? "json" : "text");
+  }, [activeVersion?.caption_format, draft]);
+  useEffect(() => {
+    if (!captionModel && configuredCaptionModel) setCaptionModel(configuredCaptionModel);
+  }, [captionModel, configuredCaptionModel]);
+  useEffect(() => {
+    if (draft || !activeDraftResource.data) return;
+    setDraft(activeDraftResource.data);
+    setSelectedVersionId(str(activeDraftResource.data.base_version_id));
+    setMessage("Restored the active working draft.");
+  }, [activeDraftResource.data, draft]);
+
 
   async function createDraft() {
     if (!activeVersionId) return;
     setBusy("draft"); setActionError(""); setMessage("");
     try {
       const created = await api<Row>(`/api/datasets/${id}/drafts`, jsonBody({ base_version_id: activeVersionId }));
-      setDraft(await api<Row>(`/api/dataset-drafts/${created.id}`));
+      const loaded = await api<Row>(`/api/dataset-drafts/${created.id}`);
+      setDraft(loaded); activeDraftResource.setData(loaded);
       setMessage(`Working draft created from ${str(activeVersion?.name, "the selected version")}.`);
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
@@ -195,13 +272,86 @@ export function DatasetScreen({ id }: { id: string }) {
       }
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
+  async function generateCaptions() {
+    if (!draft?.id || captionMethod !== "ai" || !captionPrompt.trim() || !captionModel.trim() || (captionScope === "selected" && !selected.length)) return;
+    const selectedIds = new Set(selected);
+    const targetItems = items.filter(item => {
+      const itemId = idOf(item);
+      return itemId && (captionScope === "all" || selectedIds.has(itemId));
+    });
+    if (!targetItems.length) return;
+    let completed = 0;
+    let changed = 0;
+    setCaptionBusy(true); setActionError(""); setMessage("");
+    setCaptionProgress({ completed, total: targetItems.length, filename: str(targetItems[0].filename, "image") });
+    try {
+      for (const target of targetItems) {
+        const itemId = idOf(target);
+        setCaptionProgress({ completed, total: targetItems.length, filename: str(target.filename, `image ${completed + 1}`) });
+        const result = await api<Row>(`/api/dataset-drafts/${draft.id}/caption`, jsonBody({
+          prompt: captionPrompt.trim(),
+          model: captionModel.trim(),
+          caption_format: captionFormat,
+          item_ids: [itemId],
+          all: false,
+        }));
+        const generated = rows(result.items);
+        changed += Number(result.changed ?? generated.length);
+        if (generated.length) setDraft(previous => {
+          if (!previous) return previous;
+          const generatedById = new Map(generated.map(item => [idOf(item), item]));
+          return { ...previous, items: rows(previous.items).map(item => generatedById.get(idOf(item)) ? { ...item, ...generatedById.get(idOf(item)) } : item) };
+        });
+        completed += 1;
+        setCaptionProgress({ completed, total: targetItems.length, filename: str(target.filename, `image ${completed}`) });
+      }
+      setMessage(`Generated ${changed} captions across ${completed} ${captionScope === "selected" ? "selected" : "draft"} images. Changes remain in the working draft until you publish.`);
+    } catch (reason) {
+      setActionError(`Caption generation stopped after ${completed} of ${targetItems.length} images: ${errorText(reason)}`);
+    } finally {
+      setCaptionBusy(false);
+      setCaptionProgress(null);
+    }
+  }
+
+  async function updateCaptionFormat(value: "text" | "json") {
+    if (!draft?.id) return;
+    const previous = captionFormat;
+    setCaptionFormat(value); setCaptionBusy(true); setActionError(""); setMessage("");
+    try {
+      const result = await api<Row>(`/api/dataset-drafts/${draft.id}/caption-format`, patchBody({ caption_format: value }));
+      setDraft(current => current ? { ...current, items: rows(result.items) } : current);
+      setMessage(`Caption format set to ${value.toUpperCase()} for the working draft.`);
+    } catch (reason) { setCaptionFormat(previous); setActionError(errorText(reason)); } finally { setCaptionBusy(false); }
+  }
+
+  async function saveCaptionPreset() {
+    if (!captionPresetName.trim() || !captionPrompt.trim()) return;
+    setCaptionPresetBusy(true); setActionError(""); setMessage("");
+    try {
+      const presets = captionPresets
+        .filter(preset => str(preset.name).localeCompare(captionPresetName.trim(), undefined, { sensitivity: "accent" }) !== 0)
+        .map(preset => ({ name: str(preset.name), prompt: str(preset.prompt) }));
+      const updated = await api<Row>("/api/operator-settings", patchBody({ captioning: { presets: [...presets, { name: captionPresetName.trim(), prompt: captionPrompt.trim() }] } }));
+      captionSettings.setData(updated); setCaptionPreset(captionPresetName.trim()); setMessage(`Caption preset "${captionPresetName.trim()}" saved.`);
+    } catch (reason) { setActionError(errorText(reason)); } finally { setCaptionPresetBusy(false); }
+  }
+
+  async function deleteCaptionPreset() {
+    if (!captionPreset) return;
+    setCaptionPresetBusy(true); setActionError(""); setMessage("");
+    try {
+      const updated = await api<Row>("/api/operator-settings", patchBody({ captioning: { presets: captionPresets.filter(preset => str(preset.name) !== captionPreset).map(preset => ({ name: str(preset.name), prompt: str(preset.prompt) })) } }));
+      captionSettings.setData(updated); setCaptionPreset(""); setMessage(`Caption preset "${captionPreset}" removed.`);
+    } catch (reason) { setActionError(errorText(reason)); } finally { setCaptionPresetBusy(false); }
+  }
 
   async function discardDraft() {
     if (!draft?.id || !window.confirm("Discard this working draft? Published versions will not be changed.")) return;
     setBusy("discard"); setActionError("");
     try {
       await api(`/api/dataset-drafts/${draft.id}`, { method: "DELETE" });
-      setDraft(null); setSelected([]); setPreview(null); setMessage("Working draft discarded.");
+      activeDraftResource.setData(null); setDraft(null); setSelected([]); setPreview(null); setMessage("Working draft discarded.");
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
 
@@ -244,32 +394,66 @@ export function DatasetScreen({ id }: { id: string }) {
 
     {draft && <Panel title="Batch caption operations">
       <div className="selection-toolbar">
-        <strong>{selected.length ? `${selected.length} selected` : `All ${items.length} visible items`}</strong>
+        <strong>{captionScope === "selected" ? `${selected.length} selected items` : `All ${items.length} draft items`}</strong>
         <div className="actions">
-          <button onClick={() => setSelected(items.map(item => idOf(item)).filter(Boolean))} disabled={!items.length || selected.length === items.length}><Check size={14} />Select all</button>
-          <button onClick={() => setSelected([])} disabled={!selected.length}><X size={14} />Clear</button>
-          <button onClick={() => void discardDraft()} disabled={busy === "discard"}><Trash2 size={14} />{busy === "discard" ? "Discarding..." : "Discard draft"}</button>
+          <button onClick={() => { setCaptionScope("selected"); setSelected(items.map(item => idOf(item)).filter(Boolean)); }} disabled={!items.length || (captionScope === "selected" && selected.length === items.length)}><Check size={14} />Select all</button>
+          <button onClick={() => { setCaptionScope("all"); setSelected([]); }} disabled={captionScope === "all"}><X size={14} />All draft items</button>
+          <button onClick={() => void discardDraft()} disabled={busy === "discard" || captionBusy}><Trash2 size={14} />{busy === "discard" ? "Discarding..." : "Discard draft"}</button>
         </div>
       </div>
+      <div className="form-grid caption-operation-fields">
+        <Field label="Caption method" hint="Choose manual editing or generate captions with a vision-capable AI model."><Dropdown aria-label="Caption method" value={captionMethod} onChange={value => setCaptionMethod(value as "manual" | "ai")} options={[{ value: "manual", label: "Manual edit" }, { value: "ai", label: "AI image captions" }]} /></Field>
+        <Field label="Caption format" hint="Applies one format consistently across this working draft."><Dropdown aria-label="Caption format" value={captionFormat} disabled={captionBusy} onChange={value => void updateCaptionFormat(value as "text" | "json")} options={[{ value: "text", label: "Text" }, { value: "json", label: "JSON" }]} /></Field>
+      </div>
+      {captionMethod === "ai" && <div className="caption-generation-fields">
+        <div className="form-grid">
+          <Field label="1. Provider" hint="The saved provider from Settings.">
+            <input aria-label="Caption provider" readOnly value={captionProvider} />
+          </Field>
+          <Field label="2. Vision model" hint={captionCatalogModels.length ? `${visibleCaptionModelOptions.length} of ${captionCatalogModels.length} caption-capable models shown.` : configuredCaptionModel ? `Configured default: ${configuredCaptionModel}` : "Choose a model returned by the provider API."}>
+            <div className="model-catalog-picker">
+              <input type="search" aria-label="Filter caption models" value={captionModelFilter} onChange={event => setCaptionModelFilter(event.currentTarget.value)} placeholder={`Filter ${captionCatalogModels.length || "vision"} models…`} />
+              <Dropdown aria-label="Caption model" value={captionModel || undefined} placeholder={captionCatalog.loading ? "Loading models…" : normalizedCaptionModelFilter && visibleCaptionModelOptions.length === 0 ? "No matching models" : "Select a vision model…"} options={visibleCaptionModelOptions} onChange={value => { setCaptionModel(value); setCaptionModelFilter(""); }} required />
+            </div>
+          </Field>
+          <Field label="3. Prompt preset">
+            <Dropdown aria-label="Caption preset" value={captionPreset} onChange={value => {
+              setCaptionPreset(value);
+              const preset = value === "__visible_scene" ? { name: "Visible scene", prompt: DEFAULT_VISIBLE_SCENE_CAPTION_PROMPT } : captionPresets.find(item => str(item.name) === value);
+              if (preset) { setCaptionPresetName(str(preset.name)); setCaptionPrompt(str(preset.prompt)); }
+            }} options={[{ value: "", label: "Custom prompt" }, { value: "__visible_scene", label: "Visible scene (template)" }, ...captionPresets.map(preset => ({ value: str(preset.name), label: str(preset.name) }))]} />
+          </Field>
+        </div>
+        <Notice error={captionCatalog.error} loading={captionCatalog.loading} empty={!captionCatalog.loading && !captionCatalog.error && captionModelOptions.length === 0} emptyText="No caption-capable models were returned." emptyHint="Save the provider and API key in Settings, then reload the model list." />
+        <div className="actions caption-catalog-actions"><button type="button" onClick={() => void captionCatalog.reload()} disabled={captionCatalog.loading}><RefreshCw size={14} />{captionCatalog.loading ? "Loading models…" : "Reload models"}</button><a className="button" href="#/settings"><Settings2 size={14} />Provider settings</a></div>
+        <Field label="Caption prompt" hint="Tell the model which visible details to include. JSON format additionally requires a JSON-only response."><textarea aria-label="Caption prompt" value={captionPrompt} onChange={event => setCaptionPrompt(event.target.value)} /></Field>
+        <div className="form-grid">
+          <Field label="Preset name" hint="Saving the same name replaces its prompt."><input aria-label="Caption preset name" value={captionPresetName} onChange={event => setCaptionPresetName(event.target.value)} placeholder="e.g. Visible scene" /></Field>
+          <div className="actions caption-preset-actions"><button type="button" onClick={() => void saveCaptionPreset()} disabled={!captionPresetName.trim() || !captionPrompt.trim() || captionPresetBusy}>{captionPresetBusy ? "Saving..." : "Save preset"}</button><button type="button" onClick={() => void deleteCaptionPreset()} disabled={!captionPreset || captionPreset === "__visible_scene" || captionPresetBusy}>Remove preset</button></div>
+        </div>
+        {captionProgress && <div className="caption-progress" role="status" aria-live="polite">
+          <div><strong>Captioning {captionProgress.filename}</strong><span>{captionProgress.completed} of {captionProgress.total} complete</span></div>
+          <progress aria-label="Caption generation progress" value={captionProgress.completed} max={captionProgress.total} />
+        </div>}
+        <div className="actions"><button className="primary" onClick={() => void generateCaptions()} disabled={!captionPrompt.trim() || !captionModel.trim() || captionBusy || Boolean(busy) || (captionScope === "selected" && !selected.length)} title={!captionPrompt.trim() ? "Enter a prompt before generating captions" : !captionModel.trim() ? "Select a vision-capable model or configure the default model in Settings" : captionScope === "selected" && !selected.length ? "Select at least one image or choose all draft items" : undefined}><Sparkles size={14} />{captionProgress ? `Generating ${captionProgress.completed} / ${captionProgress.total}` : "Generate captions"}</button><span className="muted">{captionScope === "selected" ? "Scope: selected items only." : "Scope: all draft items."}</span></div>
+      </div>}
       <div className="form-grid">
-        <Field label="Caption method" hint="Automated caption models are not connected yet."><input aria-label="Caption method" readOnly value="Manual edit" title="Only manual caption editing is currently supported" /></Field>
-        <Field label="Caption format" hint="The imported version determines caption format."><input aria-label="Caption format" readOnly value={str(activeVersion?.caption_format, "Text")} title="Format conversion is not supported by this operation" /></Field>
         <Field label="Find"><input value={find} onChange={event => setFind(event.target.value)} placeholder="Text to replace" /></Field>
         <Field label="Replace with"><input value={replace} onChange={event => setReplace(event.target.value)} placeholder="Replacement text" /></Field>
         <Field label="Add word"><input value={word} onChange={event => setWord(event.target.value)} placeholder="Trigger or tag word" /></Field>
       </div>
       <div className="actions">
-        <button onClick={() => void operation(true)} disabled={!find || Boolean(busy)} title={!find ? "Enter text to find before previewing" : undefined}><Search size={14} />{busy === "preview" ? "Previewing..." : "Preview replacement"}</button>
-        <button className="primary" onClick={() => void operation(false)} disabled={!find || Boolean(busy)} title={!find ? "Enter text to find before replacing" : undefined}><Sparkles size={14} />{busy === "replace" ? "Replacing..." : "Apply replacement"}</button>
-        <button onClick={() => void operation(false, "add_word")} disabled={!word || Boolean(busy)} title={!word ? "Enter a word before applying" : undefined}><Plus size={14} />{busy === "add_word" ? "Adding..." : "Add word"}</button>
-        <button onClick={() => void operation(false, "remove_word")} disabled={!word || Boolean(busy)} title={!word ? "Enter a word before removing" : undefined}><X size={14} />{busy === "remove_word" ? "Removing..." : "Remove word"}</button>
-        <button onClick={() => void operation(false, "set_included", true)} disabled={!selected.length || Boolean(busy)} title={!selected.length ? "Select images to include as a batch" : undefined}><Check size={14} />Include selected</button>
-        <button onClick={() => void operation(false, "set_included", false)} disabled={!selected.length || Boolean(busy)} title={!selected.length ? "Select images to exclude as a batch" : undefined}><X size={14} />Exclude selected</button>
+        <button onClick={() => void operation(true)} disabled={!find || Boolean(busy || captionBusy)} title={!find ? "Enter text to find before previewing" : undefined}><Search size={14} />{busy === "preview" ? "Previewing..." : "Preview replacement"}</button>
+        <button className="primary" onClick={() => void operation(false)} disabled={!find || Boolean(busy || captionBusy)} title={!find ? "Enter text to find before replacing" : undefined}><Sparkles size={14} />{busy === "replace" ? "Replacing..." : "Apply replacement"}</button>
+        <button onClick={() => void operation(false, "add_word")} disabled={!word || Boolean(busy || captionBusy)} title={!word ? "Enter a word before applying" : undefined}><Plus size={14} />{busy === "add_word" ? "Adding..." : "Add word"}</button>
+        <button onClick={() => void operation(false, "remove_word")} disabled={!word || Boolean(busy || captionBusy)} title={!word ? "Enter a word before removing" : undefined}><X size={14} />{busy === "remove_word" ? "Removing..." : "Remove word"}</button>
+        <button onClick={() => void operation(false, "set_included", true)} disabled={!selected.length || Boolean(busy || captionBusy)} title={!selected.length ? "Select images to include as a batch" : undefined}><Check size={14} />Include selected</button>
+        <button onClick={() => void operation(false, "set_included", false)} disabled={!selected.length || Boolean(busy || captionBusy)} title={!selected.length ? "Select images to exclude as a batch" : undefined}><X size={14} />Exclude selected</button>
       </div>
       {preview !== null && <div className="vela-section"><div className="vela-section-heading"><h2>Operation preview</h2><button className="vela-text-button" onClick={() => setPreview(null)}>Dismiss</button></div><Json value={preview} /></div>}
       <Form submit="Publish version" onSubmit={async form => {
         await api(`/api/dataset-drafts/${draft.id}/publish`, jsonBody({ name: form.get("version_name") }));
-        setDraft(null); setPreview(null); setSelected([]); setSelectedVersionId(""); setMessage("Dataset version published.");
+        activeDraftResource.setData(null); setDraft(null); setPreview(null); setSelected([]); setSelectedVersionId(""); setMessage("Dataset version published.");
         await Promise.all([resource.reload(), versionsResource.reload()]);
       }}><Field label="Version name" hint="Use a short label that explains the caption change."><input name="version_name" required placeholder="e.g. Trigger word cleanup" /></Field></Form>
     </Panel>}
@@ -277,9 +461,12 @@ export function DatasetScreen({ id }: { id: string }) {
     <Panel title="Images and captions">
       <Notice error={!draft ? publishedItems.error : undefined} loading={!draft && publishedItems.loading} empty={!publishedItems.loading && !items.length} />
       {!publishedItems.loading && !items.length && Boolean(data?.empty_reason) && <div className="vela-notice" role="status"><strong>Dataset is empty</strong><span>{str(data?.empty_reason)}</span></div>}
-      {!publishedItems.loading && !items.length && activeVersionReferenced && <div className="vela-notice" role="status"><strong>Dataset files not indexed yet</strong><span>This version currently points to its training-storage path. Its images and caption files still need to be imported before captions can be reviewed.</span></div>}
-      {!!items.length && <Pagination page={page} pageSize={pageSize} total={items.length} onPage={setPage} onPageSize={setPageSize} />}
-      {!!visibleItems.length && <div className="caption-list">{visibleItems.map((item, index) => <CaptionItem key={idOf(item) || index} item={item} selected={selected.includes(idOf(item))} onSelect={checked => setSelected(checked ? [...selected, idOf(item)] : selected.filter(value => value !== idOf(item)))} draftId={str(draft?.id, "")} onSaved={created => {
+      {!!visibleItems.length && <div className="caption-list">{visibleItems.map((item, index) => <CaptionItem key={idOf(item) || index} item={item} selected={selected.includes(idOf(item))} onSelect={checked => setSelected(previous => {
+        const itemId = idOf(item);
+        const next = checked ? [...new Set([...previous, itemId])] : previous.filter(value => value !== itemId);
+        setCaptionScope(next.length ? "selected" : "all");
+        return next;
+      })} draftId={str(draft?.id, "")} onSaved={created => {
         if (!draft) return;
         const next = [...items]; next[(page - 1) * pageSize + index] = { ...item, ...created }; setDraft({ ...draft, items: next });
       }} />)}</div>}
@@ -332,16 +519,61 @@ export function RunsScreen({ projectId = "" }: { projectId?: string }) {
   </Page>;
 }
 
+const LIVE_CONNECTION_LABELS: Record<string, string> = {
+  connecting: "Connecting",
+  connected: "Live",
+  reconnecting: "Reconnecting",
+  stopped: "Updates stopped",
+};
+
+function formatLiveElapsed(value: unknown) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return "Unavailable";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = Math.floor(seconds % 60);
+  return `${hours ? `${hours}h ` : ""}${minutes ? `${minutes}m ` : ""}${remainder}s`;
+}
+
+function summarizeLiveUploads(value: unknown, fallback: unknown): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const counts = Object.entries(value as Row)
+      .map(([state, count]) => [state.toLowerCase(), Number(count)] as const)
+      .filter(([, count]) => Number.isFinite(count) && count > 0);
+    if (counts.length) {
+      const total = counts.reduce((sum, [, count]) => sum + count, 0);
+      if (counts.some(([state]) => /fail|error/.test(state))) return "Failed";
+      const uploaded = counts
+        .filter(([state]) => /uploaded|complete|success|verified/.test(state))
+        .reduce((sum, [, count]) => sum + count, 0);
+      return uploaded === total
+        ? `${uploaded}/${total} uploaded`
+        : `${uploaded}/${total} uploaded · ${total - uploaded} pending`;
+    }
+  }
+  const uploads = rows(value);
+  if (!uploads.length) return value === fallback ? "Unavailable" : summarizeLiveUploads(fallback, fallback);
+  const states = uploads.map(upload => str(upload.status ?? upload.state ?? upload.upload_status, "pending").toLowerCase());
+  if (states.some(state => /fail|error/.test(state))) return "Failed";
+  const uploaded = states.filter(state => /uploaded|complete|success|verified/.test(state)).length;
+  if (uploaded === uploads.length) return `${uploaded}/${uploads.length} uploaded`;
+  return `${uploaded}/${uploads.length} uploaded · ${uploads.length - uploaded} pending`;
+}
+
 export function RunScreen({ id }: { id: string }) {
   const run = useResource<Row>(`/api/runs/${id}`);
+  const live = useRunLive(id);
   const samples = useResource<unknown>(`/api/runs/${id}/samples`);
   const checkpointsResource = useResource<unknown>(`/api/runs/${id}/checkpoints`);
   const config = useResource<Row>(`/api/runs/${id}/config`);
-  const metrics = useResource<LossMetrics>(`/api/runs/${id}/metrics?name=loss`);
+  const runView: Row = { ...(run.data ?? {}), ...(live.data ?? {}) };
+  const latestLoss = runView.latest_loss && typeof runView.latest_loss === "object" && !Array.isArray(runView.latest_loss) ? runView.latest_loss as Row : null;
+  const lossMetricName = str(latestLoss?.name, "");
+  const metrics = useResource<LossMetrics>(lossMetricName ? `/api/runs/${id}/metrics${query({ name: lossMetricName })}` : null);
   const learningRateMetrics = useResource<LossMetrics>(`/api/runs/${id}/metrics?name=learning_rate`);
   const lineage = useResource<unknown>(`/api/lineage${query({ subject_type: "training_run", subject_id: id, depth: 3 })}`);
   const rawCheckpoints = rows(checkpointsResource.data);
-  const enrichedCheckpoints = rows(run.data?.checkpoints);
+  const enrichedCheckpoints = rows(runView.checkpoints);
   const checkpoints = enrichedCheckpoints.length
     ? enrichedCheckpoints.map(checkpoint => ({ ...rawCheckpoints.find(raw => idOf(raw) === idOf(checkpoint)), ...checkpoint }))
     : rawCheckpoints;
@@ -355,8 +587,13 @@ export function RunScreen({ id }: { id: string }) {
   const [actionError, setActionError] = useState("");
   const sampleRows = rows(samples.data);
   const sampleSteps = [...new Set(sampleRows.map(sample => str(sample.step, "unassigned")))];
-  const datasetVersionId = str(run.data?.dataset_version_id, "");
-  const runProjectId = str(run.data?.project_id, "");
+  const datasetVersionId = str(runView.dataset_version_id, "");
+  const runProjectId = str(runView.project_id, "");
+  const uploadSummary = summarizeLiveUploads(runView.uploads, runView.upload_status);
+  const lossRevision = `${lossMetricName}:${str(latestLoss?.step, "")}:${str(latestLoss?.value ?? latestLoss?.value_text, "")}`;
+  const sampleRevision = `${str(runView.sample_count, "")}:${rows(runView.uploads).map(upload => str(upload.status ?? upload.state ?? upload.upload_status)).join(",")}`;
+  const observedLossRevision = useRef("");
+  const observedSampleRevision = useRef("");
 
   useEffect(() => {
     let active = true;
@@ -380,6 +617,14 @@ export function RunScreen({ id }: { id: string }) {
     return () => { active = false; };
   }, [datasetVersionId, runProjectId]);
 
+  useEffect(() => {
+    if (!live.revision) return;
+    if (observedLossRevision.current && observedLossRevision.current !== lossRevision) void metrics.reload();
+    if (observedSampleRevision.current && observedSampleRevision.current !== sampleRevision) void samples.reload();
+    observedLossRevision.current = lossRevision;
+    observedSampleRevision.current = sampleRevision;
+  }, [live.revision, lossRevision, sampleRevision, metrics.reload, samples.reload]);
+
   async function refreshRun() {
     setBusy("refresh"); setMessage(""); setActionError("");
     try {
@@ -399,27 +644,38 @@ export function RunScreen({ id }: { id: string }) {
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
 
-  return <Page title={str(run.data?.name, "Training run")} subtitle={`${str(run.data?.base_model, "Unknown base")} · ${str(run.data?.dataset_version_name, "No dataset")} · ${str(run.data?.trainer, "Unknown trainer")}`} actions={<>
+  const lastEventDate = new Date(str(runView.last_event_at, ""));
+  const lastEventText = Number.isNaN(lastEventDate.valueOf()) ? "Unavailable" : lastEventDate.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+  const latestLossValue = str(latestLoss?.value_text ?? latestLoss?.value ?? metrics.data?.final_value, "Unavailable");
+  return <Page title={str(runView.name, "Training run")} subtitle={`${str(runView.base_model, "Unknown base")} · ${str(runView.dataset_version_name, "No dataset")} · ${str(runView.trainer, "Unknown trainer")}`} actions={<>
     {datasetId ? <a className="button vela-button" href={`#/dataset/${datasetId}`}><Database size={15} />Dataset</a> : <button disabled title={datasetError || (datasetLoading ? "Resolving the linked dataset version" : "This run does not reference an available dataset version")}><Database size={15} />{datasetLoading ? "Finding dataset..." : "Dataset unavailable"}</button>}
     <a className="button vela-button" href={`#/samples/${id}`}><FileImage size={15} />Samples</a>
-    {run.data?.project_id ? <a className="button vela-button" href={`#/transfers?mode=export&project=${str(run.data.project_id)}`}><Download size={15} />Export project</a> : <button disabled title="This run is not attached to an exportable project"><Download size={15} />Export unavailable</button>}
+    {runView.project_id ? <a className="button vela-button" href={`#/transfers?mode=export&project=${str(runView.project_id)}`}><Download size={15} />Export project</a> : <button disabled title="This run is not attached to an exportable project"><Download size={15} />Export unavailable</button>}
     <button className="vela-button vela-button-primary" onClick={() => void refreshRun()} disabled={busy === "refresh"}><RefreshCw size={15} />{busy === "refresh" ? "Refreshing..." : "Refresh import"}</button>
   </>}>
-    <Notice error={run.error} loading={run.loading} />
+    <Notice error={run.error} loading={run.loading && !live.data} />
     <ActionMessage message={message} error={actionError} />
-    <ObjectImageStrip assets={sampleRows.slice().reverse()} label="Latest training samples" />
-    {run.data && <div className="run-summary vela-context-stats">
-      <div className="vela-stat"><span>Status</span><Status value={run.data.status} /></div>
-      <div className="vela-stat"><span>LoRA rank</span><strong>{str(run.data.lora_rank ?? run.data.network_dim, "-")}</strong></div>
+    <ObjectImageStrip assets={sampleRows.slice().reverse()} label="Latest training samples" showTrainingDetails />
+    {live.error && <div className="vela-notice" role="status" aria-live="polite"><strong>{LIVE_CONNECTION_LABELS[live.connection]}</strong><span>{live.error}</span></div>}
+    {(run.data || live.data) && <div className="run-summary live-run-summary vela-context-stats" aria-label="Live training status">
+      <div className="vela-stat"><span>Status</span><Status value={runView.status} /></div>
+      <div className="vela-stat"><span>Connection</span><span className="vela-status" data-state={live.connection === "connected" ? "success" : live.connection === "reconnecting" ? "warning" : "neutral"} aria-label={`Live connection: ${LIVE_CONNECTION_LABELS[live.connection]}`} aria-live="polite">{LIVE_CONNECTION_LABELS[live.connection]}</span></div>
+      <div className="vela-stat"><span>Step</span><strong>{str(runView.current_step, "Unavailable")}</strong></div>
+      <div className="vela-stat"><span>{lossMetricName || "Latest loss"}</span><strong>{latestLossValue}</strong></div>
+      <div className="vela-stat"><span>Learning rate</span><strong>{scientificNotation(runView.learning_rate ?? (runView.normalized_config as Row | undefined)?.learning_rate)}</strong></div>
+      <div className="vela-stat"><span>Elapsed</span><strong>{formatLiveElapsed(runView.elapsed_seconds)}</strong></div>
+      <div className="vela-stat"><span>Last event</span><strong>{lastEventText === "Unavailable" ? lastEventText : <time dateTime={str(runView.last_event_at)}>{lastEventText}</time>}</strong></div>
+      <div className="vela-stat"><span>Uploads</span><Status value={uploadSummary} /></div>
       <div className="vela-stat"><span>Checkpoints</span><strong>{checkpoints.length}</strong></div>
-      <div className="vela-stat"><span>Samples</span><strong>{sampleRows.length}</strong></div>
+      <div className="vela-stat"><span>Samples</span><strong>{str(runView.sample_count, String(sampleRows.length))}</strong></div>
+      <div className="vela-stat"><span>LoRA rank</span><strong>{str(runView.lora_rank ?? runView.network_dim, "-")}</strong></div>
     </div>}
-    {run.data?.source_status === "failed" && run.data?.usable_output === true && <div className="vela-notice" role="status"><strong>Usable training output recovered</strong><span>The trainer process reported “{str(run.data.source_message, "failed termination")}”, but the DAM found {checkpoints.length} usable checkpoints and retained the original termination details in normalized configuration.</span></div>}
+    {runView.source_status === "failed" && runView.usable_output === true && <div className="vela-notice" role="status"><strong>Usable training output recovered</strong><span>The trainer process reported “{str(runView.source_message, "failed termination")}”, but the DAM found {checkpoints.length} usable checkpoints and retained the original termination details in normalized configuration.</span></div>}
 
     <Panel title="Training metrics">
       <Notice error={metrics.error || learningRateMetrics.error} loading={metrics.loading || learningRateMetrics.loading} />
-      <div className="training-metric-summary"><div><span>Final loss</span><strong>{str(metrics.data?.final_value, "Unavailable")}</strong></div><div><span>Configured learning rate</span><strong>{scientificNotation(run.data?.learning_rate ?? (run.data?.normalized_config as Row | undefined)?.learning_rate)}</strong></div><div><span>Loss points</span><strong>{normalizeLossPoints(metrics.data?.points).length}</strong></div><div><span>LR points</span><strong>{normalizeLossPoints(learningRateMetrics.data?.points).length}</strong></div></div>
-      <div className="training-chart-grid"><section><header><strong>Training loss</strong><small>Lower is generally better</small></header><LossGraph points={metrics.data?.points} /></section><section><header><strong>Learning rate</strong><small>Optimizer schedule</small></header>{normalizeLossPoints(learningRateMetrics.data?.points).length ? <FlintMetricChart points={normalizeLossPoints(learningRateMetrics.data?.points)} label="Learning rate" color="#315f72" /> : <div className="loss-graph-empty" role="status"><strong>No learning-rate series available</strong><small>The configured value remains visible above.</small></div>}</section></div>
+      <div className="training-metric-summary"><div><span>{lossMetricName || "Latest loss"}</span><strong>{latestLossValue}</strong></div><div><span>Configured learning rate</span><strong>{scientificNotation(runView.learning_rate ?? (runView.normalized_config as Row | undefined)?.learning_rate)}</strong></div><div><span>Loss points</span><strong>{normalizeLossPoints(metrics.data?.points).length}</strong></div><div><span>LR points</span><strong>{normalizeLossPoints(learningRateMetrics.data?.points).length}</strong></div></div>
+      <div className="training-chart-grid"><section><header><strong>{lossMetricName || "Training loss"}</strong><small>Lower is generally better</small></header><LossGraph points={metrics.data?.points} /></section><section><header><strong>Learning rate</strong><small>Optimizer schedule</small></header>{normalizeLossPoints(learningRateMetrics.data?.points).length ? <FlintMetricChart points={normalizeLossPoints(learningRateMetrics.data?.points)} label="Learning rate" /> : <div className="loss-graph-empty" role="status"><strong>No learning-rate series available</strong><small>The configured value remains visible above.</small></div>}</section></div>
     </Panel>
 
     <Panel title="Checkpoint timeline">

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -14,7 +13,7 @@ from .. import models
 from ..database import get_db
 from ..integrations.fal.credentials import fal_secret_store
 from ..integrations.fal.validation import validate_fal_connection
-from ..integrations.llm import LLMConfigurationError, LLMResponseError, PromptGenerator
+from ..integrations.llm import LLMConfigurationError, LLMResponseError, PromptGenerator, llm_secret_store
 from ..services import active_profile, current_workspace, get_or_404, record_activity
 from ..settings import get_settings
 
@@ -26,6 +25,7 @@ DEFAULT_OPERATOR_SETTINGS = {
     "llm": {"provider": "openai", "model": "", "base_url": None},
     "fal": {"max_parallel_jobs": 4},
     "generation": {"prompt_prepend": "", "prompt_append": ""},
+    "captioning": {"presets": []},
 }
 _LLM_PROVIDER_ALIASES = {
     "openai": "openai",
@@ -41,16 +41,14 @@ _LLM_PROVIDER_ALIASES = {
 }
 
 
-def _llm_credential_present(provider: object) -> bool:
+def _llm_credential_status(provider: object) -> dict[str, Any]:
     normalized = _LLM_PROVIDER_ALIASES.get(str(provider or "").strip().lower())
-    names = {
-        "openai": ("LLM_API_KEY", "OPENAI_API_KEY"),
-        "openai-compatible": ("LLM_API_KEY", "OPENAI_API_KEY"),
-        "openrouter": ("OPENROUTER_API_KEY", "LLM_API_KEY"),
-        "anthropic": ("LLM_API_KEY", "ANTHROPIC_API_KEY"),
-        "gemini": ("LLM_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
-    }.get(normalized, ())
-    return any(os.getenv(name) for name in names)
+    credential = llm_secret_store().resolve(normalized)
+    return {
+        "configured": credential is not None,
+        "source": credential.source if credential else None,
+    }
+
 
 
 class OperatorSettingsUpdate(BaseModel):
@@ -58,10 +56,23 @@ class OperatorSettingsUpdate(BaseModel):
     llm: dict[str, Any] | None = None
     fal: dict[str, Any] | None = None
     generation: dict[str, Any] | None = None
+    captioning: dict[str, Any] | None = None
 
 class FalKeySave(BaseModel):
     model_config = ConfigDict(extra="forbid")
     key: str = Field(min_length=1, max_length=4096)
+
+
+class LlmKeySave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=4096)
+
+class LlmConnectionTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["openai", "openai-compatible", "openrouter", "anthropic", "gemini"]
+    model: str = Field(min_length=1, max_length=240)
+    base_url: str | None = Field(default=None, max_length=2048)
+
 
 
 class TransferCreate(BaseModel):
@@ -121,6 +132,26 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
         if not isinstance(value, str) or len(value) > 4_000:
             raise HTTPException(status_code=422, detail=f"generation.{key} must be a string no longer than 4000 characters")
         result["generation"][key] = value.strip()
+    presets = result["captioning"].get("presets")
+    if not isinstance(presets, list) or len(presets) > 50:
+        raise HTTPException(status_code=422, detail="captioning.presets must contain at most 50 presets")
+    normalized_presets = []
+    names = set()
+    for preset in presets:
+        if not isinstance(preset, dict):
+            raise HTTPException(status_code=422, detail="each captioning preset must be an object")
+        name = preset.get("name")
+        prompt = preset.get("prompt")
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120:
+            raise HTTPException(status_code=422, detail="captioning preset names must be 1 to 120 characters")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt.strip()) > 12_000:
+            raise HTTPException(status_code=422, detail="captioning preset prompts must be 1 to 12000 characters")
+        normalized_name = name.strip()
+        if normalized_name.casefold() in names:
+            raise HTTPException(status_code=422, detail="captioning preset names must be unique")
+        names.add(normalized_name.casefold())
+        normalized_presets.append({"name": normalized_name, "prompt": prompt.strip()})
+    result["captioning"]["presets"] = normalized_presets
     concurrency = result["fal"].get("max_parallel_jobs")
     if not isinstance(concurrency, int) or not 1 <= concurrency <= 32:
         raise HTTPException(status_code=422, detail="fal.max_parallel_jobs must be between 1 and 32")
@@ -141,10 +172,12 @@ def operator_settings(db: DB):
     values = _merge_settings(_preference(db).value, OperatorSettingsUpdate())
     settings = get_settings()
     fal_status = fal_secret_store().status()
+    llm_status = _llm_credential_status(values["llm"].get("provider"))
     return {
         **values,
         "credentials": {
-            "llm_configured": _llm_credential_present(values["llm"].get("provider")),
+            "llm_configured": llm_status["configured"],
+            "llm_source": llm_status["source"],
             "fal_configured": fal_status["configured"],
             "storage_credentials_stored": False,
         },
@@ -164,15 +197,72 @@ def update_operator_settings(body: OperatorSettingsUpdate, db: DB, x_profile_id:
     return operator_settings(db)
 
 
+@router.get("/operator-settings/llm-models")
+def llm_models(
+    provider: Literal["openai", "openai-compatible", "openrouter", "anthropic", "gemini"],
+    base_url: str | None = None,
+    capability: Literal["any", "image"] = "any",
+):
+    try:
+        models = PromptGenerator().list_models(provider=provider, base_url=base_url)
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LLMResponseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if capability == "image":
+        models = [model for model in models if model["supports_images"] is not False]
+        models.sort(key=lambda model: (model["supports_images"] is not True, str(model["label"]).lower()))
+    credential = _llm_credential_status(provider)
+    return {
+        "provider": provider,
+        "models": models,
+        "count": len(models),
+        "credential": {"configured": credential["configured"], "source": credential["source"]},
+        "network_called": True,
+    }
+
+
 @router.post("/operator-settings/test/{provider}")
 @router.post("/settings/operator/test/{provider}")
-def test_operator_configuration(provider: Literal["llm", "fal", "storage"], db: DB):
+def test_operator_configuration(
+    provider: Literal["llm", "fal", "storage"],
+    db: DB,
+    body: LlmConnectionTestRequest | None = None,
+):
     values = _preference(db).value
     if provider == "llm":
-        llm = values.get("llm", {})
+        llm = body.model_dump() if body else values.get("llm", {})
         configured = bool(llm.get("provider") and llm.get("model"))
-        key_present = _llm_credential_present(llm.get("provider"))
-        return {"provider": provider, "ok": configured and key_present, "mode": "configuration_only", "configured": configured, "credential_present": key_present, "network_called": False}
+        if not configured:
+            raise HTTPException(status_code=409, detail="Choose an LLM provider and model before validating")
+        store = llm_secret_store()
+        credential = store.resolve(str(llm["provider"]))
+        if not credential:
+            raise HTTPException(status_code=409, detail="Configure the selected provider's API key before validating")
+        try:
+            models = PromptGenerator().validate_model(
+                provider=str(llm["provider"]),
+                model=str(llm["model"]),
+                base_url=llm.get("base_url"),
+            )
+        except LLMConfigurationError as exc:
+            store.record_validation("rejected", str(exc))
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMResponseError as exc:
+            store.record_validation("network_error", str(exc))
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        store.record_validation("validated", None)
+        return {
+            "provider": provider,
+            "ok": True,
+            "mode": "network_validated",
+            "configured": True,
+            "credential_present": True,
+            "credential_source": credential.source,
+            "model": llm["model"],
+            "catalog_size": len(models),
+            "network_called": True,
+        }
     if provider == "fal":
         store = fal_secret_store()
         credential = store.resolve()
@@ -208,6 +298,23 @@ def clear_fal_key():
     store = fal_secret_store()
     store.clear()
     return store.status()
+
+@router.put("/operator-settings/llm-key")
+@router.put("/settings/operator/llm-key")
+def save_llm_key(body: LlmKeySave):
+    store = llm_secret_store()
+    try:
+        store.save(body.key)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _llm_credential_status(None) | {"last_validation": store.status().get("last_validation")}
+
+@router.delete("/operator-settings/llm-key")
+@router.delete("/settings/operator/llm-key")
+def clear_llm_key():
+    store = llm_secret_store()
+    store.clear()
+    return _llm_credential_status(None) | {"last_validation": store.status().get("last_validation")}
 
 
 @router.post("/prompt-sets/generate", response_model=PromptSetGenerateResponse)

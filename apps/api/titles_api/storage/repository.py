@@ -624,7 +624,27 @@ class StorageRepository:
         return locations
 
     def select_delivery_locations(self, asset_id: str) -> tuple[models.AssetLocation | None, models.AssetLocation | None]:
-        locations = self.compatible_locations(asset_id)
+        asset = self.get_asset_revision(asset_id)
+        if asset.content_blob_id is None:
+            # Browser-folder imports predate content-blob publication. Keep their
+            # verified local copies deliverable while they are upgraded in place.
+            locations = list(
+                self.session.scalars(
+                    select(models.AssetLocation).where(
+                        models.AssetLocation.asset_id == asset.id,
+                        or_(
+                            models.AssetLocation.workspace_id == self.workspace_id,
+                            (models.AssetLocation.provider == "local") & models.AssetLocation.workspace_id.is_(None),
+                        ),
+                        models.AssetLocation.provider == "local",
+                        models.AssetLocation.hydration_state == "hydrated",
+                        models.AssetLocation.verification_state.in_(("verified", "available")),
+                    )
+                )
+            )
+            locations.sort(key=lambda row: (-(row.last_verified_at.timestamp() if row.last_verified_at else 0), row.id))
+            return (locations[0], locations[1] if len(locations) > 1 else None) if locations else (None, None)
+        locations = self.compatible_locations(asset.id)
         return (locations[0], locations[1] if len(locations) > 1 else None) if locations else (None, None)
 
     def get_asset_revision(self, asset_id: str) -> models.Asset:

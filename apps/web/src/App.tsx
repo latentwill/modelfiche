@@ -31,7 +31,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "dashboard": return <DashboardScreen createProject={params.get("create") === "project"} />;
     case "projects": return <ProjectsScreen />;
     case "project": return <ProjectScreen id={id} editing={params.get("edit") === "1"} />;
-    case "import": return <ImportScreen initialProject={projectId} />;
+    case "import": return <ImportScreen initialProject={projectId} source={params.get("source")} />;
     case "jobs": return <JobScreen id={id} general={params.get("job") === "1"} />;
     case "datasets": return <DatasetsScreen projectId={projectId} />;
     case "dataset": return <DatasetScreen id={id} />;

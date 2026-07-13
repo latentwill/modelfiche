@@ -181,6 +181,9 @@ class DatasetVersion(UUIDMixin, TimestampMixin, Base):
     trigger_words: Mapped[list[str]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(32), default="published")
     published_by_profile_id: Mapped[str | None] = mapped_column(ForeignKey("user_profiles.id", ondelete="SET NULL"))
+    parent_version_id: Mapped[str | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"), index=True)
+    lineage_kind: Mapped[str] = mapped_column(String(32), default="initial", index=True)
+    content_digest: Mapped[str | None] = mapped_column(String(64), index=True)
     items: Mapped[list[DatasetItem]] = relationship(cascade="all, delete-orphan")
 
 
@@ -230,6 +233,57 @@ class CaptionOperation(UUIDMixin, TimestampMixin, Base):
     preview: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
+class WandbIngestCredential(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "wandb_ingest_credentials"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "alias", name="uq_wandb_credential_workspace_alias"),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    alias: Mapped[str] = mapped_column(String(120))
+    algorithm: Mapped[str] = mapped_column(String(32), default="ed25519")
+    key_id: Mapped[str] = mapped_column(String(64), index=True)
+    public_key: Mapped[str] = mapped_column(String(128))
+    state: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    rotated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class TrainingLaunch(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "training_launches"
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_training_launch_run"),
+        UniqueConstraint("workspace_id", "client_request_id", name="uq_training_launch_client_request"),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    dataset_version_id: Mapped[str] = mapped_column(ForeignKey("dataset_versions.id", ondelete="RESTRICT"), index=True)
+    wandb_credential_id: Mapped[str] = mapped_column(ForeignKey("wandb_ingest_credentials.id", ondelete="RESTRICT"), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="preparing", index=True)
+    client_request_id: Mapped[str] = mapped_column(String(128))
+    manifest_version: Mapped[str] = mapped_column(String(64), default="modelfiche.training-launch.v1")
+    redacted_manifest: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    manifest_digest: Mapped[str | None] = mapped_column(String(64), index=True)
+    dataset_export_job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)
+    dataset_export_asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), index=True)
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("import_sources.id", ondelete="RESTRICT"), index=True)
+    source_fingerprint: Mapped[str | None] = mapped_column(String(96))
+    run_prefix: Mapped[str] = mapped_column(String(1024))
+    backup_policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    checkpoint_policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    supported_endpoint_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    credential_bound_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    credential_validated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    backup_status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    checkpoint_handoff_status: Mapped[str] = mapped_column(String(32), default="awaiting_manifest", index=True)
+    next_reconcile_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
+    last_reconcile_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    reconcile_generation: Mapped[int] = mapped_column(Integer, default=0)
+    reconcile_error: Mapped[str | None] = mapped_column(Text)
+
+
 class TrainingRun(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "training_runs"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
@@ -244,6 +298,16 @@ class TrainingRun(UUIDMixin, TimestampMixin, Base):
     raw_manifest: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     raw_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     normalized_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    wandb_run_id: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
+    wandb_project: Mapped[str | None] = mapped_column(String(240), index=True)
+    wandb_display_name: Mapped[str | None] = mapped_column(String(240))
+    wandb_sdk_version: Mapped[str | None] = mapped_column(String(32))
+    wandb_protocol_revision: Mapped[str | None] = mapped_column(String(64))
+    current_step: Mapped[int | None] = mapped_column(Integer, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_event_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer)
 
 
 class TrainingStage(UUIDMixin, TimestampMixin, Base):
@@ -257,13 +321,105 @@ class TrainingMetric(UUIDMixin, Base):
     __table_args__ = (
         UniqueConstraint("run_id", "step", "name"),
         Index("ix_training_metrics_run_name_step", "run_id", "name", "step"),
+        CheckConstraint(
+            "(value_type = 'number' AND value IS NOT NULL AND value_text IS NULL) OR "
+            "(value_type = 'text' AND value IS NULL AND value_text IS NOT NULL) OR "
+            "(value_type = 'null' AND value IS NULL AND value_text IS NULL)",
+            name="ck_training_metric_typed_value",
+        ),
     )
     run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
     step: Mapped[int] = mapped_column(Integer)
     name: Mapped[str] = mapped_column(String(120))
-    value: Mapped[float] = mapped_column(Float)
+    value: Mapped[float | None] = mapped_column(Float)
+    value_text: Mapped[str | None] = mapped_column(Text)
+    value_type: Mapped[str] = mapped_column(String(16), default="number")
     wall_time: Mapped[float | None] = mapped_column(Float)
     source_key: Mapped[str | None] = mapped_column(String(1024))
+    ingested_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    batch_key: Mapped[str | None] = mapped_column(String(128), index=True)
+
+class RunMetricSummary(UUIDMixin, Base):
+    __tablename__ = "run_metric_summaries"
+    __table_args__ = (
+        UniqueConstraint("run_id", "name", name="uq_run_metric_summary"),
+    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    last_step: Mapped[int] = mapped_column(Integer)
+    last_value: Mapped[float | None] = mapped_column(Float)
+    last_value_text: Mapped[str | None] = mapped_column(Text)
+    value_type: Mapped[str] = mapped_column(String(16))
+    minimum: Mapped[float | None] = mapped_column(Float)
+    maximum: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class RunEvent(UUIDMixin, Base):
+    __tablename__ = "run_events"
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_run_event_sequence"),
+        UniqueConstraint("idempotency_key", name="uq_run_event_idempotency"),
+        Index("ix_run_events_run_sequence", "run_id", "sequence"),
+    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    type: Mapped[str] = mapped_column(String(64), index=True)
+    step: Mapped[int | None] = mapped_column(Integer, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class RunUpload(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "run_uploads"
+    __table_args__ = (
+        UniqueConstraint("run_id", "relative_path", name="uq_run_upload_path"),
+        Index("ix_run_uploads_run_state", "run_id", "state"),
+    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    relative_path: Mapped[str] = mapped_column(String(1024))
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    object_key: Mapped[str] = mapped_column(String(1024), unique=True)
+    metric_name: Mapped[str | None] = mapped_column(String(120))
+    step: Mapped[int | None] = mapped_column(Integer, index=True)
+    caption: Mapped[str | None] = mapped_column(Text)
+    expected_sha256: Mapped[str | None] = mapped_column(String(64))
+    expected_size: Mapped[int | None] = mapped_column(Integer)
+    mime_type: Mapped[str | None] = mapped_column(String(200))
+    state: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    presign_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    etag: Mapped[str | None] = mapped_column(String(255))
+    version_id: Mapped[str | None] = mapped_column(String(1024))
+    asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), index=True)
+    error: Mapped[str | None] = mapped_column(Text)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+
+
+class RunArtifactHandoff(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "run_artifact_handoffs"
+    __table_args__ = (
+        UniqueConstraint("run_id", "generation", name="uq_run_artifact_handoff_generation"),
+        UniqueConstraint("run_id", "manifest_version_id", name="uq_run_artifact_handoff_manifest_version"),
+    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    manifest_key: Mapped[str] = mapped_column(String(1024))
+    manifest_etag: Mapped[str | None] = mapped_column(String(255))
+    manifest_version_id: Mapped[str | None] = mapped_column(String(1024))
+    manifest_digest: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), default="observed", index=True)
+    source_fingerprint: Mapped[str] = mapped_column(String(96))
+    checkpoint_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    imported_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    imported_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
 
 class Checkpoint(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "checkpoints"

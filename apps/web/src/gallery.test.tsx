@@ -65,17 +65,16 @@ describe("gallery navigation contracts", () => {
     expect(isGalleryShortcutTarget(button)).toBe(false);
   });
 
-  it("keeps Gallery and project Dropdowns while presenting caption metadata as read-only", () => {
+  it("keeps Gallery and project Dropdowns while providing draft caption controls", () => {
     const gallery = assetsSource.slice(assetsSource.indexOf("export function GalleryScreen"), assetsSource.indexOf("function GalleryImageOverlay"));
     expect(gallery).not.toContain("<select");
     expect(gallery.match(/<Dropdown/g)).toHaveLength(7);
     expect(gallery).toContain('include_dataset_assets: value === "dataset_image"');
-    expect(assetsSource).not.toContain('<Dropdown aria-label="Caption method" disabled');
-    expect(assetsSource).not.toContain('<Dropdown aria-label="Caption format" disabled');
-    expect(assetsSource).toContain('<input aria-label="Caption method" readOnly value="Manual edit"');
-    expect(assetsSource).toContain('<input aria-label="Caption format" readOnly value={str(activeVersion?.caption_format, "Text")}');
-    expect(assetsSource).toContain('title="Only manual caption editing is currently supported"');
-    expect(assetsSource).toContain('title="Format conversion is not supported by this operation"');
+    expect(assetsSource).toContain('<Dropdown aria-label="Caption method" value={captionMethod}');
+    expect(assetsSource).toContain('<Dropdown aria-label="Caption format" value={captionFormat}');
+    expect(assetsSource).toContain("/caption-format");
+    expect(assetsSource).toContain('aria-label="Caption model"');
+    expect(assetsSource).toContain('aria-label="Caption preset"');
     expect(assetsSource).toContain('<Dropdown aria-label="Project" name="project_id" required defaultValue={projectId}');
   });
 });

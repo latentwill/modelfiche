@@ -25,6 +25,16 @@ class Settings(BaseSettings):
 
     app_name: str = "Titles DAM"
     database_url: str = "sqlite:///./var/titles-dam.sqlite3"
+    wandb_ingress_enabled: bool = False
+    wandb_ingress_database_url: str | None = None
+    wandb_ingress_base_url: str | None = None
+    wandb_upload_root: Path = Path("var/wandb-uploads")
+    wandb_stale_after_seconds: int = 900
+    wandb_ingress_rate_limit_per_minute: int = 6000
+    wandb_graphql_max_bytes: int = 1024 * 1024
+    wandb_filestream_max_bytes: int = 8 * 1024 * 1024
+    wandb_image_max_bytes: int = 64 * 1024 * 1024
+    wandb_config_max_bytes: int = 4 * 1024 * 1024
     asset_root: Path = Path("var/assets")
     cache_root: Path = Path("var/cache")
     export_root: Path = Path("var/exports")
@@ -57,6 +67,20 @@ class Settings(BaseSettings):
             raise ValueError("storage limits must be positive")
         return value
 
+    @field_validator(
+        "wandb_stale_after_seconds",
+        "wandb_ingress_rate_limit_per_minute",
+        "wandb_graphql_max_bytes",
+        "wandb_filestream_max_bytes",
+        "wandb_image_max_bytes",
+        "wandb_config_max_bytes",
+    )
+    @classmethod
+    def positive_wandb_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("W&B ingress limits must be positive")
+        return value
+
     @field_validator("shared_headroom_fraction")
     @classmethod
     def valid_headroom_fraction(cls, value: float) -> float:
@@ -65,7 +89,7 @@ class Settings(BaseSettings):
         return value
 
     def ensure_runtime_dirs(self) -> None:
-        for root in (self.asset_root, self.cache_root, self.export_root, self.config_root):
+        for root in (self.asset_root, self.cache_root, self.export_root, self.config_root, self.wandb_upload_root):
             root.mkdir(parents=True, exist_ok=True, mode=0o700)
             root.chmod(0o700)
         if self.database_url.startswith("sqlite:///./"):

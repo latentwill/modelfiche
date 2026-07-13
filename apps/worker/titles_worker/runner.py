@@ -14,6 +14,7 @@ from titles_api.models import GenerationQueueChild, GenerationQueueItem, ImportJ
 
 logger = logging.getLogger("titles.worker")
 JobHandler = Callable[["JobContext", dict[str, Any]], dict[str, Any] | None]
+MaintenanceHandler = Callable[[], Any]
 
 
 class RetryJob(RuntimeError):
@@ -77,11 +78,16 @@ class JobRunner:
         *,
         poll_interval: float = 0.75,
         max_attempts: int = 5,
+        maintenance_handlers: tuple[MaintenanceHandler, ...] = (),
+        maintenance_interval: float = 5.0,
     ):
         self.session_factory = session_factory
         self.handlers = handlers
         self.poll_interval = poll_interval
         self.max_attempts = max_attempts
+        self.maintenance_handlers = maintenance_handlers
+        self.maintenance_interval = maintenance_interval
+        self._next_maintenance_at = 0.0
         self._stopping = False
 
     def recover_interrupted(self) -> int:
@@ -156,13 +162,27 @@ class JobRunner:
             self._finish(job.id, JobState.failed, error=str(exc))
         return True
 
+    def run_maintenance(self) -> bool:
+        now = time.monotonic()
+        if not self.maintenance_handlers or now < self._next_maintenance_at:
+            return False
+        self._next_maintenance_at = now + self.maintenance_interval
+        for handler in self.maintenance_handlers:
+            try:
+                handler()
+            except Exception:
+                logger.exception("worker maintenance handler failed")
+        return True
+
     def run_forever(self) -> None:
         recovered = self.recover_interrupted()
         if recovered:
             logger.info("recovered interrupted jobs", extra={"count": recovered})
         self._install_signal_handlers()
         while not self._stopping:
-            if not self.run_one():
+            worked = self.run_one()
+            self.run_maintenance()
+            if not worked:
                 time.sleep(self.poll_interval)
 
     def stop(self) -> None:

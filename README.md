@@ -10,6 +10,7 @@ release is an operator tool: it has local attributed profiles but no auth.
 - Durable polling worker for S3 imports, checkpoint hydration, exports, and FAL jobs
 - Bare React operator UI on `http://127.0.0.1:5173`
 - `titles` CLI, designed for both interactive and agentic use
+- Optional W&B 0.28.0 compatibility ingress on `http://127.0.0.1:8401`
 
 ## Install
 
@@ -90,6 +91,33 @@ uv run titles server stop
 Logs are written to `var/server.log`, `var/worker.log`, `var/web.log`, and
 `var/supervisor.log`.
 
+## AI Toolkit live logging
+
+Modelfiche exposes a narrow W&B 0.28.0 compatibility service for AI Toolkit.
+It accepts run start/resume, scalar and text metrics, image samples with
+captions, summaries, and completion. The regular API pre-creates the expected
+run and the trainer authenticates with a run-scoped signed token.
+
+Generate a local signing key, register only its public key, create a launch,
+and render the trainer environment:
+
+```bash
+uv run titles --json wandb key generate \
+  --private-key-output ~/.config/modelfiche/ai-toolkit-signing.key
+uv run titles --json wandb credential register \
+  --alias ai-toolkit --project-id <project-id> --public-key <public-key>
+uv run titles --json training-launch create --input launch.json
+uv run titles --json training-launch agent-environment <launch-id> \
+  --private-key-file ~/.config/modelfiche/ai-toolkit-signing.key \
+  --output /run/secrets/modelfiche-training.env
+```
+
+Use `training-launch inspect`, `training-launch wait`, `run live`, and
+`run metrics` for machine-readable agent monitoring. See
+[docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for deployment,
+reverse-proxy routing, launch JSON, key handling, failure recovery, and the
+pinned compatibility-test procedure.
+
 ## Agentic CLI
 
 All commands accept `--json`; collection commands also support `--jsonl`.
@@ -137,5 +165,6 @@ pnpm --dir apps/web build
 ```
 
 See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md),
-[CLI_SPEC.md](CLI_SPEC.md), and [FAL_ENDPOINT_SCHEMAS.md](FAL_ENDPOINT_SCHEMAS.md)
-for the domain and endpoint contracts.
+[CLI_SPEC.md](CLI_SPEC.md), [FAL_ENDPOINT_SCHEMAS.md](FAL_ENDPOINT_SCHEMAS.md),
+and [docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for the domain,
+CLI, provider, and W&B compatibility contracts.

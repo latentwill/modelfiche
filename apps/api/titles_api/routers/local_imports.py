@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..database import get_db
 from ..services import active_profile, current_workspace, get_or_404, record_activity
+from ..storage.repository import StorageRepository
 from ..settings import get_settings
 
 router = APIRouter(prefix="/local-imports", tags=["imports"])
@@ -51,6 +52,7 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
     workspace = current_workspace(db)
     if project.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="project not found in current workspace")
+    repository = StorageRepository(db, workspace.id)
     decoded: dict[PurePosixPath, bytes] = {}
     failures: list[dict[str, str]] = []
     total_bytes = 0
@@ -111,7 +113,8 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
                 asset = models.Asset(workspace_id=workspace.id, project_id=project.id, kind=models.AssetKind.image, name=str(path), mime_type=mimetypes.guess_type(path.name)[0], sha256=digest, provenance_kind="local_import", metadata_=metadata)
                 db.add(asset)
                 db.flush()
-                db.add(models.AssetLocation(asset_id=asset.id, workspace_id=workspace.id, provider="local", uri=str(target), relative_path=str(target.relative_to(get_settings().asset_root.resolve())), size=len(data), verified_size=len(data), verified_sha256=digest, verification_state="verified", hydration_state="hydrated"))
+                location = repository.attach_verified_local_location(asset_id=asset.id, uri=str(target), size=len(data), sha256=digest, mime_type=asset.mime_type or "application/octet-stream")
+                location.relative_path = str(target.relative_to(get_settings().asset_root.resolve()))
                 imported += 1
             caption_bytes = decoded.get(path.with_suffix(".txt"))
             try:

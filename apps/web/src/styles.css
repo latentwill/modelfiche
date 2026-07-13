@@ -220,6 +220,10 @@ pre { overflow: auto; background: #efeff1; padding: 10px; font-size: 0.72rem; wh
 .integration-heading { display: flex; justify-content: flex-end; gap: 8px; margin: -32px 0 14px; }
 .caption-item.selected { background: #f9ecea; outline: 1px solid var(--accent); padding: 7px; }.caption-image { position: relative; }.caption-image > label { position: absolute; z-index: 2; top: 6px; left: 6px; background: var(--surface); padding: 3px; }.caption-image a { display: grid; }.caption-image a span { padding: 4px; background: var(--active); color: #fff; text-align: center; font: 9px var(--mono); }
 .caption-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.caption-type { border: 1px solid var(--line); padding: 2px 5px; font: 9px var(--mono); text-transform: uppercase; }.selection-toolbar { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 10px; }.selection-toolbar strong { font: 700 10px var(--mono); text-transform: uppercase; }
+.caption-operation-fields { align-items: start; }.caption-generation-fields { display: grid; gap: 8px; margin-bottom: 10px; }.caption-generation-fields .actions { align-items: center; }.caption-generation-fields .muted { margin: 0; }
+.caption-progress { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); background: var(--block); }
+.caption-progress > div { display: flex; justify-content: space-between; gap: 10px; font-size: .75rem; }
+.caption-progress progress { width: 100%; accent-color: var(--accent); }
 .caption-versions { display: grid; border: 1px solid var(--line); background: var(--surface); }
 .caption-version { width: 100%; min-height: 64px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center; text-align: left; background: var(--surface); color: var(--ink); }
 .caption-version:last-child { border-bottom: 0; }

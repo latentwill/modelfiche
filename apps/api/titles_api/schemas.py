@@ -145,7 +145,7 @@ class DatasetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=240)
     description: str | None = None
     source_uri: str | None = None
-    caption_format: str = "text"
+    caption_format: Literal["text", "json"] = "text"
     trigger_words: list[str] = []
     items: list[DatasetItemCreate] = []
 
@@ -153,10 +153,16 @@ class DatasetCreate(BaseModel):
 class DatasetItemCreate(BaseModel):
     asset_id: str
     caption: str = ""
-    caption_format: str = "text"
+    caption_format: Literal["text", "json"] = "text"
     included: bool = True
     tags: list[str] = []
     position: int = 0
+
+class DatasetDuplicateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+    description: str | None = None
+    open_draft: bool = False
+
 
 
 class DraftCreate(BaseModel):
@@ -165,7 +171,7 @@ class DraftCreate(BaseModel):
 
 class DraftItemPatch(BaseModel):
     caption: str | None = None
-    caption_format: str | None = None
+    caption_format: Literal["text", "json"] | None = None
     included: bool | None = None
     tags: list[str] | None = None
 
@@ -190,8 +196,53 @@ class CaptionOperationRequest(BaseModel):
         return self
 
 
+
+class CaptionGenerateRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=12000)
+    item_ids: list[str] | None = None
+    all: bool = False
+    caption_format: Literal["text", "json"] = "text"
+    model: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if bool(self.item_ids) == self.all:
+            raise ValueError("explicit scope required: item_ids or all=true")
+        if self.item_ids is not None and len(set(self.item_ids)) != len(self.item_ids):
+            raise ValueError("item_ids must be unique")
+        return self
+
+
+class CaptionFormatUpdate(BaseModel):
+    caption_format: Literal["text", "json"]
+
 class DraftPublish(BaseModel):
     name: str = Field(min_length=1, max_length=240)
+
+
+class WandbCredentialCreate(BaseModel):
+    alias: str = Field(min_length=1, max_length=120)
+    public_key: str = Field(min_length=40, max_length=128)
+    project_id: str | None = None
+
+
+class WandbCredentialRotate(BaseModel):
+    public_key: str = Field(min_length=40, max_length=128)
+
+
+class TrainingLaunchCreate(BaseModel):
+    dataset_version_id: str
+    wandb_credential_id: str
+    source_id: str
+    client_request_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=240)
+    trainer: Literal["ai-toolkit"] = "ai-toolkit"
+    base_model: str = Field(min_length=1, max_length=500)
+    output_directory: str = Field(min_length=1, max_length=2048)
+    checkpoint_policy: dict[str, Any] = Field(default_factory=dict)
+    backup_policy: dict[str, Any] = Field(default_factory=dict)
+    supported_endpoint_ids: list[str] = Field(default_factory=list)
+    expected_duration_seconds: int = Field(default=604800, ge=300, le=2592000)
 
 
 class RunCreate(BaseModel):

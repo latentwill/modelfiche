@@ -20,6 +20,15 @@ import typer
 from . import __version__
 from .client import ApiError, LocalContext, TitlesClient
 from .render import emit, fail
+from .wandb_helpers import (
+    generate_keypair,
+    public_key_for_private,
+    read_private_key,
+    render_agent_environment,
+    sign_launch_claims,
+    write_private_key,
+    write_secret_text,
+)
 
 
 app = typer.Typer(name="titles", no_args_is_help=True, help="Titles DAM operator and agent CLI")
@@ -87,6 +96,60 @@ def read_json(path: Path) -> Any:
     except (OSError, json.JSONDecodeError) as exc:
         raise typer.BadParameter(f"Cannot read JSON from {path}: {exc}") from exc
 
+
+
+def parse_json_option(value: str, option: str) -> Any:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"{option} must be valid JSON") from exc
+
+
+def raw_call(ctx: typer.Context, operation: Callable[[TitlesClient], Any]) -> Any:
+    runtime = rt(ctx)
+    client = runtime.client()
+    try:
+        return operation(client)
+    except ApiError as exc:
+        fail(exc, json_output=runtime.json_output)
+    finally:
+        client.close()
+
+
+def emit_raw(ctx: typer.Context, payload: bytes | str, output: Path | None, *, kind: str) -> None:
+    runtime = rt(ctx)
+    if output is not None:
+        destination = output.expanduser()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(payload, bytes):
+            destination.write_bytes(payload)
+            size = len(payload)
+        else:
+            destination.write_text(payload, encoding="utf-8")
+            size = len(payload.encode("utf-8"))
+        emit(
+            {"output": str(destination), "bytes": size, "kind": kind},
+            json_output=runtime.json_output,
+            jsonl=runtime.jsonl,
+        )
+        return
+    if runtime.json_output:
+        if isinstance(payload, bytes) and kind == "manifest":
+            try:
+                emit(json.loads(payload), json_output=True, jsonl=runtime.jsonl)
+                return
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                pass
+        emit(
+            {"content": payload.decode("utf-8") if isinstance(payload, bytes) else payload},
+            json_output=True,
+            jsonl=runtime.jsonl,
+        )
+        return
+    if isinstance(payload, bytes):
+        typer.echo(payload.decode("utf-8"), nl=False)
+    else:
+        typer.echo(payload, nl=False)
 
 def parse_params(values: list[str]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -356,6 +419,370 @@ def project_archive(ctx: typer.Context, project: str) -> None:
 @project_app.command("activity")
 def project_activity(ctx: typer.Context, project: str, limit: int = 100) -> None:
     call(ctx, lambda client: client.get("/api/activity", project_id=project, limit=limit))
+
+
+wandb_app = typer.Typer(no_args_is_help=True)
+app.add_typer(wandb_app, name="wandb")
+
+wandb_key_app = typer.Typer(no_args_is_help=True)
+wandb_app.add_typer(wandb_key_app, name="key")
+
+
+@wandb_key_app.command("generate")
+def wandb_key_generate(
+    ctx: typer.Context,
+    private_key_output: Path = typer.Option(..., "--private-key-output"),
+) -> None:
+    """Generate a local signing key without sending private material to the DAM."""
+    private_key, public_key = generate_keypair()
+    try:
+        destination = write_private_key(private_key_output, private_key)
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="--private-key-output") from exc
+    emit(
+        {
+            "algorithm": "Ed25519",
+            "public_key": public_key,
+            "private_key_path": str(destination),
+        },
+        json_output=rt(ctx).json_output,
+        jsonl=rt(ctx).jsonl,
+    )
+
+
+@wandb_key_app.command("public")
+def wandb_key_public(
+    ctx: typer.Context,
+    private_key_file: Path = typer.Option(..., "--private-key-file"),
+) -> None:
+    """Derive the registerable public key from a local signing key."""
+    try:
+        private_key = read_private_key(private_key_file)
+        public_key = public_key_for_private(private_key)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--private-key-file") from exc
+    emit(
+        {"algorithm": "Ed25519", "public_key": public_key},
+        json_output=rt(ctx).json_output,
+        jsonl=rt(ctx).jsonl,
+    )
+
+wandb_credential_app = typer.Typer(no_args_is_help=True)
+wandb_app.add_typer(wandb_credential_app, name="credential")
+wandb_app.add_typer(wandb_credential_app, name="credentials")
+
+
+@wandb_credential_app.command("register")
+def wandb_credential_register(
+    ctx: typer.Context,
+    alias: str = typer.Option(..., "--alias"),
+    public_key: str = typer.Option(..., "--public-key"),
+    project: str | None = typer.Option(None, "--project-id", "--project"),
+) -> None:
+    body = {"alias": alias, "public_key": public_key, "project_id": project}
+    call(ctx, lambda client: client.post("/api/integrations/wandb/credentials", body))
+
+
+@wandb_credential_app.command("list")
+def wandb_credential_list(
+    ctx: typer.Context,
+    project: str | None = typer.Option(None, "--project-id", "--project"),
+) -> None:
+    call(ctx, lambda client: client.get("/api/integrations/wandb/credentials", project_id=project))
+
+
+@wandb_credential_app.command("rotate")
+def wandb_credential_rotate(
+    ctx: typer.Context,
+    credential: str,
+    public_key: str = typer.Option(..., "--public-key"),
+) -> None:
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/integrations/wandb/credentials/{credential}/rotate",
+            {"public_key": public_key},
+        ),
+    )
+
+
+@wandb_credential_app.command("revoke")
+def wandb_credential_revoke(ctx: typer.Context, credential: str) -> None:
+    call(ctx, lambda client: client.post(f"/api/integrations/wandb/credentials/{credential}/revoke"))
+
+
+training_launch_app = typer.Typer(no_args_is_help=True)
+app.add_typer(training_launch_app, name="training-launch")
+app.add_typer(training_launch_app, name="training-launches")
+
+
+def training_launch_payload(
+    *,
+    input_file: Path | None,
+    dataset_version_id: str | None,
+    wandb_credential_id: str | None,
+    source_id: str | None,
+    client_request_id: str | None,
+    name: str | None,
+    trainer: str | None,
+    base_model: str | None,
+    output_directory: str | None,
+    checkpoint_policy: str | None,
+    backup_policy: str | None,
+    supported_endpoint_ids: list[str],
+    supported_endpoint_ids_json: str | None,
+    expected_duration_seconds: int | None,
+) -> dict[str, Any]:
+    payload = read_json(input_file) if input_file is not None else {}
+    if not isinstance(payload, dict):
+        raise typer.BadParameter("--input must contain a JSON object")
+    forbidden = {
+        "private_key",
+        "password_manager",
+        "password_manager_locator",
+        "password_manager_name",
+    }
+    present_forbidden = sorted(forbidden.intersection(payload))
+    if present_forbidden:
+        raise typer.BadParameter(
+            f"--input contains forbidden secret fields: {', '.join(present_forbidden)}"
+        )
+    allowed = {
+        "dataset_version_id",
+        "wandb_credential_id",
+        "source_id",
+        "client_request_id",
+        "name",
+        "trainer",
+        "base_model",
+        "output_directory",
+        "checkpoint_policy",
+        "backup_policy",
+        "supported_endpoint_ids",
+        "expected_duration_seconds",
+    }
+    payload = {key: value for key, value in payload.items() if key in allowed}
+
+    direct_values = {
+        "dataset_version_id": dataset_version_id,
+        "wandb_credential_id": wandb_credential_id,
+        "source_id": source_id,
+        "client_request_id": client_request_id,
+        "name": name,
+        "trainer": trainer,
+        "base_model": base_model,
+        "output_directory": output_directory,
+        "expected_duration_seconds": expected_duration_seconds,
+    }
+    payload.update({key: value for key, value in direct_values.items() if value is not None})
+    if checkpoint_policy is not None:
+        value = parse_json_option(checkpoint_policy, "--checkpoint-policy")
+        if not isinstance(value, dict):
+            raise typer.BadParameter("--checkpoint-policy must be a JSON object")
+        payload["checkpoint_policy"] = value
+    if backup_policy is not None:
+        value = parse_json_option(backup_policy, "--backup-policy")
+        if not isinstance(value, dict):
+            raise typer.BadParameter("--backup-policy must be a JSON object")
+        payload["backup_policy"] = value
+    if supported_endpoint_ids_json is not None:
+        value = parse_json_option(supported_endpoint_ids_json, "--supported-endpoint-ids")
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise typer.BadParameter("--supported-endpoint-ids must be a JSON array of strings")
+        payload["supported_endpoint_ids"] = value
+    elif supported_endpoint_ids:
+        payload["supported_endpoint_ids"] = supported_endpoint_ids
+    payload.setdefault("trainer", "ai-toolkit")
+    payload.setdefault("checkpoint_policy", {})
+    payload.setdefault("backup_policy", {})
+    payload.setdefault("supported_endpoint_ids", [])
+    payload.setdefault("expected_duration_seconds", 604800)
+
+    required = (
+        "dataset_version_id",
+        "wandb_credential_id",
+        "source_id",
+        "client_request_id",
+        "name",
+        "base_model",
+        "output_directory",
+    )
+    missing = [key for key in required if not payload.get(key)]
+    if missing:
+        raise typer.BadParameter(f"Missing launch fields: {', '.join(missing)}")
+    return payload
+
+
+@training_launch_app.command("create")
+def training_launch_create(
+    ctx: typer.Context,
+    input_file: Path | None = typer.Option(None, "--input", "--input-file", "--file"),
+    dataset_version_id: str | None = typer.Option(None, "--dataset-version-id"),
+    wandb_credential_id: str | None = typer.Option(None, "--wandb-credential-id"),
+    source_id: str | None = typer.Option(None, "--source-id"),
+    client_request_id: str | None = typer.Option(None, "--client-request-id"),
+    name: str | None = typer.Option(None, "--name"),
+    trainer: str | None = typer.Option(None, "--trainer"),
+    base_model: str | None = typer.Option(None, "--base-model"),
+    output_directory: str | None = typer.Option(None, "--output-directory"),
+    checkpoint_policy: str | None = typer.Option(None, "--checkpoint-policy"),
+    backup_policy: str | None = typer.Option(None, "--backup-policy"),
+    supported_endpoint_ids: list[str] = typer.Option([], "--supported-endpoint-id"),
+    supported_endpoint_ids_json: str | None = typer.Option(None, "--supported-endpoint-ids"),
+    expected_duration_seconds: int | None = typer.Option(None, "--expected-duration-seconds"),
+) -> None:
+    payload = training_launch_payload(
+        input_file=input_file,
+        dataset_version_id=dataset_version_id,
+        wandb_credential_id=wandb_credential_id,
+        source_id=source_id,
+        client_request_id=client_request_id,
+        name=name,
+        trainer=trainer,
+        base_model=base_model,
+        output_directory=output_directory,
+        checkpoint_policy=checkpoint_policy,
+        backup_policy=backup_policy,
+        supported_endpoint_ids=supported_endpoint_ids,
+        supported_endpoint_ids_json=supported_endpoint_ids_json,
+        expected_duration_seconds=expected_duration_seconds,
+    )
+    call(ctx, lambda client: client.post("/api/training-launches", payload))
+
+
+@training_launch_app.command("show")
+@training_launch_app.command("status")
+def training_launch_status(ctx: typer.Context, launch: str) -> None:
+    call(ctx, lambda client: client.get(f"/api/training-launches/{launch}"))
+
+
+def training_launch_manifest(
+    ctx: typer.Context,
+    launch: str,
+    output: Path | None = typer.Option(None, "--output", "--output-file", "-o"),
+) -> None:
+    payload = raw_call(ctx, lambda client: client.get_bytes(f"/api/training-launches/{launch}/manifest"))
+    emit_raw(ctx, payload, output, kind="manifest")
+
+
+training_launch_app.command("manifest")(training_launch_manifest)
+
+
+def training_launch_environment(
+    ctx: typer.Context,
+    launch: str,
+    output: Path | None = typer.Option(None, "--output", "--output-file", "-o"),
+) -> None:
+    payload = raw_call(ctx, lambda client: client.get_text(f"/api/training-launches/{launch}/environment"))
+    emit_raw(ctx, payload, output, kind="environment")
+
+
+training_launch_app.command("environment")(training_launch_environment)
+
+
+@training_launch_app.command("inspect")
+def training_launch_inspect(ctx: typer.Context, launch: str) -> None:
+    """Return the launch contract and current live run projection together."""
+    def projection(client: TitlesClient) -> dict[str, Any]:
+        launch_value = client.get(f"/api/training-launches/{launch}")
+        run_id = launch_value.get("run_id") if isinstance(launch_value, dict) else None
+        if not isinstance(run_id, str) or not run_id:
+            raise ApiError(
+                "Training launch response is missing run_id",
+                status_code=5,
+                code="TRAINING_LAUNCH_RUN_MISSING",
+                retryable=False,
+            )
+        return {
+            "launch": launch_value,
+            "run": client.get(f"/api/runs/{run_id}/live"),
+        }
+
+    call(ctx, projection)
+
+
+@training_launch_app.command("agent-environment")
+def training_launch_agent_environment(
+    ctx: typer.Context,
+    launch: str,
+    private_key_file: Path = typer.Option(..., "--private-key-file"),
+    output: Path | None = typer.Option(None, "--output", "--output-file", "-o"),
+) -> None:
+    """Render a ready-to-source environment while keeping the private key local."""
+    def inputs(client: TitlesClient) -> tuple[Any, str]:
+        return (
+            client.get(f"/api/training-launches/{launch}"),
+            client.get_text(f"/api/training-launches/{launch}/environment"),
+        )
+
+    launch_value, template = raw_call(ctx, inputs)
+    try:
+        manifest = launch_value.get("manifest") if isinstance(launch_value, dict) else None
+        telemetry = manifest.get("telemetry") if isinstance(manifest, dict) else None
+        token = telemetry.get("token") if isinstance(telemetry, dict) else None
+        claims = token.get("claims") if isinstance(token, dict) else None
+        if not isinstance(claims, dict):
+            raise ValueError("training launch manifest is missing telemetry token claims")
+        private_key = read_private_key(private_key_file)
+        environment = render_agent_environment(template, sign_launch_claims(claims, private_key))
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    if output is None:
+        emit_raw(ctx, environment, None, kind="agent-environment")
+        return
+    try:
+        destination = write_secret_text(output, environment)
+    except OSError as exc:
+        raise typer.BadParameter(f"cannot write agent environment to {output}: {exc}", param_hint="--output") from exc
+    emit(
+        {
+            "launch_id": launch,
+            "run_id": launch_value.get("run_id"),
+            "output": str(destination),
+            "bytes": len(environment.encode("utf-8")),
+            "mode": "0600",
+            "kind": "agent-environment",
+        },
+        json_output=rt(ctx).json_output,
+        jsonl=rt(ctx).jsonl,
+    )
+
+
+@training_launch_app.command("wait")
+def training_launch_wait(
+    ctx: typer.Context,
+    launch: str,
+    timeout: float = typer.Option(604800.0, min=0.1),
+    poll_interval: float = typer.Option(2.0, "--poll-interval", min=0.1, max=60.0),
+) -> None:
+    """Wait for completion, failure, or heartbeat interruption."""
+    runtime = rt(ctx)
+    client = runtime.client()
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            value = client.get(f"/api/training-launches/{launch}")
+            state = value.get("state") if isinstance(value, dict) else None
+            if not runtime.quiet and not runtime.json_output:
+                typer.echo(f"{launch}: {state}", err=True)
+            if state in {"completed", "failed", "interrupted"}:
+                emit(value, json_output=runtime.json_output, jsonl=runtime.jsonl)
+                if state != "completed":
+                    raise typer.Exit(7)
+                return
+            if time.monotonic() >= deadline:
+                raise ApiError(
+                    "Timed out waiting for training launch",
+                    status_code=6,
+                    code="TRAINING_LAUNCH_WAIT_TIMEOUT",
+                    retryable=True,
+                )
+            time.sleep(poll_interval)
+    except ApiError as exc:
+        fail(exc, json_output=runtime.json_output)
+    finally:
+        client.close()
 
 
 s3_app = typer.Typer(no_args_is_help=True)
@@ -740,6 +1167,22 @@ def run_list(ctx: typer.Context, project: str | None = None, status: str | None 
 @run_app.command("show")
 def run_show(ctx: typer.Context, run: str) -> None:
     call(ctx, lambda client: client.get(f"/api/runs/{run}"))
+
+
+@run_app.command("live")
+def run_live(ctx: typer.Context, run: str) -> None:
+    """Return the current status, summaries, upload counts, and sample count."""
+    call(ctx, lambda client: client.get(f"/api/runs/{run}/live"))
+
+
+@run_app.command("metrics")
+def run_metrics(
+    ctx: typer.Context,
+    run: str,
+    name: str = typer.Option("loss", "--name"),
+) -> None:
+    """Return ordered points for one scalar metric."""
+    call(ctx, lambda client: client.get(f"/api/runs/{run}/metrics", name=name))
 
 
 @run_app.command("refresh")

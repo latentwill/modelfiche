@@ -31,7 +31,7 @@ def _install_model_test_foundation(engine) -> None:
         gates.verify_storage_contract(
             GateEvidence(
                 run_lease_id="model-test-lease",
-                alembic_head="0015_backfill_legacy_krea_endpoints",
+                alembic_head="0018_run_uploads_and_handoffs",
                 marker=1,
                 binding_digest="model-test-binding",
                 contract_version=1,

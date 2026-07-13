@@ -1,10 +1,14 @@
+import asyncio
+import json
 from datetime import datetime
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 from .. import models, schemas
 from ..checkpoint_revisions import establish_checkpoint_revision
@@ -17,6 +21,60 @@ DB = Annotated[Session, Depends(get_db)]
 
 def dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
+
+def _live_projection(db: Session, run: models.TrainingRun) -> dict[str, Any]:
+    summaries = db.scalars(
+        select(models.RunMetricSummary)
+        .where(models.RunMetricSummary.run_id == run.id)
+        .order_by(models.RunMetricSummary.name)
+    ).all()
+    summary_rows = {
+        row.name: {
+            "name": row.name,
+            "step": row.last_step,
+            "value": row.last_value,
+            "value_text": row.last_value_text,
+            "value_type": row.value_type,
+            "minimum": row.minimum,
+            "maximum": row.maximum,
+            "updated_at": row.updated_at,
+        }
+        for row in summaries
+    }
+    loss = next(
+        (summary_rows[name] for name in ("loss", "loss/denoise") if name in summary_rows),
+        next((value for name, value in summary_rows.items() if "loss" in name.casefold()), None),
+    )
+    learning_rate = next(
+        (summary_rows[name] for name in ("learning_rate", "lr") if name in summary_rows),
+        next((value for name, value in summary_rows.items() if "learning" in name.casefold() and "rate" in name.casefold()), None),
+    )
+    upload_counts = {
+        state: count
+        for state, count in db.execute(
+            select(models.RunUpload.state, func.count())
+            .where(models.RunUpload.run_id == run.id)
+            .group_by(models.RunUpload.state)
+        )
+    }
+    finish = run.finished_at or models.utcnow()
+    elapsed_seconds = max(0.0, (finish - run.started_at).total_seconds()) if run.started_at else None
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "current_step": run.current_step,
+        "latest_loss": loss,
+        "learning_rate": learning_rate,
+        "elapsed_seconds": elapsed_seconds,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "last_event_at": run.last_event_at,
+        "summaries": list(summary_rows.values()),
+        "uploads": upload_counts,
+        "sample_count": int(
+            db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0
+        ),
+    }
 
 def sample_provenance(db: Session, sample: models.Sample, asset: models.Asset | None) -> tuple[int | None, str | None]:
     checkpoint = db.get(models.Checkpoint, sample.checkpoint_id) if sample.checkpoint_id else None
@@ -113,8 +171,17 @@ def _run_preview_asset_ids(db: Session, run_ids: set[str]) -> dict[str, str]:
 
 
 @router.get("/runs")
-def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(None, alias="status")):
-    query = select(models.TrainingRun).order_by(models.TrainingRun.created_at.desc(), models.TrainingRun.id.desc())
+def runs(
+    db: DB,
+    project_id: str | None = None,
+    run_status: str | None = Query(None, alias="status"),
+    limit: int = Query(100, ge=1, le=1000),
+):
+    query = (
+        select(models.TrainingRun)
+        .order_by(models.TrainingRun.created_at.desc(), models.TrainingRun.id.desc())
+        .limit(limit)
+    )
     if project_id:
         query = query.where(models.TrainingRun.project_id == project_id)
     if run_status:
@@ -123,6 +190,7 @@ def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(N
     previews = _run_preview_asset_ids(db, {row.id for row in run_rows})
     rows = []
     for row in run_rows:
+        live = _live_projection(db, row)
         project = db.get(models.Project, row.project_id)
         result = db.execute(
             select(models.Model, models.ModelVersion)
@@ -142,6 +210,11 @@ def runs(db: DB, project_id: str | None = None, run_status: str | None = Query(N
             "result_model_version_id": result_version.id if result_version else None,
             "result_model_version_name": result_version.name if result_version else None,
             "preview_asset_id": previews.get(row.id),
+            "latest_loss": live["latest_loss"],
+            "learning_rate": live["learning_rate"],
+            "elapsed_seconds": live["elapsed_seconds"],
+            "last_event_at": live["last_event_at"],
+            "upload_status": live["uploads"],
         })
     return rows
 
@@ -194,6 +267,79 @@ def run(run_id: str, db: DB):
         "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0),
         "metric_count": int(db.scalar(select(func.count()).select_from(models.TrainingMetric).where(models.TrainingMetric.run_id == run.id)) or 0),
     }
+
+@router.get("/runs/{run_id}/live")
+def run_live(run_id: str, db: DB):
+    return _live_projection(db, get_or_404(db, models.TrainingRun, run_id))
+
+
+@router.get("/runs/{run_id}/events")
+async def run_events(
+    run_id: str,
+    request: Request,
+    db: DB,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+):
+    get_or_404(db, models.TrainingRun, run_id)
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+    try:
+        requested_sequence = max(0, int(last_event_id or 0))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Last-Event-ID must be an event sequence") from exc
+
+    async def stream():
+        last_sequence = requested_sequence
+        sent_snapshot = False
+        keepalive_ticks = 0
+        while not await request.is_disconnected():
+            terminal = False
+            messages: list[str] = []
+            with factory() as session:
+                current = session.get(models.TrainingRun, run_id)
+                if current is None:
+                    break
+                projection = _live_projection(session, current)
+                terminal = current.status in {"completed", "failed", "interrupted"}
+                if not sent_snapshot:
+                    latest_sequence = session.scalar(
+                        select(func.max(models.RunEvent.sequence)).where(models.RunEvent.run_id == run_id)
+                    ) or 0
+                    last_sequence = max(last_sequence, latest_sequence)
+                    payload = json.dumps(projection, default=str, separators=(",", ":"))
+                    messages.append(f"id: {last_sequence}\nevent: run.snapshot\ndata: {payload}\n\n")
+                    sent_snapshot = True
+                events = session.scalars(
+                    select(models.RunEvent)
+                    .where(models.RunEvent.run_id == run_id, models.RunEvent.sequence > last_sequence)
+                    .order_by(models.RunEvent.sequence)
+                ).all()
+                for event in events:
+                    payload = json.dumps(
+                        {"event": dump(event), "run": projection},
+                        default=str,
+                        separators=(",", ":"),
+                    )
+                    messages.append(f"id: {event.sequence}\nevent: run.update\ndata: {payload}\n\n")
+                    last_sequence = event.sequence
+            if messages:
+                for message in messages:
+                    yield message
+                keepalive_ticks = 0
+            elif terminal:
+                break
+            else:
+                keepalive_ticks += 1
+                if keepalive_ticks >= 15:
+                    yield ": keepalive\n\n"
+                    keepalive_ticks = 0
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @router.get("/runs/{run_id}/metrics")
 def run_metrics(run_id: str, db: DB, name: str = Query("loss", min_length=1, max_length=120)):

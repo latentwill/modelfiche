@@ -1643,6 +1643,22 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   grid-column: 1 / -1;
   justify-self: end;
 }
+.vela-theme .settings-provider-status,
+.vela-theme .settings-provider > .vela-form > .vela-panel:first-of-type {
+  grid-column: 1 / -1;
+}
+.vela-theme .settings-provider-status {
+  margin: 0;
+}
+.vela-theme .model-catalog-picker {
+  display: grid;
+  gap: var(--vela-space-2);
+  min-width: 0;
+}
+.vela-theme .model-catalog-picker > :is(input, .vela-dropdown) {
+  width: 100%;
+  min-width: 0;
+}
 .vela-theme .settings-layout .integration-heading {
   min-height: 38px;
   justify-content: flex-end;
@@ -1974,5 +1990,102 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   .vela-theme .asset-card:focus-visible,
   .vela-theme .filmstrip a.active {
     transform: none;
+  }
+}
+
+/* Live training records use the same archive-sheet hierarchy as run history. */
+.vela-theme .active-training-panel {
+  border-top-color: var(--mf-warning);
+}
+.vela-theme .active-training-list {
+  display: grid;
+  gap: var(--vela-space-3);
+}
+.vela-theme .active-training-card {
+  display: grid;
+  gap: var(--vela-space-3);
+  padding: var(--vela-space-4);
+  border: 1px solid var(--vela-border);
+  border-left: var(--vela-space-1) solid var(--mf-warning);
+  background: var(--vela-surface);
+  transition:
+    border-color var(--vela-duration) var(--vela-ease),
+    transform var(--vela-duration) var(--vela-ease);
+}
+.vela-theme .active-training-card:hover,
+.vela-theme .active-training-card:focus-visible {
+  border-color: var(--vela-border-strong);
+  transform: translateX(var(--vela-space-1));
+}
+.vela-theme .active-training-heading,
+.vela-theme .active-training-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vela-space-3);
+}
+.vela-theme .active-training-heading > strong {
+  font: 700 15px/1.05 var(--vela-font-display);
+  text-transform: uppercase;
+}
+.vela-theme .active-training-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--vela-border);
+}
+.vela-theme .active-training-metrics > span {
+  display: grid;
+  gap: var(--vela-space-1);
+  padding: var(--vela-space-2) var(--vela-space-3);
+  border-right: 1px solid var(--vela-border);
+}
+.vela-theme .active-training-metrics > span:last-child {
+  border-right: 0;
+}
+.vela-theme .active-training-metrics small,
+.vela-theme .active-training-footer {
+  color: var(--vela-muted);
+  font: 10px/1.4 var(--vela-font-mono);
+}
+.vela-theme .active-training-indicator {
+  color: var(--mf-warning);
+  font: 700 9px var(--vela-font-mono);
+}
+.vela-theme .live-run-summary {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--vela-space-6) * 5)), 1fr));
+}
+.vela-theme .object-image-strip a:has(.training-sample-details) {
+  position: relative;
+}
+.vela-theme .training-sample-details {
+  position: absolute;
+  inset: auto 0 0;
+  display: grid;
+  gap: var(--vela-space-1);
+  padding: var(--vela-space-2);
+  border-top: 1px solid var(--vela-border);
+  background: color-mix(in srgb, var(--vela-surface) 92%, transparent);
+}
+.vela-theme .training-sample-details strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vela-theme .training-sample-details small {
+  color: var(--vela-muted);
+  font: 9px var(--vela-font-mono);
+}
+
+@media (max-width: 780px) {
+  .vela-theme .active-training-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vela-theme .active-training-metrics > span {
+    border-right: 0;
+    border-bottom: 1px solid var(--vela-border);
+  }
+  .vela-theme .active-training-metrics > span:last-child {
+    border-bottom: 0;
   }
 }

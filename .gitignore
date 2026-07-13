@@ -34,3 +34,6 @@ apps/web/.vite/
 apps/web/node_modules/
 apps/web/dist/
 apps/web/package-lock.json
+
+# Local W&B SDK runs produced by compatibility tests.
+wandb/

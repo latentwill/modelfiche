@@ -20,6 +20,8 @@ from .routers import (
     operator,
     operator_config,
     runs,
+    training_launches,
+    wandb_credentials,
     storage_policy,
 )
 from .settings import get_settings
@@ -172,6 +174,8 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
         core.router,
         datasets.router,
         runs.router,
+        wandb_credentials.router,
+        training_launches.router,
         collaboration.router,
         operator.router,
         operator_config.router,

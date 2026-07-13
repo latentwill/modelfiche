@@ -11,10 +11,10 @@ export function Panel(props: { title?: string; children: ReactNode; className?: 
   return <section className={`vela-panel panel ${props.className ?? ""}`}>{props.title && <div className="vela-section-heading"><h2>{props.title}</h2></div>}{props.children}</section>;
 }
 
-export function Notice({ error, loading, empty }: { error?: string; loading?: boolean; empty?: boolean }) {
+export function Notice({ error, loading, empty, emptyText, emptyHint }: { error?: string; loading?: boolean; empty?: boolean; emptyText?: string; emptyHint?: string }) {
   if (error) return <div role="alert" className="vela-notice vela-notice-error"><strong>Unable to load</strong><span>{error}</span></div>;
   if (loading) return <div className="vela-skeleton" aria-label="Loading"><span /><span /><span /></div>;
-  if (empty) return <div className="vela-empty"><span>No records yet</span><small>This area will update when matching work is available.</small></div>;
+  if (empty) return <div className="vela-empty"><span>{emptyText ?? "No records yet"}</span><small>{emptyHint ?? "This area will update when matching work is available."}</small></div>;
   return null;
 }
 

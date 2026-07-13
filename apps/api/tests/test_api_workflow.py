@@ -1,5 +1,13 @@
+import json
+from pathlib import Path
+
+import httpx
 from fastapi.testclient import TestClient
+
 from titles_api import app as app_module, models
+from titles_api.integrations.llm import PromptGenerator
+from titles_api.routers import datasets
+from titles_api.settings import get_settings
 
 
 def test_run_metrics_endpoint_returns_sorted_loss_points(client: TestClient):
@@ -58,11 +66,81 @@ def test_project_dataset_draft_and_profile_attribution(client: TestClient):
     preview = client.post(f"/api/dataset-drafts/{draft['id']}/operations/preview", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True}).json()
     assert preview["changed"] == 1
     applied = client.post(f"/api/dataset-drafts/{draft['id']}/operations", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True}).json()
+
     assert applied["changed"] == 1
     published = client.post(f"/api/dataset-drafts/{draft['id']}/publish", json={"name": "Captioned"}).json()
     assert published["version_number"] == 2
     events = client.get("/api/activity", params={"project_id": project["id"]}).json()
     assert any(event["profile_id"] == profile["id"] for event in events)
+
+
+def test_dataset_draft_caption_generation_updates_only_draft(client: TestClient, monkeypatch):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Caption"}).json()
+    path = Path(get_settings().asset_root) / "caption.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"fake-image")
+    asset = client.post("/api/assets", json={
+        "project_id": project["id"], "kind": "image", "name": "caption.png", "mime_type": "image/png",
+        "location": {"provider": "local", "uri": str(path), "hydration_state": "hydrated"},
+    }).json()
+    dataset = client.post("/api/datasets", json={"project_id": project["id"], "name": "Source", "items": [{"asset_id": asset["id"], "caption": "old"}]}).json()
+    version = client.get(f"/api/datasets/{dataset['id']}/versions").json()[0]
+    draft = client.post(f"/api/datasets/{dataset['id']}/drafts", json={"base_version_id": version["id"]}).json()
+    client.patch("/api/operator-settings", json={"llm": {"provider": "openai", "model": "vision-model"}})
+    requests = []
+
+    def respond(request: httpx.Request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        prompt = payload["messages"][0]["content"][0]["text"]
+        content = '{"caption":"a generated caption"}' if "Return only a valid JSON object" in prompt else "a generated caption"
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(datasets, "PromptGenerator", lambda: PromptGenerator(httpx.MockTransport(respond)))
+    response = client.post(f"/api/dataset-drafts/{draft['id']}/caption", headers={"X-Profile-ID": profile["id"]}, json={"prompt": "Describe this image", "all": True})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["changed"] == 1
+    assert payload["count"] == 1
+    assert payload["items"][0]["caption"] == "a generated caption"
+    assert payload["operation_id"]
+    assert requests[0]["messages"][0]["content"][0]["text"] == "Describe this image"
+    assert requests[0]["model"] == "vision-model"
+    assert client.patch(f"/api/dataset-drafts/{draft['id']}/caption-format", headers={"X-Profile-ID": profile["id"]}, json={"caption_format": "json"}).json()["caption_format"] == "json"
+    json_caption = client.post(f"/api/dataset-drafts/{draft['id']}/caption", headers={"X-Profile-ID": profile["id"]}, json={"prompt": "Describe this image", "model": "override-vision-model", "caption_format": "json", "all": True})
+    assert json_caption.status_code == 200
+    assert json_caption.json()["items"][0]["caption"] == '{"caption":"a generated caption"}'
+    assert requests[-1]["model"] == "override-vision-model"
+    assert "Return only a valid JSON object" in requests[-1]["messages"][0]["content"][0]["text"]
+    client.patch("/api/operator-settings", json={"llm": {"provider": "openai", "model": ""}})
+    missing_model = client.post(f"/api/dataset-drafts/{draft['id']}/caption", json={"prompt": "Describe", "all": True})
+    assert missing_model.status_code == 422
+    assert "model is required" in missing_model.json()["detail"]
+    assert client.post(f"/api/dataset-drafts/{draft['id']}/caption", json={"prompt": "Describe"}).status_code == 422
+    assert requests[0]["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert client.get(f"/api/dataset-drafts/{draft['id']}").json()["state"] == "active"
+
+
+def test_dataset_active_draft_restores_working_copy(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Draft recovery"}).json()
+    asset = client.post("/api/assets", json={"project_id": project["id"], "kind": "image", "name": "one.png"}).json()
+    dataset = client.post("/api/datasets", json={"project_id": project["id"], "name": "Source", "items": [{"asset_id": asset["id"], "caption": "original"}]}).json()
+    version = client.get(f"/api/datasets/{dataset['id']}/versions").json()[0]
+    draft = client.post(f"/api/datasets/{dataset['id']}/drafts", json={"base_version_id": version["id"]}).json()
+    item = client.get(f"/api/dataset-drafts/{draft['id']}").json()["items"][0]
+    client.patch(
+        f"/api/dataset-drafts/{draft['id']}/items/{item['id']}",
+        json={"caption": "working copy"},
+    )
+
+    restored = client.get(f"/api/datasets/{dataset['id']}/drafts/active")
+
+    assert restored.status_code == 200
+    assert restored.json()["id"] == draft["id"]
+    assert restored.json()["items"][0]["caption"] == "working copy"
+    assert client.get("/api/datasets/not-a-dataset/drafts/active").status_code == 404
 
 
 def test_projects_hide_archived_records_unless_explicitly_requested(client: TestClient):

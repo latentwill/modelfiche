@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import mimetypes
 import re
 import yaml
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 from ... import models
 from ...checkpoint_revisions import establish_checkpoint_revision
 from ...storage.repository import StorageRepository
+from ...training_metrics import MetricInput, ingest_metric_batch
 from .detection import PrefixKind
 from .importer import ImportContext, ImportResult
 from .metrics import parse_loss_log_db, parse_tensorboard_event, parse_training_log
@@ -575,28 +577,30 @@ class SQLAlchemyImportSink:
                 continue
             name = PurePosixPath(key).name.lower()
             parser = parse_tensorboard_event if name.startswith("events.out.tfevents.") else (parse_loss_log_db if PurePosixPath(key).suffix.lower() == ".db" else parse_training_log)
-            for point in parser(body):
-                metric = self.session.scalar(
-                    select(models.TrainingMetric).where(
-                        models.TrainingMetric.run_id == run.id,
-                        models.TrainingMetric.step == point.step,
-                        models.TrainingMetric.name == point.name,
-                    )
+            parsed = parser(body)
+            if not parsed:
+                continue
+            points = [
+                MetricInput(
+                    step=point.step,
+                    name=point.name,
+                    value=point.value,
+                    wall_time=point.wall_time,
+                    source_key=key,
                 )
-                if metric is None:
-                    metric = models.TrainingMetric(
-                        run_id=run.id,
-                        step=point.step,
-                        name=point.name,
-                        value=point.value,
-                        wall_time=point.wall_time,
-                        source_key=key,
-                    )
-                    self.session.add(metric)
-                else:
-                    metric.value = point.value
-                    metric.wall_time = point.wall_time
-                    metric.source_key = key
+                for point in parsed
+            ]
+            batch_digest = hashlib.sha256()
+            batch_digest.update(key.encode())
+            batch_digest.update(b"\0")
+            batch_digest.update(body)
+            ingest_metric_batch(
+                self.session,
+                run.id,
+                points,
+                batch_key=f"s3:{batch_digest.hexdigest()}",
+                committed_step=max(point.step for point in points),
+            )
 
     def _verify_remote_assets(self, context: ImportContext) -> None:
         source = self._source(context.source_id)

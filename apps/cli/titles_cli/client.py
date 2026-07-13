@@ -101,14 +101,14 @@ class TitlesClient:
     def close(self) -> None:
         self.http.close()
 
-    def request(
+    def _response(
         self,
         method: str,
         path: str,
         *,
         params: dict[str, Any] | None = None,
         json_body: Any = None,
-    ) -> Any:
+    ) -> httpx.Response:
         try:
             response = self.http.request(method, path, params=clean(params), json=json_body)
         except httpx.ConnectError as exc:
@@ -126,34 +126,69 @@ class TitlesClient:
                 retryable=True,
             ) from exc
 
-        if response.is_success:
-            if response.status_code == 204 or not response.content:
-                return {"ok": True}
+        if not response.is_success:
             try:
-                return response.json()
+                payload = response.json()
             except ValueError:
-                return {"ok": True, "text": response.text}
+                payload = {"message": response.text or response.reason_phrase}
+            error = payload.get("error", payload) if isinstance(payload, dict) else {}
+            detail = error.get("detail")
+            message = error.get("message") or (
+                detail if isinstance(detail, str) else None
+            ) or response.reason_phrase
+            code = error.get("code") or f"HTTP_{response.status_code}"
+            raise ApiError(
+                message,
+                status_code=http_exit_code(response.status_code),
+                code=code,
+                details=error.get("details", detail),
+                retryable=bool(error.get("retryable", response.status_code >= 500)),
+            )
+        return response
 
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: Any = None,
+    ) -> Any:
+        response = self._response(method, path, params=params, json_body=json_body)
+        if response.status_code == 204 or not response.content:
+            return {"ok": True}
         try:
-            payload = response.json()
+            return response.json()
         except ValueError:
-            payload = {"message": response.text or response.reason_phrase}
-        error = payload.get("error", payload) if isinstance(payload, dict) else {}
-        detail = error.get("detail")
-        message = error.get("message") or (
-            detail if isinstance(detail, str) else None
-        ) or response.reason_phrase
-        code = error.get("code") or f"HTTP_{response.status_code}"
-        raise ApiError(
-            message,
-            status_code=http_exit_code(response.status_code),
-            code=code,
-            details=error.get("details", detail),
-            retryable=bool(error.get("retryable", response.status_code >= 500)),
-        )
+            return {"ok": True, "text": response.text}
+
+    def request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> bytes:
+        """Return a successful response body without decoding or reserializing it."""
+        return self._response(method, path, params=params).content
+
+    def request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> str:
+        return self._response(method, path, params=params).text
 
     def get(self, path: str, **params: Any) -> Any:
         return self.request("GET", path, params=params)
+
+    def get_bytes(self, path: str, **params: Any) -> bytes:
+        return self.request_bytes("GET", path, params=params)
+
+    def get_text(self, path: str, **params: Any) -> str:
+        return self.request_text("GET", path, params=params)
 
     def post(self, path: str, body: Any = None, **params: Any) -> Any:
         return self.request("POST", path, params=params, json_body=body)
@@ -163,6 +198,7 @@ class TitlesClient:
 
     def delete(self, path: str) -> Any:
         return self.request("DELETE", path)
+
 
 
 def clean(values: dict[str, Any] | None) -> dict[str, Any] | None:

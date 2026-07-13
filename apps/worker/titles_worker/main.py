@@ -23,6 +23,9 @@ def main() -> None:
     from .export_jobs import ExportPackageHandler
     from .runner import JobRunner
     from .sqlalchemy_eval_sink import SQLAlchemyEvalOutputSink
+    from .wandb_uploads import WandbUploadReconciler
+    from .checkpoint_handoffs import CheckpointHandoffReconciler
+    from .run_maintenance import RunMaintenance
 
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = get_settings()
@@ -52,7 +55,21 @@ def main() -> None:
     handlers["fal.grid_batch"] = fal_grid
     handlers["fal_eval"] = fal_batch
     handlers["fal.grid_cell"] = fal_eval
-    JobRunner(SessionLocal, handlers).run_forever()
+    upload_reconciler = WandbUploadReconciler(SessionLocal)
+    checkpoint_reconciler = CheckpointHandoffReconciler(SessionLocal)
+    run_maintenance = RunMaintenance(
+        SessionLocal,
+        stale_after_seconds=settings.wandb_stale_after_seconds,
+    )
+    JobRunner(
+        SessionLocal,
+        handlers,
+        maintenance_handlers=(
+            upload_reconciler.run_once,
+            checkpoint_reconciler.run_once,
+            run_maintenance.interrupt_stale_runs,
+        ),
+    ).run_forever()
 
 
 if __name__ == "__main__":

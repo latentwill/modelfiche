@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { ActiveTrainingNavigation } from "./active-training";
 import { activityLabel, activityObjectHref, previewAssetId } from "./activity";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -154,6 +155,8 @@ function Topbar({ section, id, projectId, workspaces, theme, onToggleTheme, onOp
   const projectName = section === "project" ? str(entity.data?.title ?? entity.data?.name, "") : str(project.data?.title ?? project.data?.name, "");
   const entityName = section !== "project" ? str(entity.data?.title ?? entity.data?.name, "") : "";
   const fallback = !projectName && !entityName ? routeLabel(section) : "";
+  const s3ImportHref = `#/import${query({ source: "s3", project: projectId })}`;
+  const localImportHref = `#/import${query({ source: "local", project: projectId })}`;
   return <header className="vela-topbar">
     <button className="vela-icon-button vela-responsive-nav" type="button" aria-label="Open navigation" onClick={onOpenNavigation}><Menu size={18} /></button>
     <div className="vela-breadcrumbs"><strong>{workspace}</strong>{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}</div>
@@ -167,7 +170,9 @@ function Topbar({ section, id, projectId, workspaces, theme, onToggleTheme, onOp
         <CreateLink href="#/models" icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
         <CreateLink href="#/evals" icon={<Sparkles size={15} />} onSelect={() => setCreateOpen(false)}>Eval</CreateLink>
         <CreateLink href="#/grids" icon={<LayoutDashboard size={15} />} onSelect={() => setCreateOpen(false)}>Grid</CreateLink>
-        <CreateLink href="#/transfers?mode=import" icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Import</CreateLink>
+        <CreateLink href={s3ImportHref} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>S3 import</CreateLink>
+        <CreateLink href={localImportHref} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Local folder import</CreateLink>
+        <CreateLink href="#/transfers?mode=import" icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Queue import (Transfers)</CreateLink>
       </div>}
     </div>
     <ProfileSelect compact workspaceName={workspace} />
@@ -230,6 +235,7 @@ function ProjectTree({ project, section, activeId, activeProjectId }: { project:
   return <div className={`vela-project-nav ${project.state === "archived" ? "is-archived" : ""}`}>
     <div className="vela-project-nav-root"><a className="vela-nav-item" aria-current={(activeProjectId === projectId || (section === "project" && activeId === projectId)) ? "page" : undefined} href={`#/project/${projectId}`}><span className="vela-nav-icon"><Folder size={15} /></span><span className="vela-nav-text">{str(project.title ?? project.name)}</span></a><button type="button" className="vela-icon-button" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${str(project.title)}`} aria-expanded={expanded}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button></div>
     {expanded && <div className="vela-project-tree">
+      <ActiveTrainingNavigation projectId={projectId} />
       <NavBranch label="Models" href={`#/models?project=${projectId}`} items={rows(models.data)} itemRoute="model" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
       <NavBranch label="Datasets" href={`#/datasets?project=${projectId}`} items={rows(datasets.data)} itemRoute="dataset" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
       <NavBranch label="Evals" href={`#/evals?project=${projectId}`} items={rows(evals.data)} itemRoute="eval" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />

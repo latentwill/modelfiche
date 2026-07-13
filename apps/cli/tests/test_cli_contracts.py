@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
+import os
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import pytest
 from typer.testing import CliRunner
 
@@ -23,6 +26,16 @@ class FakeClient:
     def get(self, path: str, **params: Any) -> Any:
         self.calls.append(("GET", path, params, None))
         return self._response()
+
+    def get_bytes(self, path: str, **params: Any) -> bytes:
+        self.calls.append(("GET", path, params, None))
+        value = self._response()
+        return value if isinstance(value, bytes) else bytes(value)
+
+    def get_text(self, path: str, **params: Any) -> str:
+        self.calls.append(("GET", path, params, None))
+        value = self._response()
+        return value if isinstance(value, str) else str(value)
 
     def post(self, path: str, body: Any = None, **params: Any) -> Any:
         self.calls.append(("POST", path, params, body))
@@ -278,3 +291,386 @@ def test_unsupported_filter_flags_are_not_silently_sent(
 
     assert result.exit_code == 2
     assert fake_client.calls == []
+
+
+def test_wandb_credentials_use_public_key_contract(fake_client: FakeClient) -> None:
+    commands = [
+        (
+            ["wandb", "credential", "register", "--alias", "agent", "--public-key", "ed25519-public-key"],
+            ("POST", "/api/integrations/wandb/credentials", {}, {"alias": "agent", "public_key": "ed25519-public-key", "project_id": None}),
+        ),
+        (
+            ["wandb", "credential", "list", "--project-id", "project-1"],
+            ("GET", "/api/integrations/wandb/credentials", {"project_id": "project-1"}, None),
+        ),
+        (
+            ["wandb", "credential", "rotate", "credential-1", "--public-key", "rotated-public-key"],
+            ("POST", "/api/integrations/wandb/credentials/credential-1/rotate", {}, {"public_key": "rotated-public-key"}),
+        ),
+        (
+            ["wandb", "credential", "revoke", "credential-1"],
+            ("POST", "/api/integrations/wandb/credentials/credential-1/revoke", {}, None),
+        ),
+    ]
+    for arguments, expected in commands:
+        result = runner.invoke(main.app, ["--json", *arguments])
+        assert result.exit_code == 0, result.output
+        assert fake_client.calls[-1] == expected
+
+
+def test_training_launch_input_rejects_secret_fields(
+    fake_client: FakeClient,
+    tmp_path: Any,
+) -> None:
+    input_file = tmp_path / "launch.json"
+    input_file.write_text(
+        json.dumps({"private_key": "never-send", "dataset_version_id": "version-1"}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(main.app, ["--json", "training-launch", "create", "--input", str(input_file)])
+    assert result.exit_code == 2
+    assert "forbidden secret fields" in result.output
+    assert fake_client.calls == []
+
+
+def test_wandb_credential_cli_never_exposes_private_key_option() -> None:
+    result = runner.invoke(main.app, ["wandb", "credential", "register", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--private-key" not in result.output
+    assert "--password-manager" not in result.output
+
+
+def test_training_launch_flags_send_json_friendly_payload(fake_client: FakeClient) -> None:
+    result = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "training-launch",
+            "create",
+            "--dataset-version-id",
+            "version-1",
+            "--wandb-credential-id",
+            "credential-1",
+            "--source-id",
+            "source-1",
+            "--client-request-id",
+            "request-1",
+            "--name",
+            "run-1",
+            "--base-model",
+            "model-1",
+            "--output-directory",
+            "/workspace/output",
+            "--checkpoint-policy",
+            '{"every_n_steps":100}',
+            "--backup-policy",
+            '{"prefix":"checkpoints"}',
+            "--supported-endpoint-ids",
+            '["endpoint-1","endpoint-2"]',
+            "--expected-duration-seconds",
+            "900",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert fake_client.calls == [
+        (
+            "POST",
+            "/api/training-launches",
+            {},
+            {
+                "dataset_version_id": "version-1",
+                "wandb_credential_id": "credential-1",
+                "source_id": "source-1",
+                "client_request_id": "request-1",
+                "name": "run-1",
+                "trainer": "ai-toolkit",
+                "base_model": "model-1",
+                "output_directory": "/workspace/output",
+                "checkpoint_policy": {"every_n_steps": 100},
+                "backup_policy": {"prefix": "checkpoints"},
+                "supported_endpoint_ids": ["endpoint-1", "endpoint-2"],
+                "expected_duration_seconds": 900,
+            },
+        )
+    ]
+
+
+def test_training_launch_input_json_and_status_use_api_contract(
+    fake_client: FakeClient,
+    tmp_path: Any,
+) -> None:
+    request = {
+        "dataset_version_id": "version-1",
+        "wandb_credential_id": "credential-1",
+        "source_id": "source-1",
+        "client_request_id": "request-1",
+        "name": "run-1",
+        "base_model": "model-1",
+        "output_directory": "/workspace/output",
+        "checkpoint_policy": {"every_n_steps": 100},
+        "backup_policy": {},
+        "supported_endpoint_ids": [],
+        "expected_duration_seconds": 1200,
+    }
+    input_file = tmp_path / "launch.json"
+    input_file.write_text(json.dumps(request), encoding="utf-8")
+    result = runner.invoke(main.app, ["--json", "training-launch", "create", "--input", str(input_file)])
+    assert result.exit_code == 0, result.output
+    assert fake_client.calls[-1] == ("POST", "/api/training-launches", {}, {**request, "trainer": "ai-toolkit"})
+
+    result = runner.invoke(main.app, ["--json", "training-launch", "status", "launch-1"])
+    assert result.exit_code == 0, result.output
+    assert fake_client.calls[-1] == ("GET", "/api/training-launches/launch-1", {}, None)
+
+
+def test_training_launch_manifest_and_environment_preserve_output_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    fake = FakeClient([b'{"schema_version":"v1","unicode":"caf\xc3\xa9"}', "export WANDB_MODE=online\n"])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+    manifest_path = tmp_path / "nested" / "manifest.json"
+    environment_path = tmp_path / "nested" / "environment.sh"
+
+    result = runner.invoke(
+        main.app,
+        ["--json", "training-launch", "manifest", "launch-1", "--output", str(manifest_path)],
+    )
+    assert result.exit_code == 0, result.output
+    assert manifest_path.read_bytes() == b'{"schema_version":"v1","unicode":"caf\xc3\xa9"}'
+    assert fake.calls[-1] == ("GET", "/api/training-launches/launch-1/manifest", {}, None)
+
+    result = runner.invoke(
+        main.app,
+        ["--json", "training-launch", "environment", "launch-1", "--output", str(environment_path)],
+    )
+    assert result.exit_code == 0, result.output
+    assert environment_path.read_bytes() == b"export WANDB_MODE=online\n"
+    assert fake.calls[-1] == ("GET", "/api/training-launches/launch-1/environment", {}, None)
+
+
+def test_training_launch_raw_commands_print_without_reserializing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = b'{"unicode":"caf\xc3\xa9"}'
+    environment = "export WANDB_MODE=online\n"
+    fake = FakeClient([manifest, environment])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    manifest_result = runner.invoke(main.app, ["training-launch", "manifest", "launch-1"])
+    assert manifest_result.exit_code == 0, manifest_result.output
+    assert manifest_result.stdout_bytes == manifest
+
+    environment_result = runner.invoke(main.app, ["training-launch", "environment", "launch-1"])
+    assert environment_result.exit_code == 0, environment_result.output
+    assert environment_result.stdout_bytes == environment.encode("utf-8")
+
+
+def test_wandb_key_helpers_keep_private_material_local(tmp_path: Any) -> None:
+    private_key_path = tmp_path / "keys" / "wandb-signing.key"
+
+    generated = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "wandb",
+            "key",
+            "generate",
+            "--private-key-output",
+            str(private_key_path),
+        ],
+    )
+
+    assert generated.exit_code == 0, generated.output
+    result = json.loads(generated.output)
+    private_key = private_key_path.read_text(encoding="ascii").strip()
+    assert result == {
+        "algorithm": "Ed25519",
+        "public_key": result["public_key"],
+        "private_key_path": str(private_key_path),
+    }
+    assert private_key not in generated.output
+    assert os.stat(private_key_path).st_mode & 0o777 == 0o600
+
+    recovered = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "wandb",
+            "key",
+            "public",
+            "--private-key-file",
+            str(private_key_path),
+        ],
+    )
+    assert recovered.exit_code == 0, recovered.output
+    assert json.loads(recovered.output)["public_key"] == result["public_key"]
+
+    duplicate = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "wandb",
+            "key",
+            "generate",
+            "--private-key-output",
+            str(private_key_path),
+        ],
+    )
+    assert duplicate.exit_code == 2
+    assert private_key_path.read_text(encoding="ascii").strip() == private_key
+
+
+def test_agent_environment_signs_canonical_claims_and_writes_mode_0600(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    private_key, public_key = main.generate_keypair()
+    private_key_path = main.write_private_key(tmp_path / "wandb-signing.key", private_key)
+    claims = {
+        "claims_version": 1,
+        "credential_id": "credential-1",
+        "expires_at": "2026-07-14T00:00:00Z",
+        "issued_at": "2026-07-13T00:00:00Z",
+        "kid": "key-1",
+        "launch_id": "launch-1",
+        "project_id": "project-1",
+        "run_id": "run-1",
+        "wandb_run_id": "wandb-run-1",
+        "workspace_id": "workspace-1",
+    }
+    template = (
+        'export WANDB_API_KEY="<MF1_BASE32_ED25519_SIGNED_TOKEN>"\n'
+        'export MODELFICHE_HANDOFF_TOKEN="$WANDB_API_KEY"\n'
+    )
+    fake = FakeClient(
+        [
+            {"id": "launch-1", "run_id": "run-1", "manifest": {"telemetry": {"token": {"claims": claims}}}},
+            template,
+        ]
+    )
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+    output = tmp_path / "secrets" / "training.env"
+
+    rendered = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "training-launch",
+            "agent-environment",
+            "launch-1",
+            "--private-key-file",
+            str(private_key_path),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert rendered.exit_code == 0, rendered.output
+    metadata = json.loads(rendered.output)
+    assert metadata["output"] == str(output)
+    assert metadata["mode"] == "0600"
+    environment = output.read_text(encoding="utf-8")
+    assert "<MF1_BASE32_ED25519_SIGNED_TOKEN>" not in environment
+    token = environment.split('export WANDB_API_KEY="', 1)[1].split('"', 1)[0]
+    assert token not in rendered.output
+    prefix, encoded_payload, encoded_signature = token.split("_")
+    assert prefix == "MF1"
+    payload = base64.b32decode(encoded_payload + "=" * (-len(encoded_payload) % 8))
+    signature = base64.b32decode(encoded_signature + "=" * (-len(encoded_signature) % 8))
+    public_bytes = base64.urlsafe_b64decode(public_key + "=" * (-len(public_key) % 4))
+    Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, payload)
+    assert json.loads(payload) == claims
+    assert os.stat(output).st_mode & 0o777 == 0o600
+    assert fake.calls == [
+        ("GET", "/api/training-launches/launch-1", {}, None),
+        ("GET", "/api/training-launches/launch-1/environment", {}, None),
+    ]
+
+
+def test_training_launch_inspect_combines_launch_and_live_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch = {"id": "launch-1", "run_id": "run-1", "state": "running"}
+    live = {"run_id": "run-1", "status": "running", "current_step": 42}
+    fake = FakeClient([launch, live])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(main.app, ["--json", "training-launch", "inspect", "launch-1"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {"launch": launch, "run": live}
+    assert fake.calls == [
+        ("GET", "/api/training-launches/launch-1", {}, None),
+        ("GET", "/api/runs/run-1/live", {}, None),
+    ]
+
+
+def test_training_launch_wait_returns_terminal_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeClient(
+        [
+            {"id": "launch-1", "state": "running"},
+            {"id": "launch-1", "state": "completed", "run_id": "run-1"},
+        ]
+    )
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+    monkeypatch.setattr(main.time, "sleep", lambda _seconds: None)
+
+    result = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "--quiet",
+            "training-launch",
+            "wait",
+            "launch-1",
+            "--timeout",
+            "10",
+            "--poll-interval",
+            "0.1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["state"] == "completed"
+    assert fake.calls == [
+        ("GET", "/api/training-launches/launch-1", {}, None),
+        ("GET", "/api/training-launches/launch-1", {}, None),
+    ]
+
+
+def test_run_live_and_metrics_use_agent_read_contract(fake_client: FakeClient) -> None:
+    commands = [
+        (
+            ["run", "live", "run-1"],
+            ("GET", "/api/runs/run-1/live", {}, None),
+        ),
+        (
+            ["run", "metrics", "run-1", "--name", "loss/denoise"],
+            ("GET", "/api/runs/run-1/metrics", {"name": "loss/denoise"}, None),
+        ),
+    ]
+
+    for arguments, expected in commands:
+        result = runner.invoke(main.app, ["--json", *arguments])
+        assert result.exit_code == 0, result.output
+        assert fake_client.calls[-1] == expected
+
+
+@pytest.mark.parametrize("state", ["failed", "interrupted"])
+def test_training_launch_wait_returns_exit_7_for_unsuccessful_terminal_state(
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+) -> None:
+    fake = FakeClient([{"id": "launch-1", "state": state}])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(
+        main.app,
+        ["--json", "--quiet", "training-launch", "wait", "launch-1"],
+    )
+
+    assert result.exit_code == 7
+    assert json.loads(result.output)["state"] == state

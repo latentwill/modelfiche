@@ -160,6 +160,50 @@ def test_local_delivery_does_not_rebase_unrelated_outside_paths(tmp_path: Path, 
         _safe_local_path(location)
 
 
+def test_delivery_supports_legacy_verified_local_import_without_content_blob(tmp_path: Path, monkeypatch):
+    asset_root = tmp_path / "assets"
+    cache_root = tmp_path / "cache"
+    asset_root.mkdir()
+    cache_root.mkdir()
+    image_path = asset_root / "legacy.png"
+    image_path.write_bytes(b"png")
+    monkeypatch.setenv("TITLES_ASSET_ROOT", str(asset_root))
+    monkeypatch.setenv("TITLES_CACHE_ROOT", str(cache_root))
+    get_settings.cache_clear()
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace = models.Workspace(name="workspace")
+        project = models.Project(workspace_id=workspace.id, title="project")
+        asset = models.Asset(workspace_id=workspace.id, project_id=project.id, kind=models.AssetKind.image, name="legacy.png", mime_type="image/png")
+        location = models.AssetLocation(
+            asset_id=asset.id,
+            workspace_id=workspace.id,
+            provider="local",
+            uri=str(image_path),
+            size=3,
+            verified_size=3,
+            verified_sha256="a" * 64,
+            verification_state="verified",
+            hydration_state="hydrated",
+        )
+        session.add_all([workspace, project, asset, location])
+        session.flush()
+
+        result = AssetDeliveryService().descriptor(
+            session,
+            asset_revision_id=UUID(asset.id),
+            variant=ContentVariantV1(kind="content"),
+            host="testserver",
+            base_url="http://testserver",
+        )
+
+        assert result["kind"] == "descriptor"
+        assert result["descriptor"].provider == "local"
+        assert result["descriptor"].selected_location_id == UUID(str(location.id))
+
+
 def test_delivery_prefers_verified_local_copy_when_remote_gate_is_disabled(tmp_path: Path, monkeypatch):
     asset_root = tmp_path / "assets"
     cache_root = tmp_path / "cache"

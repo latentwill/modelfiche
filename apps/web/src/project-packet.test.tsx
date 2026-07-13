@@ -1,9 +1,13 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { collectDroppedLocalFiles, formatCanonicalTimestamp, latestTrainingRun, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER } from "./screens-core";
+import { collectDroppedLocalFiles, formatCanonicalTimestamp, ImportScreen, latestTrainingRun, LatestTrainingRun, PROJECT_IMAGE_COLLECTION_ORDER, ProjectScreen } from "./screens-core";
 
-afterEach(cleanup);
+function response(body: unknown) {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("project packet timestamp", () => {
   it("places Dataset images left and Training samples in the middle", () => {
@@ -41,6 +45,42 @@ describe("project packet timestamp", () => {
   });
 });
 
+describe("project dataset and editor actions", () => {
+  it("links an empty project dataset panel to dataset creation with project context", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/projects/project-1")) return response({ id: "project-1", title: "Portraits", trigger_words: [] });
+      if (path.includes("/api/datasets")) return response([]);
+      if (path.includes("/api/runs") || path.includes("/api/models") || path.includes("/api/eval-runs") || path.includes("/api/gallery")) return response([]);
+      return response({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    const view = render(<ProjectScreen id="project-1" />);
+    expect(await view.findByRole("link", { name: "Create a dataset" })).toHaveAttribute("href", "#/transfers?mode=import&project=project-1");
+    expect(view.getByRole("link", { name: "Edit project" })).toHaveAttribute("href", "#/project/project-1?edit=1");
+  });
+
+  it("presents and saves the project title in the reachable editor", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (init?.method === "PATCH" && path.includes("/api/projects/project-1")) return response({ id: "project-1", title: "Updated title", trigger_words: [] });
+      if (path.includes("/api/projects/project-1")) return response({ id: "project-1", title: "Original title", description: "", trigger_words: [] });
+      if (path.includes("/api/runs") || path.includes("/api/models") || path.includes("/api/eval-runs") || path.includes("/api/datasets") || path.includes("/api/gallery")) return response([]);
+      return response({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    const view = render(<ProjectScreen id="project-1" editing />);
+    const title = await view.findByDisplayValue("Original title");
+    fireEvent.change(title, { target: { value: "Updated title" } });
+    fireEvent.submit(view.getByRole("button", { name: "Save project" }).closest("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1", expect.objectContaining({ method: "PATCH" })));
+    const patch = fetchMock.mock.calls.find(([path, init]) => String(path).includes("/api/projects/project-1") && init?.method === "PATCH");
+    expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ title: "Updated title" });
+  });
+});
+
 describe("local folder drag and drop", () => {
   it("recursively preserves entry paths", async () => {
     const file = new File(["pixels"], "image.png", { type: "image/png" });
@@ -59,5 +99,31 @@ describe("local folder drag and drop", () => {
     } as unknown as DataTransfer;
     await expect(collectDroppedLocalFiles(dataTransfer)).resolves.toEqual([{ file, path: "portraits/image.png" }]);
     expect(readEntries).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("import workflow routing", () => {
+  it("isolates the S3 workflow from local folder controls", () => {
+    const view = render(<ImportScreen source="s3" initialProject="project-7" />);
+    expect(view.getByRole("heading", { name: "Import from S3 storage" })).toBeInTheDocument();
+    expect(view.getByPlaceholderText("training-runs/2026-07/")).toBeInTheDocument();
+    expect(view.container.querySelector('input[type="file"]')).not.toBeInTheDocument();
+    expect(view.queryByText("Choose a folder or drop it here. Nested paths are preserved.")).not.toBeInTheDocument();
+  });
+
+  it("isolates the local workflow from S3 browsing controls", () => {
+    const view = render(<ImportScreen source="local" initialProject="project-7" />);
+    expect(view.getByRole("heading", { name: "Import from local folder" })).toBeInTheDocument();
+    expect(view.container.querySelector('input[type="file"]')).toBeInTheDocument();
+    expect(view.queryByPlaceholderText("training-runs/2026-07/")).not.toBeInTheDocument();
+    expect(view.queryByText("S3 / S3-compatible source")).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Browse" })).not.toBeInTheDocument();
+  });
+
+  it("uses the legacy route as a chooser while preserving project context", () => {
+    const view = render(<ImportScreen initialProject="project 7" />);
+    expect(view.getByRole("heading", { name: "Import data" })).toBeInTheDocument();
+    expect(view.getByRole("link", { name: "Import from S3 storage" })).toHaveAttribute("href", "#/import?source=s3&project=project%207");
+    expect(view.getByRole("link", { name: "Import from local folder" })).toHaveAttribute("href", "#/import?source=local&project=project%207");
   });
 });

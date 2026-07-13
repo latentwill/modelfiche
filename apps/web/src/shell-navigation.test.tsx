@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DashboardScreen } from "./screens-wireframe";
+import { DashboardScreen, TransfersScreen } from "./screens-wireframe";
 import { WorkbenchShell } from "./shell";
 
 vi.mock("./asset-image", () => ({
@@ -49,6 +49,24 @@ describe("workspace navigation", () => {
     const createItems = screen.getAllByRole("menuitem").map(item => item.textContent);
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Eval"));
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
+    expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/import?source=s3&project=project-1");
+    expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/import?source=local&project=project-1");
+    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/transfers?mode=import");
+    expect(screen.queryByRole("menuitem", { name: "Import" })).not.toBeInTheDocument();
+  });
+  it("links the transfer import shortcut to the S3 browser with project context", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/jobs")) return response([]);
+      if (path.includes("/api/transfers")) return response([]);
+      if (path.includes("/api/import-sources")) return response([]);
+      if (path.includes("/api/projects")) return response([]);
+      return response({});
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    render(<TransfersScreen mode="import" params={new URLSearchParams("project=project-1")} />);
+    await waitFor(() => expect(screen.getByRole("link", { name: "Open full S3 browser" })).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Open full S3 browser" })).toHaveAttribute("href", "#/import?source=s3&project=project-1");
   });
   it("renders linked FAL/eval previews and leaves fallback activity unlinked", async () => {
     const activity = [

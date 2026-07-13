@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Archive, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
 import { ApiError, api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { ActiveTrainingPanel } from "./active-training";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Json, Notice, Page, Panel, ProfileSelect, SelectRecords, Status } from "./ui";
@@ -84,8 +85,10 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   const [projectBusy, setProjectBusy] = useState(false);
   const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const evalRows = rows(evals.data);
   const archived = project.data?.state === "archived";
-  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${id}&scope=project`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a></>}>
+  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${id}&scope=project`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a></>}>
     <Notice error={project.error || projectActionError} loading={project.loading} />
+    {archived && <a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a>}
+    <ActiveTrainingPanel projectId={id} />
     <div className="project-visual-grid" aria-label="Project image collections">
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[0]} assets={rows(datasetImages.data)} loading={datasetImages.loading} error={datasetImages.error} href={projectGalleryHref(id, "dataset_image", { include_dataset_assets: true })} returnTarget={`project/${id}`} />
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[1]} assets={rows(trainingImages.data)} loading={trainingImages.loading} error={trainingImages.error} href={projectGalleryHref(id, "sample")} returnTarget={`project/${id}`} />
@@ -93,7 +96,7 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
     </div>
     <LatestTrainingRun projectId={id} runs={runRows} loading={runs.loading} error={runs.error} />
     <div className="project-resource-grid">
-      <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} empty={!datasets.loading && !datasetRows.length} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div><a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
+      <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div>{!datasets.loading && !datasets.error && !datasetRows.length && <div className="vela-empty"><a className="button vela-button vela-button-primary" href={`#/transfers?mode=import&project=${id}`}>Create a dataset</a></div>}<a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
       <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
       <Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel>
     </div>
@@ -143,10 +146,10 @@ export function LatestTrainingRun({ projectId, runs, loading, error }: { project
 
 function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed: boolean; completed: boolean }) {
   const runId = idOf(run);
-  const runName = str(run.name).toLowerCase();
-  const lossMetric = runName.includes("flat") ? "loss.flat" : runName.includes("render") ? "loss.render" : "loss";
+  const latestLoss = run.latest_loss && typeof run.latest_loss === "object" && !Array.isArray(run.latest_loss) ? run.latest_loss as Row : null;
+  const lossMetric = str(latestLoss?.name, "");
   const samples = useResource<unknown>(`/api/runs/${runId}/samples`);
-  const metrics = useResource<Record<string, unknown>>(`/api/runs/${runId}/metrics?name=${lossMetric}`);
+  const metrics = useResource<Record<string, unknown>>(lossMetric ? `/api/runs/${runId}/metrics${query({ name: lossMetric })}` : null);
   const config = useResource<Record<string, unknown>>(`/api/runs/${runId}/config`);
   const sampleRows = rows(samples.data).sort((left, right) => {
     const stepDifference = Number(right.training_step ?? right.step ?? -1) - Number(left.training_step ?? left.step ?? -1);
@@ -157,7 +160,7 @@ function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed
   const normalized = (config.data?.normalized ?? {}) as Row;
   return <div className="latest-training-run">
     <div className="latest-run-summary"><div className="comparison-stack"><a href={`#/run/${runId}`}><strong>{str(run.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : run.status} /><span>{completed ? "Completed" : "Started"} <time dateTime={str(timestamp, "")}>{formatCanonicalTimestamp(timestamp)}</time></span><span>{str(run.dataset_version_name ?? run.dataset_name, "Dataset not linked")} · {str(run.base_model, "Base model not recorded")}</span></a></div>
-    <dl className="details latest-run-details"><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Steps</dt><dd>{str(normalized.steps ?? normalized.max_train_steps, "Not recorded")}</dd><dt>Learning rate</dt><dd>{scientificNotation(normalized.learning_rate)}</dd></dl></div>
+    <dl className="details latest-run-details"><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Steps</dt><dd>{str(run.current_step ?? normalized.steps ?? normalized.max_train_steps, "Not recorded")}</dd><dt>Learning rate</dt><dd>{scientificNotation(run.learning_rate ?? normalized.learning_rate)}</dd></dl></div>
     <Notice error={samples.error || metrics.error || config.error} loading={samples.loading || metrics.loading || config.loading} />
     <div className="latest-run-visuals"><div className="latest-run-loss"><LossGraph points={metrics.data?.points} /></div>
     {!!sampleRows.length && <div className="latest-run-samples" aria-label="Latest training samples">{sampleRows.map(sample => <AssetImage key={idOf(sample)} assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id ?? sample.id)} alt={str(sample.prompt, "Training sample")} />)}</div>}</div>
@@ -178,9 +181,12 @@ function ProjectImagePanel({ title, assets, loading, error, href, returnTarget }
   return <section className="vela-panel project-image-panel"><div className="vela-section-heading"><h2>{title}</h2><a className="vela-text-button" href={href} aria-label={`View all ${title.toLowerCase()}`}>View all</a></div><Notice error={error} loading={loading} empty={!loading && !assets.length} />{!!assets.length && <div className="project-image-mosaic">{assets.slice(0, 9).map(asset => <a href={`${href}&return=${encodeURIComponent(returnTarget)}&asset=${encodeURIComponent(idOf(asset))}`} key={idOf(asset)}><AssetImage assetRevisionId={idOf(asset)} alt={str(asset.name, title)} loading="lazy" /></a>)}</div>}</section>;
 }
 
-export function ImportScreen({ initialProject = "" }: { initialProject?: string }) {
-  const sourcesResource = useResource<unknown>("/api/import-sources");
-  const projectsResource = useResource<unknown>("/api/projects");
+type ImportMode = "s3" | "local" | "chooser";
+
+export function ImportScreen({ initialProject = "", source = "" }: { initialProject?: string; source?: string | null }) {
+  const mode: ImportMode = source === "s3" || source === "local" ? source : "chooser";
+  const sourcesResource = useResource<unknown>(mode === "s3" ? "/api/import-sources" : null);
+  const projectsResource = useResource<unknown>(mode === "chooser" ? null : "/api/projects");
   const [sourceId, setSourceId] = useState("");
   const [projectId, setProjectId] = useState(initialProject);
   const [prefix, setPrefix] = useState("");
@@ -274,20 +280,37 @@ export function ImportScreen({ initialProject = "" }: { initialProject?: string 
     finally { setBusy(""); }
   }
 
+  if (mode === "chooser") {
+    const projectQuery = initialProject ? `&project=${encodeURIComponent(initialProject)}` : "";
+    return <Page title="Import data" subtitle="Choose where the files or records should come from.">
+      <Panel title="Choose an import workflow">
+        <div className="actions" aria-label="Import source choices">
+          <a className="button vela-button vela-button-primary" href={`#/import?source=s3${projectQuery}`}>Import from S3 storage</a>
+          <a className="button vela-button" href={`#/import?source=local${projectQuery}`}>Import from local folder</a>
+        </div>
+      </Panel>
+    </Page>;
+  }
+
+  if (mode === "local") {
+    return <Page title="Import from local folder" subtitle="Create a dataset from a folder on this device.">
+      <Notice error={error || projectsResource.error} />
+      <Panel title="Local folder">
+        <div className="form-grid"><Field label="Project"><SelectRecords name="project" records={rows(projectsResource.data)} labelKey="title" required value={projectId} onChange={setProjectId} /></Field><Field label="Dataset name"><input value={localName} onChange={event => setLocalName(event.target.value)} /></Field><Field label="Folder"><div className="local-import-dropzone" onDragOver={event => event.preventDefault()} onDrop={event => void handleLocalDrop(event)}><input type="file" multiple accept="image/*,.txt,.json" {...({ webkitdirectory: "" } as Record<string, string>)} onChange={event => { const files = Array.from(event.target.files ?? []).map(file => ({ file, path: file.webkitRelativePath || file.name })); setSelectedLocalFiles(files); }} /><p className="muted">Choose a folder or drop it here. Nested paths are preserved.</p>{localFiles.length > 0 && <p role="status">{localFiles.length} file(s) selected.</p>}</div></Field></div>
+        <div className="actions"><button className="vela-button-primary" onClick={() => void importLocalFolder()} disabled={!projectId || !localName.trim() || !localFiles.length || Boolean(busy)}><Upload size={15} />{busy === "import" ? `Importing ${localProgress}%` : `Import folder (${localFiles.length} files)`}</button></div>
+        {localProgress > 0 && <progress max={100} value={localProgress} aria-label="Local folder import progress" />}
+        {localResult && <div className="vela-notice" role="status"><strong>{str(localResult.state)}</strong><span>{str(localResult.imported, "0")} imported, {str(localResult.duplicates, "0")} duplicates, {rows(localResult.failures).length} failures. <a href={`#/dataset/${str(localResult.dataset_id)}`}>Open dataset</a></span></div>}
+        {localResult && rows(localResult.failures).length > 0 && <Json value={localResult.failures} />}
+      </Panel>
+    </Page>;
+  }
+
   const canBrowse = Boolean(sourceId && !busy);
   const canInspect = Boolean(sourceId && prefix && !busy);
   const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
-
-  return <Page title="Import from storage" subtitle="Browse an S3 bucket, inspect any prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
+  return <Page title="Import from S3 storage" subtitle="Browse an S3-compatible source, inspect a prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
-    <Panel title="Import a local folder">
-      <div className="form-grid"><Field label="Dataset name"><input value={localName} onChange={event => setLocalName(event.target.value)} /></Field><Field label="Folder"><div className="local-import-dropzone" onDragOver={event => event.preventDefault()} onDrop={event => void handleLocalDrop(event)}><input type="file" multiple accept="image/*,.txt,.json" {...({ webkitdirectory: "" } as Record<string, string>)} onChange={event => { const files = Array.from(event.target.files ?? []).map(file => ({ file, path: file.webkitRelativePath || file.name })); setSelectedLocalFiles(files); }} /><p className="muted">Choose a folder or drop it here. Nested paths are preserved.</p>{localFiles.length > 0 && <p role="status">{localFiles.length} file(s) selected.</p>}</div></Field></div>
-      <div className="actions"><button className="vela-button-primary" onClick={() => void importLocalFolder()} disabled={!projectId || !localName.trim() || !localFiles.length || Boolean(busy)}><Upload size={15} />{busy === "import" ? `Importing ${localProgress}%` : `Import folder (${localFiles.length} files)`}</button></div>
-      {localProgress > 0 && <progress max={100} value={localProgress} aria-label="Local folder import progress" />}
-      {localResult && <div className="vela-notice" role="status"><strong>{str(localResult.state)}</strong><span>{str(localResult.imported, "0")} imported, {str(localResult.duplicates, "0")} duplicates, {rows(localResult.failures).length} failures. <a href={`#/dataset/${str(localResult.dataset_id)}`}>Open dataset</a></span></div>}
-      {localResult && rows(localResult.failures).length > 0 && <Json value={localResult.failures} />}
-    </Panel>
-    <Panel title="Source">
+    <Panel title="S3 storage source">
       <div className="form-grid">
         <Field label="Project"><SelectRecords name="project" records={rows(projectsResource.data)} labelKey="title" required value={projectId} onChange={setProjectId} /></Field>
         <Field label="S3 / S3-compatible source"><SelectRecords name="source" records={sources} required value={sourceId} onChange={value => {
@@ -364,16 +387,75 @@ export function SettingsScreen() {
   const [testError, setTestError] = useState("");
   const [testing, setTesting] = useState("");
   const [falKey, setFalKey] = useState("");
+  const [llmKey, setLlmKey] = useState("");
   const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const generation = (settings.data?.generation ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row;
   const [llmProvider, setLlmProvider] = useState("");
+  const [llmModel, setLlmModel] = useState("");
+  const [llmBaseUrl, setLlmBaseUrl] = useState("");
+  const [llmModelFilter, setLlmModelFilter] = useState("");
+  const [llmValidation, setLlmValidation] = useState<Row | null>(null);
+  const [llmValidationError, setLlmValidationError] = useState("");
+  const [providerSaving, setProviderSaving] = useState(false);
   const activeLlmProvider = llmProvider || str(llm.provider, "openai");
+  useEffect(() => {
+    if (!settings.data) return;
+    setLlmProvider(str(llm.provider, "openai"));
+    setLlmModel(str(llm.model, ""));
+    setLlmBaseUrl(str(llm.base_url, ""));
+  }, [settings.data]);
+  const llmCatalog = useResource<Row>(
+    activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim()
+      ? null
+      : `/api/operator-settings/llm-models${query({ provider: activeLlmProvider, base_url: llmBaseUrl.trim() || undefined })}`,
+  );
+  const catalogCredential = (llmCatalog.data?.credential ?? {}) as Row;
+  const selectedCredentialConfigured = typeof catalogCredential.configured === "boolean"
+    ? catalogCredential.configured
+    : activeLlmProvider === str(llm.provider) && Boolean(credentials.llm_configured);
+  const credentialSource = str(catalogCredential.source, "");
+  const providerLabel = ({
+    openai: "OpenAI",
+    openrouter: "OpenRouter",
+    anthropic: "Anthropic",
+    gemini: "Gemini",
+    "openai-compatible": "OpenAI-compatible",
+  } as Record<string, string>)[activeLlmProvider] ?? activeLlmProvider;
+  const llmSelectionDirty = activeLlmProvider !== str(llm.provider, "openai")
+    || llmModel !== str(llm.model, "")
+    || (llmBaseUrl.trim() || null) !== (str(llm.base_url, "") || null);
+  const catalogModels = rows(llmCatalog.data);
+  const modelOptions = catalogModels.map(model => ({
+    value: str(model.id),
+    label: str(model.label, str(model.id)),
+    description: [str(model.id) !== str(model.label) ? str(model.id) : "", str(model.description)].filter(Boolean).join(" · "),
+  }));
+  if (llmModel && !modelOptions.some(option => option.value === llmModel)) {
+    modelOptions.unshift({ value: llmModel, label: llmModel, description: llmCatalog.loading ? "Loading provider catalog…" : "Saved model (not present in the current catalog)" });
+  }
+  const normalizedModelFilter = llmModelFilter.trim().toLowerCase();
+  const visibleModelOptions = normalizedModelFilter
+    ? modelOptions.filter(option => option.value === llmModel || `${option.label} ${option.value} ${option.description}`.toLowerCase().includes(normalizedModelFilter))
+    : modelOptions;
   const test = async (provider: "llm" | "fal") => {
-    setMessage(""); setTestError(""); setTesting(provider);
+    setMessage(""); setTesting(provider);
+    if (provider === "llm") {
+      setLlmValidation(null);
+      setLlmValidationError("");
+    } else {
+      setTestError("");
+    }
     try {
-      const result = await api<Row>(`/api/operator-settings/test/${provider}`, jsonBody({}));
-      setMessage(provider === "fal" && result.mode === "network_validated" ? "FAL: credential accepted by the provider. No generation was submitted." : `${provider.toUpperCase()}: ${result.ok ? "configured" : "needs configuration"}. This checks local configuration only; no provider request was sent.`);
-    } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setTesting(""); }
+      const body = provider === "llm"
+        ? { provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null }
+        : {};
+      const result = await api<Row>(`/api/operator-settings/test/${provider}`, jsonBody(body));
+      if (provider === "llm") setLlmValidation(result);
+      else setMessage("FAL: credential accepted by the provider. No generation was submitted.");
+    } catch (reason) {
+      const error = reason instanceof Error ? reason.message : String(reason);
+      if (provider === "llm") setLlmValidationError(error);
+      else setTestError(error);
+    } finally { setTesting(""); }
   };
   return <Page title="Settings" subtitle="Local operator identity, provider defaults, and storage connections." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
     <Notice error={testError || settings.error || health.error || workspaces.error} loading={settings.loading || health.loading || workspaces.loading} />
@@ -382,8 +464,46 @@ export function SettingsScreen() {
     <Panel title="Account"><div className="form-grid"><Field label="Active comment profile"><ProfileSelect workspaceName={str(workspace?.name, "Workspace")} /></Field>{workspace && <Form submit="Rename workspace" onSubmit={async form => { const updated = await api<Row>(`/api/workspaces/${idOf(workspace)}`, patchBody({ name: form.get("workspace_name") })); setMessage("Workspace renamed."); workspaces.setData([updated]); window.dispatchEvent(new CustomEvent("titles:workspace-updated", { detail: updated })); }}><Field label="Workspace" hint="Single local workspace in this release."><input name="workspace_name" defaultValue={str(workspace.name)} required /></Field></Form>}</div></Panel>
       </div>
       <div className="settings-provider">
-    {settings.data && <Form submit="Save provider settings" onSubmit={async form => { setMessage(""); await api("/api/operator-settings", patchBody({ llm: { provider: form.get("llm_provider"), model: form.get("llm_model"), base_url: String(form.get("llm_base_url") ?? "").trim() || null }, fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) }, generation: { prompt_prepend: String(form.get("prompt_prepend") ?? ""), prompt_append: String(form.get("prompt_append") ?? "") } })); setMessage("Provider and generation settings saved."); await settings.reload(); }}>
-      <Panel title="LLM"><div className="integration-heading"><Status value={credentials.llm_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("llm")} disabled={Boolean(testing)} title={testing ? "Wait for the current configuration check to finish." : "Check model settings and environment credentials without contacting the provider."}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Checking..." : "Check LLM"}</button></div><div className="form-grid"><Field label="Provider"><Dropdown name="llm_provider" aria-label="Provider" defaultValue={str(llm.provider, "openai")} options={[{ value: "openai", label: "OpenAI" }, { value: "anthropic", label: "Anthropic" }, { value: "gemini", label: "Gemini" }, { value: "openai-compatible", label: "OpenAI-compatible" }, { value: "openrouter", label: "OpenRouter" }]} onChange={setLlmProvider} /></Field><Field label="Model" hint={activeLlmProvider === "openrouter" ? "Use an OpenRouter model ID such as openai/gpt-4o-mini." : undefined}><input name="llm_model" defaultValue={str(llm.model, "")} placeholder={activeLlmProvider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-5-mini"} /></Field><Field label="OpenAI-compatible base URL" hint={activeLlmProvider === "openrouter" ? "Optional for OpenRouter. Leave blank to use the standard https://openrouter.ai/api/v1 endpoint." : "Only required for compatible providers."}><input name="llm_base_url" type="url" defaultValue={str(llm.base_url, "")} placeholder={activeLlmProvider === "openrouter" ? "https://openrouter.ai/api/v1 (default)" : "https://api.example.com/v1"} /></Field></div><p className="muted">{activeLlmProvider === "openrouter" ? "OpenRouter uses OPENROUTER_API_KEY (or LLM_API_KEY); leave Base URL blank for its standard endpoint." : "API keys remain in environment variables and are never returned to the browser."}</p></Panel>
+    {settings.data && <Form key={`${str(llm.provider, "openai")}:${str(llm.model, "")}:${str(llm.base_url, "")}`} submit="Save all provider settings" onSubmit={async form => { setProviderSaving(true); setMessage(""); try { await api("/api/operator-settings", patchBody({ llm: { provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null }, fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) }, generation: { prompt_prepend: String(form.get("prompt_prepend") ?? ""), prompt_append: String(form.get("prompt_append") ?? "") } })); setMessage(`${providerLabel} / ${llmModel} saved as the active LLM configuration.`); await settings.reload(); } finally { setProviderSaving(false); } }}>
+      <p className="muted settings-provider-status" role="status">Saved LLM configuration: <strong>{str(llm.provider, "openai")}</strong> / <strong>{str(llm.model, "model not set")}</strong></p>
+      <Panel title="LLM">
+        <div className="integration-heading">
+          <Status value={selectedCredentialConfigured ? `${providerLabel} credential · ${credentialSource || "configured"}` : `${providerLabel} credential missing`} />
+          <div className="actions">
+            <button type="button" onClick={() => void llmCatalog.reload()} disabled={llmCatalog.loading || (activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim())} title="Reload the selected provider's live model catalog."><RefreshCw size={15} aria-hidden="true" />{llmCatalog.loading ? "Loading models…" : "Reload models"}</button>
+            <button type="button" onClick={() => void test("llm")} disabled={Boolean(testing) || !llmModel} title="Authenticate with the selected provider and verify that the chosen model exists in its live catalog."><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Validating…" : "Validate LLM"}</button>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field label="Provider" hint="Changing provider reloads its model catalog.">
+            <Dropdown name="llm_provider" aria-label="Provider" value={activeLlmProvider} options={[{ value: "openai", label: "OpenAI" }, { value: "openrouter", label: "OpenRouter" }, { value: "anthropic", label: "Anthropic" }, { value: "gemini", label: "Gemini" }, { value: "openai-compatible", label: "OpenAI-compatible" }]} onChange={provider => { setLlmProvider(provider); setLlmModel(provider === str(llm.provider) ? str(llm.model, "") : ""); setLlmBaseUrl(provider === str(llm.provider) ? str(llm.base_url, "") : ""); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} />
+          </Field>
+          <Field label="Model" hint={`Pulled from the provider API. ${catalogModels.length ? `${visibleModelOptions.length} of ${catalogModels.length} models shown.` : "Caption-capable models are marked Vision when modality metadata is available."}`}>
+            <div className="model-catalog-picker">
+              <input type="search" aria-label="Filter models" value={llmModelFilter} onChange={event => setLlmModelFilter(event.currentTarget.value)} placeholder={`Filter ${catalogModels.length || "provider"} models…`} />
+              <Dropdown name="llm_model" aria-label="Model" value={llmModel || undefined} placeholder={llmCatalog.loading ? "Loading models…" : normalizedModelFilter && visibleModelOptions.length === 0 ? "No matching models" : "Select a model…"} options={visibleModelOptions} onChange={value => { setLlmModel(value); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} required />
+            </div>
+          </Field>
+          <Field label="API base URL" hint={activeLlmProvider === "openai-compatible" ? "Required. Enter the provider's OpenAI-compatible /v1 endpoint, then reload models." : "Optional override. Leave blank to use the selected provider's standard endpoint."}>
+            <input name="llm_base_url" type="url" value={llmBaseUrl} onChange={event => { setLlmBaseUrl(event.currentTarget.value); setLlmValidation(null); setLlmValidationError(""); }} placeholder={activeLlmProvider === "openai-compatible" ? "https://api.example.com/v1" : "Provider default"} />
+          </Field>
+        </div>
+        {llmSelectionDirty && <div className="vela-notice" role="status"><strong>Unsaved LLM selection</strong><span>{providerLabel} / {llmModel || "select a model"}</span></div>}
+        <div className="actions llm-save-actions">
+          <button type="submit" className="primary" disabled={providerSaving || !llmModel}>{providerSaving ? "Saving LLM configuration…" : "Save LLM configuration"}</button>
+        </div>
+        <Notice error={llmCatalog.error} loading={llmCatalog.loading} empty={!llmCatalog.loading && !llmCatalog.error && modelOptions.length === 0} emptyText={activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim() ? "Enter a base URL to load models." : "The provider returned no models."} />
+        {llmValidationError && <div className="vela-notice vela-notice-error" role="alert"><strong>{providerLabel} validation failed</strong><span>{llmValidationError}</span></div>}
+        {llmValidation && <div className="vela-notice" role="status"><strong>{providerLabel} validated</strong><span>{str(llmValidation.model, llmModel)} was returned by {providerLabel}; credential source: {str(llmValidation.credential_source, credentialSource || "configured")}.</span></div>}
+        <Field label={`${providerLabel} API key`} hint="Write-only. Save the key, reload models, then validate the selected model.">
+          <input type="password" autoComplete="new-password" value={llmKey} onChange={event => setLlmKey(event.currentTarget.value)} placeholder={selectedCredentialConfigured ? `${providerLabel} credential configured — enter a replacement` : `Enter ${providerLabel} API key`} />
+        </Field>
+        <div className="actions">
+          <button type="button" className="primary" disabled={!llmKey.trim()} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "PUT", body: JSON.stringify({ key: llmKey }) }); setLlmKey(""); setMessage(`${providerLabel} key saved. Provider and model selection preserved.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button>
+          <button type="button" disabled={!selectedCredentialConfigured} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "DELETE" }); setLlmKey(""); setMessage(`Saved ${providerLabel} key cleared. Environment credentials, if present, still take precedence.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button>
+        </div>
+        <p className="muted">{activeLlmProvider === "openrouter" ? "OpenRouter uses OPENROUTER_API_KEY (or LLM_API_KEY) when an environment credential is present." : "Environment credentials take precedence over the write-only saved key."}</p>
+      </Panel>
       <Panel title="FAL worker"><Field label="Maximum parallel jobs"><input name="fal_max_parallel_jobs" type="number" min="1" max="32" defaultValue={str(fal.max_parallel_jobs, "4")} /></Field></Panel>
       <Panel title="Generation prompts"><p className="muted">Applied to every Image, Eval, and Grid prompt at compile time. Leave either field empty to disable that affix.</p><div className="form-grid"><Field label="Prompt prepend" hint="Inserted before every submitted prompt."><textarea name="prompt_prepend" defaultValue={str(generation.prompt_prepend, "")} /></Field><Field label="Prompt append" hint="Inserted after every submitted prompt."><textarea name="prompt_append" defaultValue={str(generation.prompt_append, "")} /></Field></div></Panel>
     </Form>}
