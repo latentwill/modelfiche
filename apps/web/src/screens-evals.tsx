@@ -250,7 +250,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
       </div></Panel>
       <Panel title="Generation settings">
         <Form
-          submit="Queue evaluation"
+          submit="Generate Eval"
           onSubmit={async form => {
             if (!project) throw new Error("Select a project context.");
             const chosen = selectedModels.map(id => generationModels.find(model => model.id === id)).filter(Boolean);
@@ -282,7 +282,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
       <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />
       <Panel title="Eval Runs">
         <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
-        {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(run => <a href={`#/eval/${idOf(run)}`} key={idOf(run)}><div className="eval-thumbs">{rows(run.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt="Eval output preview" loading="lazy" />)}</div><strong>{str(run.name, "Eval run")}</strong><span>{str(run.model_version_name, "Checkpoint")} · {str(run.prompt_count, "0")} prompts · {str(run.output_count, "0")} outputs</span><Status value={run.status} /></a>)}</div>}
+        {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(run => <a href={`#/eval/${idOf(run)}`} key={idOf(run)}><div className="comparison-image">{rows(run.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt="Eval output preview" loading="lazy" />)}</div><strong>{str(run.name, "Eval run")}</strong><span>{str(run.model_version_name, "Checkpoint")} · {str(run.prompt_count, "0")} prompts · {str(run.output_count, "0")} outputs</span><Status value={run.status} /></a>)}</div>}
       </Panel>
     </Page>
   );
