@@ -66,7 +66,7 @@
   --vela-duration: 160ms;
   --vela-ease: cubic-bezier(.16, 1, .3, 1);
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
   background-color: var(--vela-bg);
   background-image:
     repeating-linear-gradient(0deg, transparent 0 3px, rgb(18 55 184 / 2%) 3px 4px),
@@ -109,6 +109,9 @@ html[data-theme="dark"] .vela-theme {
   background-size: 32px 32px;
 }
 
+html:has(.vela-theme),
+body:has(.vela-theme) { overflow-x: clip; }
+
 .vela-theme *, .vela-theme *::before, .vela-theme *::after { box-sizing: border-box; }
 .vela-theme h1, .vela-theme h2, .vela-theme h3, .vela-theme p { margin: 0; }
 .vela-theme h1, .vela-theme h2, .vela-theme h3 { text-wrap: balance; }
@@ -131,6 +134,7 @@ html[data-theme="dark"] .vela-theme {
 .vela-sidebar, .vela-inspector {
   position: sticky;
   top: 0;
+  align-self: start;
   block-size: 100vh;
   block-size: 100dvh;
   max-block-size: 100dvh;
@@ -194,8 +198,8 @@ html[data-theme="dark"] .vela-theme {
 .vela-project-tree { margin: 4px 0 0 12px; padding-left: 14px; border-left: 1px solid var(--vela-border); }
 .vela-project-tree .vela-nav-item { min-height: 34px; font-size: 12px; font-weight: 500; }
 .vela-sidebar-footer { flex: 0 0 auto; padding-top: 8px; border-top: 1px solid var(--vela-border); background: var(--vela-surface); }
-.vela-storage { margin-top: 12px; padding: 13px 12px; border: 1px solid var(--vela-border); border-radius: 10px; background: var(--vela-surface-soft); }
-.vela-storage-meter { height: 5px; margin: 10px 0 7px; overflow: hidden; border-radius: 99px; background: var(--vela-border); }
+.vela-storage { margin-top: 12px; padding: 13px 12px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface-soft); }
+.vela-storage-meter { height: 5px; margin: 10px 0 7px; overflow: hidden; border-radius: var(--vela-radius-md); background: var(--vela-border); }
 .vela-storage-meter > span { display: block; height: 100%; background: var(--vela-accent); }
 .vela-meta { color: var(--vela-muted); font: 11px/1.4 var(--vela-font-mono); }
 
@@ -225,34 +229,36 @@ html[data-theme="dark"] .vela-theme {
   background: var(--vela-surface);
 }
 .vela-create-wrap { position: relative; }
-.vela-create-button { width: 42px; min-height: 42px; padding: 0; border: 0; border-radius: 50%; background: var(--vela-accent); color: var(--mf-active-text); font-size: 22px; font-weight: 700; }
-.vela-create-menu { position: absolute; right: 0; top: 49px; z-index: 30; width: 170px; display: grid; padding: 6px; border: 1px solid var(--vela-border); border-radius: 10px; background: var(--vela-surface); box-shadow: 0 6px 8px color-mix(in oklch, var(--vela-fg) 11%, transparent); }
-.vela-create-menu button { padding: 9px; border: 0; border-radius: 7px; background: transparent; text-align: left; font: 700 11px var(--vela-font-display); }
+.vela-create-button { width: 42px; min-height: 42px; display: grid; place-items: center; padding: 0; border: 1px solid var(--mf-active-fill); border-radius: var(--vela-radius-md); background: var(--mf-active-fill); color: var(--mf-active-text); font-size: 22px; font-weight: 700; }
+.vela-create-menu { position: absolute; right: 0; top: 49px; z-index: 30; width: 170px; display: grid; padding: 6px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface); box-shadow: 0 6px 8px color-mix(in oklch, var(--vela-fg) 11%, transparent); }
+.vela-create-menu button { padding: 9px; border: 0; border-radius: var(--vela-radius-md); background: transparent; text-align: left; font: 700 11px var(--vela-font-display); }
 .vela-create-menu button:hover { background: var(--vela-surface-soft); }
 
-.vela-main { display: grid; align-content: start; gap: var(--vela-space-4); padding: 24px; }
-.vela-hero { min-height: 126px; display: grid; grid-template-columns: 1fr 160px; align-items: center; gap: 24px; padding: 24px 28px; overflow: hidden; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface); }
-.vela-hero h1 { font: 700 28px/1.05 var(--vela-font-display); letter-spacing: 0; text-transform: uppercase; }
-.vela-hero p { max-width: 65ch; margin-top: 12px; color: var(--vela-muted); }
-.vela-hero-art { position: relative; height: 82px; align-self: end; }
-.vela-hero-art::before { content: ""; position: absolute; right: 0; bottom: -24px; width: 150px; height: 86px; border-radius: 70% 8px 0 0; background: var(--vela-accent-soft); transform: skewX(-18deg); }
-.vela-hero-art::after { content: ""; position: absolute; right: 24px; top: -18px; width: 54px; height: 74px; border-radius: 32px 8px 0 0; background: color-mix(in oklch, var(--vela-accent) 40%, var(--vela-surface)); }
-.vela-section { margin-top: 20px; }
+.vela-main { display: grid; align-content: start; gap: var(--vela-space-5); padding: var(--vela-space-6); }
+.vela-hero { min-height: 184px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: center; gap: var(--vela-space-6); padding: 32px 36px; overflow: hidden; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface); }
+.vela-hero h1 { font: 700 clamp(48px, 6vw, 72px)/.92 var(--vela-font-display); letter-spacing: -.035em; text-transform: uppercase; }
+.vela-hero p { max-width: 65ch; margin-top: var(--vela-space-4); color: var(--vela-muted); }
+.vela-hero-art { position: relative; height: 136px; display: grid; place-items: center; }
+.vela-reader-symbol { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.vela-reader-symbol-dark { display: none; }
+html[data-theme="dark"] .vela-reader-symbol-light { display: none; }
+html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
+.vela-section { margin-top: var(--vela-space-5); }
 .vela-panel { padding: 16px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface); }
 .vela-section-heading { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
 .vela-section-heading h2 { font: 700 15px/1.05 var(--vela-font-display); text-transform: uppercase; }
 .vela-text-button { padding: 0; border: 0; background: transparent; color: var(--vela-accent); font-size: 12px; font-weight: 700; }
 
-.vela-project-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.vela-project-card { position: relative; overflow: hidden; padding: 0; border: 1px solid var(--vela-border); border-radius: 10px; background: var(--vela-surface); text-align: left; transition: transform var(--vela-duration) var(--vela-ease), border-color var(--vela-duration); }
+.vela-project-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--vela-space-4); }
+.vela-project-card { position: relative; overflow: hidden; padding: 0; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-lg); background: var(--vela-surface); text-align: left; transition: transform var(--vela-duration) var(--vela-ease), border-color var(--vela-duration); }
 .vela-project-card:hover { border-color: var(--vela-accent); transform: translateY(-2px); }
 .vela-project-card[aria-pressed="true"] { border-color: var(--vela-accent); }
 .vela-project-card[aria-pressed="true"]::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; border: 2px solid var(--vela-accent); border-radius: inherit; }
-.vela-project-identity { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px; border-bottom: 1px solid var(--vela-border); background: var(--vela-surface-soft); }
-.vela-project-identity span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--vela-accent); color: var(--vela-surface); font: 700 13px var(--vela-font-display); }
+.vela-project-identity { min-height: 96px; display: flex; align-items: center; justify-content: space-between; gap: var(--vela-space-3); padding: var(--vela-space-5); border-bottom: 1px solid var(--vela-border); background: var(--vela-surface-soft); }
+.vela-project-identity span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--vela-radius-lg); background: var(--vela-accent); color: var(--mf-active-text); font: 700 13px var(--vela-font-display); }
 .vela-project-identity small { color: var(--vela-muted); font: 10px var(--vela-font-mono); text-transform: uppercase; }
-.vela-project-preview { height: 132px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 2px; overflow: hidden; background: var(--vela-border); }
-.vela-project-preview img { width: 100%; height: 100%; min-height: 0; object-fit: cover; background: var(--vela-surface-soft); }
+.vela-project-preview { width: 100%; height: auto; aspect-ratio: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 2px; overflow: hidden; background: var(--vela-border); }
+.vela-project-preview img { width: 100%; height: 100%; min-height: 0; aspect-ratio: 1; object-fit: contain; background: var(--vela-surface-soft); }
 .vela-project-preview img:only-child { grid-column: 1 / -1; grid-row: 1 / -1; }
 .vela-project-art { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: var(--vela-surface-soft); }
 .vela-project-art::before, .vela-project-art::after { content: ""; position: absolute; }
@@ -749,66 +755,50 @@ html[data-theme="dark"] .vela-theme {
   background-image: repeating-linear-gradient(0deg, transparent 0 15px, var(--mf-grid) 15px 16px);
   border-color: var(--mf-border-strong);
 }
-.vela-sidebar { padding: 16px 12px; border-right-width: 2px; }
-.vela-inspector { padding: 16px; border-left-width: 2px; }
+.vela-sidebar { padding: var(--vela-space-4) var(--vela-space-3); border-right-width: 1px; }
+.vela-inspector { padding: var(--vela-space-4); border-left-width: 1px; }
 .vela-sidebar::after,
-.vela-inspector::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  pointer-events: none;
-  background: repeating-linear-gradient(0deg, var(--mf-border-strong) 0 1px, transparent 1px 8px);
-  opacity: .32;
-}
-.vela-sidebar::after { right: 0; }
-.vela-inspector::before { left: 0; }
-.vela-brand { min-height: 48px; padding: 0 8px 16px; border-bottom: 3px double var(--mf-border-strong); }
+.vela-inspector::before { content: none; }
+.vela-brand { min-height: 72px; gap: var(--vela-space-2); padding: 0 var(--vela-space-1) var(--vela-space-4); border-bottom: 1px solid var(--mf-border-strong); }
 .vela-wordmark {
-  width: 160px;
-  height: 32px;
-  overflow: hidden;
-  color: transparent;
-  background: url("/assets/modelfiche-logo.png") left center / contain no-repeat;
+  width: min(184px, calc(100% - 40px));
+  height: auto;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  overflow: visible;
 }
+.vela-wordmark img { display: block; width: 100%; height: auto; max-height: 48px; object-fit: contain; object-position: left center; }
 .vela-workspace-context,
 .vela-storage {
   border: 1px solid var(--mf-border);
-  border-left: 3px solid var(--mf-border-strong);
-  border-radius: 0;
+  border-left: 2px solid var(--mf-border-strong);
+  border-radius: var(--vela-radius-lg);
   background: var(--mf-surface-muted);
   box-shadow: none;
 }
 .vela-nav { gap: 0; }
 .vela-nav-group { margin: 20px 8px 6px; color: var(--mf-ink-muted); font: 700 10px var(--vela-font-mono); letter-spacing: .1em; }
 .vela-nav-group::before { content: "§ "; color: var(--mf-accent); }
-.vela-nav-item { min-height: 38px; padding: 9px 10px; border: 1px solid transparent; border-radius: 0; }
+.vela-nav-item { min-height: 40px; padding: 9px 10px; border: 1px solid transparent; border-radius: var(--vela-radius-md); }
 .vela-nav-item:hover { border-color: var(--mf-border); background: var(--mf-surface-muted); }
 .vela-nav-item[aria-current="page"] { border-color: var(--mf-active-fill); background: var(--mf-active-fill); color: var(--mf-active-text); }
 .vela-project-tree { border-left-color: var(--mf-border-strong); }
-.vela-sidebar-footer { border-top: 3px double var(--mf-border-strong); background: var(--mf-surface); }
+.vela-sidebar-footer { border-top: 1px solid var(--mf-border-strong); background: var(--mf-surface); }
 .vela-rail-label { font-family: var(--vela-font-mono); letter-spacing: .14em; text-transform: uppercase; }
 
 .vela-topbar {
   height: var(--vela-topbar);
-  gap: 16px;
-  padding: 0 24px;
-  border-bottom: 3px double var(--mf-border-strong);
+  gap: var(--vela-space-4);
+  padding: 0 var(--vela-space-5);
+  border-bottom: 1px solid var(--mf-border-strong);
   background: var(--mf-surface);
+  color: var(--mf-ink-strong);
   backdrop-filter: none;
 }
-.vela-topbar::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: -7px;
-  left: 0;
-  height: 4px;
-  pointer-events: none;
-  background: repeating-linear-gradient(90deg, var(--mf-border-strong) 0 1px, transparent 1px 8px);
-  opacity: .4;
-}
+.vela-topbar::after { content: none; }
+.vela-topbar :is(.vela-icon-button, .vela-profile-select.is-compact) { color: var(--mf-ink-strong); }
+.vela-topbar :is(.vela-icon-button, .vela-profile-select.is-compact) svg { stroke: currentColor; }
 .vela-breadcrumbs { color: var(--mf-ink-muted); font: 10px var(--vela-font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .vela-breadcrumbs strong { color: var(--mf-ink-strong); }
 .vela-search,
@@ -819,48 +809,50 @@ html[data-theme="dark"] .vela-theme {
   background: var(--mf-surface);
   box-shadow: inset 3px 0 0 var(--mf-surface-muted);
 }
-.vela-create-button {
+.vela-theme .vela-create-button {
   border: 1px solid var(--mf-active-fill);
-  border-radius: 0;
+  border-radius: var(--vela-radius-md);
   background: var(--mf-active-fill);
   color: var(--mf-active-text);
 }
+.vela-create-button svg { stroke: currentColor; stroke-width: 2.25; }
 .vela-create-menu,
 .vela-search-results {
-  border: 2px solid var(--mf-border-strong);
-  border-radius: 0;
+  border: 1px solid var(--mf-border-strong);
+  border-radius: var(--vela-radius-lg);
   background: var(--mf-surface);
-  box-shadow: 8px 8px 0 var(--mf-shadow);
+  box-shadow: 4px 4px 0 var(--mf-shadow);
 }
-.vela-profile-select.is-compact { border-radius: 0; }
+.vela-profile-select.is-compact { border-color: var(--mf-border-strong); border-radius: var(--vela-radius-md); background: var(--mf-surface); color: var(--mf-ink-strong); }
 
 /* Twelve-column workspace and archival title sheets. */
 .vela-main {
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 16px;
-  padding: 24px;
+  gap: var(--vela-space-5);
+  padding: var(--vela-space-6);
 }
 .vela-main > * { grid-column: 1 / -1; min-width: 0; }
 .vela-page-header,
 .vela-hero {
   position: relative;
-  min-height: 136px;
-  border: 2px solid var(--mf-border-strong);
-  border-radius: 0;
+  min-height: 152px;
+  border: 1px solid var(--mf-border-strong);
+  border-radius: var(--vela-radius-lg);
   background-color: var(--mf-surface);
   background-image:
     linear-gradient(90deg, var(--mf-grid) 1px, transparent 1px),
     linear-gradient(var(--mf-grid) 1px, transparent 1px);
   background-size: 16px 16px;
-  box-shadow: inset 0 0 0 4px var(--mf-surface), inset 0 0 0 5px var(--mf-border);
+  box-shadow: inset 0 0 0 3px var(--mf-surface);
 }
-.vela-page-header { padding: 24px 28px; }
+.vela-page-header { padding: 32px; }
+.vela-hero { min-height: 184px; padding: 32px 36px; }
 .vela-page-header::before,
 .vela-hero::before {
-  content: "MF / ARCHIVE REGISTER";
+  content: "01 / OVERVIEW";
   position: absolute;
-  top: 8px;
-  right: 12px;
+  top: var(--vela-space-2);
+  right: var(--vela-space-3);
   color: var(--mf-ink-muted);
   font: 8px var(--vela-font-mono);
   letter-spacing: .12em;
@@ -875,14 +867,13 @@ html[data-theme="dark"] .vela-theme {
   font: 10px var(--vela-font-mono);
   letter-spacing: .6em;
 }
-.vela-page-header h1,
-.vela-hero h1 { color: var(--mf-ink-primary); font-size: clamp(26px, 3vw, 38px); letter-spacing: -.045em; }
+.vela-page-header h1 { color: var(--mf-ink-primary); font-size: clamp(34px, 4vw, 48px); letter-spacing: -.035em; }
+.vela-hero h1 { color: var(--mf-ink-primary); font-size: clamp(48px, 6vw, 72px); letter-spacing: -.045em; }
 .vela-page-header p,
-.vela-hero p { color: var(--mf-ink-muted); font-size: 13px; }
+.vela-hero p { color: var(--mf-ink-muted); font-size: 14px; }
 .vela-hero-art::before,
-.vela-hero-art::after { border: 1px solid var(--mf-border-strong); border-radius: 0; background: transparent; }
-.vela-hero-art::before { background-image: repeating-linear-gradient(90deg, var(--mf-grid) 0 1px, transparent 1px 8px); }
-.vela-section { margin-top: 16px; }
+.vela-hero-art::after { content: none; }
+.vela-section { margin-top: var(--vela-space-5); }
 .vela-section-heading { padding-bottom: 8px; border-bottom: 3px double var(--mf-border-strong); }
 .vela-section-heading h2::before { content: "▰ "; color: var(--mf-accent); font-size: .72em; }
 
@@ -892,49 +883,40 @@ html[data-theme="dark"] .vela-theme {
 .vela-inspector-card,
 .vela-theme .inspector-panel {
   border: 1px solid var(--mf-border);
-  border-top: 2px solid var(--mf-border-strong);
-  border-radius: 0;
+  border-top: 1px solid var(--mf-border-strong);
+  border-radius: var(--vela-radius-lg);
   background: var(--mf-surface);
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--mf-border) 35%, transparent);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--mf-border) 24%, transparent);
 }
 .vela-project-grid,
-.vela-theme .project-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.vela-theme .project-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--vela-space-4); }
 .vela-project-card,
 .vela-theme .project-card {
   border: 1px solid var(--mf-border);
-  border-radius: 0;
+  border-radius: var(--vela-radius-lg);
   background: var(--mf-surface);
-  box-shadow: inset 0 3px 0 var(--mf-border-strong);
+  box-shadow: inset 0 2px 0 var(--mf-border-strong);
 }
 .vela-project-card:hover,
-.vela-theme .project-card:hover { border-color: var(--mf-border-strong); transform: translateY(-2px); box-shadow: 4px 4px 0 var(--mf-shadow); }
-.vela-project-card::before {
-  content: "MF–" counter(mf-card, decimal-leading-zero);
-  position: absolute;
-  z-index: 4;
-  top: 8px;
-  left: 8px;
-  padding: 3px 5px;
-  background: var(--mf-active-fill);
-  color: var(--mf-active-text);
-  font: 8px var(--vela-font-mono);
-  letter-spacing: .08em;
-}
+.vela-theme .project-card:hover { border-color: var(--mf-border-strong); transform: translateY(-2px); box-shadow: 3px 3px 0 var(--mf-shadow); }
+.vela-project-card::before { content: none; }
 .vela-project-grid { counter-reset: mf-card; }
 .vela-project-card { counter-increment: mf-card; }
 .vela-project-preview,
 .project-image-mosaic,
 .vela-theme .asset-card img,
 .vela-theme .comparison-image img {
-  border-radius: 0;
+  border-radius: var(--vela-radius-md);
   background: var(--mf-media-bed);
 }
-.vela-project-preview { gap: 3px; padding: 3px; border-bottom: 1px solid var(--mf-border-strong); }
+.vela-project-preview { gap: var(--vela-space-1); padding: var(--vela-space-1); border-bottom: 1px solid var(--mf-border-strong); }
+.vela-project-preview img { object-fit: contain; }
 .vela-project-identity { border-bottom-color: var(--mf-border-strong); background: var(--mf-surface-muted); }
-.vela-project-identity span { border: 1px solid var(--mf-border-strong); border-radius: 0; background: var(--mf-active-fill); color: var(--mf-active-text); }
-.vela-project-card-body h3 { color: var(--mf-ink-primary); }
+.vela-project-identity span { border: 1px solid var(--mf-border-strong); border-radius: var(--vela-radius-lg); background: var(--mf-active-fill); color: var(--mf-active-text); }
+.vela-project-card-body { padding: var(--vela-space-4); }
+.vela-project-card-body h3 { color: var(--mf-ink-primary); font-size: 16px; }
 .vela-data-cell,
-.vela-stat { border-left: 2px solid var(--mf-border); border-radius: 0; background: var(--mf-surface-muted); }
+.vela-stat { border-left: 2px solid var(--mf-border); border-radius: var(--vela-radius-md); background: var(--mf-surface-muted); }
 .vela-run-list { gap: 0; border-top: 1px solid var(--mf-border); }
 .vela-run-row {
   min-height: 64px;

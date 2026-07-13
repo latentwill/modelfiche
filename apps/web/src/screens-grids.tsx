@@ -123,7 +123,7 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
     <Panel title="Fixed / global settings">
       <div className="form-grid">
         <Field label="Project"><select value={projectId} onChange={event => { setProjectId(event.target.value); setFixedModelId(""); }}><option value="">Select...</option>{rows(projects.data).map(project => <option value={idOf(project)} key={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field>
-        <Field label="Fixed prompt" hint={xField === "prompt" || yField === "prompt" || zField === "prompt" && zEnabled ? "Prompt is controlled by an axis." : "Used by every cell when Prompt is fixed."}><textarea value={fixedPrompt} disabled={xField === "prompt" || yField === "prompt" || zField === "prompt" && zEnabled} onChange={event => setFixedPrompt(event.target.value)} /></Field>
+        <Field label="Fixed prompt"><textarea value={fixedPrompt} disabled={xField === "prompt" || yField === "prompt" || zField === "prompt" && zEnabled} onChange={event => setFixedPrompt(event.target.value)} /></Field>
         <ModelCheckpointPicker mode="fixed" models={generationModels} selected={fixedModelId ? [fixedModelId] : []} onChange={ids => setFixedModelId(ids[0] ?? "")} label="Fixed model / checkpoint" />
         <GlobalNumber label="Seed" value={seed} onChange={setSeed} varied={xField === "seed" || yField === "seed" || zField === "seed" && zEnabled} />
         <GlobalNumber label="Width" value={width} onChange={setWidth} />
@@ -152,12 +152,12 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
 }
 
 function AxisEditor({ title, field, onField, text, onText, selectedModels, onModels, models, embedded = false }: { title: string; field: GridAxisField; onField: (field: GridAxisField) => void; text: string; onText: (text: string) => void; selectedModels: string[]; onModels: (ids: string[]) => void; models: GenerationModel[]; embedded?: boolean }) {
-  const body = <><Field label="Parameter"><select value={field} onChange={event => onField(event.target.value as GridAxisField)}>{FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>{modelAxisField(field) ? <ModelCheckpointPicker mode="axis" models={models} selected={selectedModels} onChange={onModels} label="Axis model / checkpoints" /> : <Field label="Values" hint="One value per line. Order is preserved; duplicate labels remain separate cells."><textarea value={text} onChange={event => onText(event.target.value)} /></Field>}</>;
+  const body = <><Field label="Parameter"><select value={field} onChange={event => onField(event.target.value as GridAxisField)}>{FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>{modelAxisField(field) ? <ModelCheckpointPicker mode="axis" models={models} selected={selectedModels} onChange={onModels} label="Axis model / checkpoints" /> : <Field label="Values"><textarea value={text} onChange={event => onText(event.target.value)} /></Field>}</>;
   return embedded ? <div className="grid-axis-editor">{body}</div> : <Panel title={title}>{body}</Panel>;
 }
 
 function GlobalNumber({ label, value, onChange, varied = false, step = "1" }: { label: string; value: number; onChange: (value: number) => void; varied?: boolean; step?: string }) {
-  return <Field label={label} hint={varied ? `${label} is controlled by an axis.` : undefined}><input type="number" step={step} value={value} disabled={varied} onChange={event => onChange(Number(event.target.value))} /></Field>;
+  return <Field label={label}><input type="number" step={step} value={value} disabled={varied} onChange={event => onChange(Number(event.target.value))} /></Field>;
 }
 
 function gridAxis(field: GridAxisField, text: string, selected: string[], models: GenerationModel[]): GridAxis {

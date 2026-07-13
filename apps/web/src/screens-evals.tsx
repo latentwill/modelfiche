@@ -274,7 +274,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
         >
           <div className="form-grid">
             <Field label="Seed"><input name="seed" type="number" /></Field><Field label="Width"><input name="width" type="number" min="1" defaultValue="1024" /></Field><Field label="Height"><input name="height" type="number" min="1" defaultValue="1024" /></Field><Field label="Guidance"><input name="guidance" type="number" step="0.1" /></Field><Field label="Steps"><input name="steps" type="number" min="1" /></Field>
-            <Field label="LoRA scale" hint="Applied to the selected checkpoint."><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
+            <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
           </div>
         </Form>
         {message && <div className="vela-notice" role="status"><strong>Eval queued</strong><span>{message}</span></div>}
@@ -315,7 +315,7 @@ function EndpointField({ field, value, schema = {} }: { field: string; value: un
     return <><Field label={label}><select name={field} value={imageSize} onChange={event => setImageSize(event.target.value)}>{options.map(option => <option key={option}>{option}</option>)}<option value="custom">Custom dimensions</option></select></Field>{imageSize === "custom" && <><Field label="Custom width"><input name={`${field}_width`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.width, "1024")} required /></Field><Field label="Custom height"><input name={`${field}_height`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.height, "1024")} required /></Field></>}</>;
   }
   if (type === "enum" && options.length) return <Field label={label}><select name={field} defaultValue={str(value, options[0])}>{options.map(option => <option key={option}>{option}</option>)}</select></Field>;
-  if (type === "integer" || type === "number") return <Field label={label} hint={schema.nullable ? "Optional. Leave empty for provider randomness." : undefined}><input name={field} type="number" min={schema.min === undefined ? undefined : Number(schema.min)} max={schema.max === undefined ? undefined : Number(schema.max)} step={schema.step === undefined ? (type === "integer" ? 1 : "any") : Number(schema.step)} defaultValue={value === undefined ? "" : Number(value)} /></Field>;
+  if (type === "integer" || type === "number") return <Field label={label}><input name={field} type="number" min={schema.min === undefined ? undefined : Number(schema.min)} max={schema.max === undefined ? undefined : Number(schema.max)} step={schema.step === undefined ? (type === "integer" ? 1 : "any") : Number(schema.step)} defaultValue={value === undefined ? "" : Number(value)} /></Field>;
   return <Field label={label}><input name={field} defaultValue={str(value, "")} /></Field>;
 }
 
@@ -554,8 +554,8 @@ export function GridsScreen({ projectId = "", initialModelVersionId = "" }: { pr
 }
 
 function AxisValuesField({ label, field, value, onChange, options }: { label: string; field: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
-  if (["checkpoint_step", "model"].includes(field)) return <Field label={label} hint={options.length ? "Choose one or more valid values." : "Select a base model version first."}><select multiple size={Math.min(5, Math.max(2, options.length))} value={csv(value)} disabled={!options.length} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value).join(", "))}>{options.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}</select></Field>;
-  return <Field label={label} hint="Comma-separated sweep values."><input value={value} onChange={event => onChange(event.target.value)} required /></Field>;
+  if (["checkpoint_step", "model"].includes(field)) return <Field label={label}><select multiple size={Math.min(5, Math.max(2, options.length))} value={csv(value)} disabled={!options.length} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value).join(", "))}>{options.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}</select></Field>;
+  return <Field label={label}><input value={value} onChange={event => onChange(event.target.value)} required /></Field>;
 }
 
 function GridPreview({ xLabel, yLabel, xValues, yValues }: { xLabel: string; yLabel: string; xValues: string[]; yValues: string[] }) {

@@ -517,11 +517,30 @@ def _safe_local_path(location: models.AssetLocation) -> Path:
     path = Path(location.uri.removeprefix("file://")).expanduser().resolve()
     settings = get_settings()
     roots = (settings.asset_root.resolve(), settings.cache_root.resolve())
-    if not any(_is_within_storage_root(path, root) for root in roots):
-        raise DeliverySourceError("local location is outside configured storage roots")
-    if not path.is_file():
+    if any(_is_within_storage_root(path, root) for root in roots):
+        if path.is_file():
+            return path
         raise DeliverySourceError("local content is missing")
-    return path
+    rebased = _rebase_moved_storage_path(path, roots)
+    if rebased is not None:
+        return rebased
+    raise DeliverySourceError("local location is outside configured storage roots")
+
+
+def _rebase_moved_storage_path(path: Path, roots: tuple[Path, ...]) -> Path | None:
+    """Resolve content after the application directory moves with its var tree."""
+    path_parts = path.parts
+    for root in roots:
+        marker = root.parts[-2:]
+        if not marker:
+            continue
+        for index in range(len(path_parts) - len(marker) + 1):
+            if path_parts[index:index + len(marker)] != marker:
+                continue
+            candidate = root.joinpath(*path_parts[index + len(marker):]).resolve()
+            if _is_within_storage_root(candidate, root) and candidate.is_file():
+                return candidate
+    return None
 
 
 def _is_within_storage_root(path: Path, root: Path) -> bool:

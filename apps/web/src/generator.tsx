@@ -24,7 +24,7 @@ export function ModelCheckpointPicker({ models, selected, onChange, multiple, mo
   const isMultiple = pickerModeMultiple(pickerMode);
   const selectedIds = selected.filter(id => models.some(model => model.id === id));
   const ariaLabel = pickerMode === "fixed" ? "Fixed model and checkpoint" : pickerMode === "axis" ? "Axis model checkpoints" : "Models and checkpoints";
-  return <Field label={label} hint="Only real registered checkpoints in the selected context are shown. Unavailable registrations cannot be selected; their reason is shown.">
+  return <Field label={label}>
     <select className={isMultiple ? "vela-multi-select" : undefined} aria-label={ariaLabel} multiple={isMultiple} size={isMultiple ? Math.min(8, Math.max(3, models.length)) : undefined} value={isMultiple ? selectedIds : selectedIds[0] ?? ""} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
       {!isMultiple && <option value="">Select...</option>}
       {models.map(model => {

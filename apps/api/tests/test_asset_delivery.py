@@ -17,7 +17,7 @@ from titles_api.storage.contracts import ContentVariantV1, ThumbnailVariantV1
 from titles_api.storage.delivery import DeliveryTokenError, DeliveryTokenLedger
 from titles_api.storage.gates import StorageGateStore
 from titles_api.storage.repository import StorageRepository
-from titles_api.routers.asset_delivery import AssetDeliveryService, S3Payload, _Selected
+from titles_api.routers.asset_delivery import AssetDeliveryService, DeliverySourceError, S3Payload, _Selected, _safe_local_path
 
 def test_proxy_capability_is_bound_to_its_asset_revision_and_variant():
     now = datetime(2026, 7, 11, tzinfo=UTC)
@@ -124,6 +124,40 @@ def test_expired_capability_is_not_resolved():
             variant=ContentVariantV1(kind="content"),
             host="titles.local",
         )
+
+
+def test_local_delivery_rebases_cache_path_after_application_directory_moves(tmp_path: Path, monkeypatch):
+    asset_root = tmp_path / "new-app" / "var" / "assets"
+    cache_root = tmp_path / "new-app" / "var" / "cache"
+    image_path = cache_root / "objects" / "ab" / "content"
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(b"image")
+    monkeypatch.setenv("TITLES_ASSET_ROOT", str(asset_root))
+    monkeypatch.setenv("TITLES_CACHE_ROOT", str(cache_root))
+    get_settings.cache_clear()
+    location = models.AssetLocation(
+        provider="local",
+        uri=str(tmp_path / "old-app" / "var" / "cache" / "objects" / "ab" / "content"),
+    )
+
+    assert _safe_local_path(location) == image_path.resolve()
+
+
+def test_local_delivery_does_not_rebase_unrelated_outside_paths(tmp_path: Path, monkeypatch):
+    asset_root = tmp_path / "app" / "var" / "assets"
+    cache_root = tmp_path / "app" / "var" / "cache"
+    asset_root.mkdir(parents=True)
+    cache_root.mkdir(parents=True)
+    outside = tmp_path / "other" / "content"
+    outside.parent.mkdir()
+    outside.write_bytes(b"secret")
+    monkeypatch.setenv("TITLES_ASSET_ROOT", str(asset_root))
+    monkeypatch.setenv("TITLES_CACHE_ROOT", str(cache_root))
+    get_settings.cache_clear()
+    location = models.AssetLocation(provider="local", uri=str(outside))
+
+    with pytest.raises(DeliverySourceError, match="outside configured storage roots"):
+        _safe_local_path(location)
 
 
 def test_delivery_prefers_verified_local_copy_when_remote_gate_is_disabled(tmp_path: Path, monkeypatch):

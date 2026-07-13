@@ -16,7 +16,7 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
   const displayed = visible.length ? visible : rows(projects.data);
   const runRows = rows(runs.data);
   return <main className="vela-main">
-    <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and evaluation activity.</p></div><div className="vela-hero-art" aria-hidden="true" /></section>
+    <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and evaluation activity.</p></div><div className="vela-hero-art" aria-hidden="true"><img className="vela-reader-symbol vela-reader-symbol-light" src="/assets/modelfiche-reader-symbol-light.png" alt="" /><img className="vela-reader-symbol vela-reader-symbol-dark" src="/assets/modelfiche-reader-symbol-dark.png" alt="" /></div></section>
     {createProject && <section className="vela-section"><ProjectCreatePanel onCreated={projects.reload} /></section>}
     <section className="vela-section">
       <div className="vela-section-heading"><h2>Available projects</h2><a className="vela-text-button" href="#/projects">View all</a></div>

@@ -16,6 +16,7 @@ htmlcov/
 .od-skills/
 critique.json
 .worktrees/
+tmp/
 
 node_modules/
 .pnpm-store/
