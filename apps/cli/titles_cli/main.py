@@ -31,7 +31,7 @@ from .wandb_helpers import (
 )
 
 
-app = typer.Typer(name="titles", no_args_is_help=True, help="Titles DAM operator and agent CLI")
+app = typer.Typer(name="mfiche", no_args_is_help=True, help="Modelfiche operator and agent CLI")
 
 
 @dataclass(slots=True)
@@ -945,7 +945,7 @@ def import_refresh(ctx: typer.Context, subject: str) -> None:
             ctx,
             "import refresh",
             "Only imported training runs can currently be refreshed",
-            alternative="titles run refresh <run>",
+            alternative="mfiche run refresh <run>",
         )
         return
     call(ctx, lambda client: client.post(f"/api/runs/{subject_id}/refresh"))
@@ -1232,7 +1232,7 @@ def checkpoint_verify(ctx: typer.Context, checkpoint: str) -> None:
         ctx,
         "checkpoint verify",
         "Checkpoint verification is not exposed by the current API",
-        alternative=f"titles checkpoint show {checkpoint}",
+        alternative=f"mfiche checkpoint show {checkpoint}",
     )
 
 
@@ -1579,7 +1579,7 @@ def comment_update(ctx: typer.Context, comment: str, text: str = typer.Option(..
         ctx,
         "comment update",
         "Comments are immutable in the current API",
-        alternative="titles comment add <subject> --text <text>",
+        alternative="mfiche comment add <subject> --text <text>",
     )
 
 
@@ -1624,7 +1624,7 @@ def lineage_path(ctx: typer.Context, source: str, target: str) -> None:
         ctx,
         "lineage path",
         "Lineage path traversal is not exposed by the current API",
-        alternative=f"titles lineage show {source}",
+        alternative=f"mfiche lineage show {source}",
     )
 
 

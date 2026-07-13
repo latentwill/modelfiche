@@ -199,10 +199,10 @@ uv run alembic upgrade head
 uv run alembic check
 
 # Local manual runtime
-uv run titles server start
-uv run titles server status
+uv run mfiche server start
+uv run mfiche server status
 pnpm --dir apps/web dev
-uv run titles server stop
+uv run mfiche server stop
 ```
 
 Migration tests live in `apps/api/tests/test_database_migrations.py` and storage migration/cutover tests. API workflow coverage is concentrated in `test_api_workflow.py`; typed delivery has dedicated delivery/thumbnail/storage tests; FAL has API admission/artifact/recovery plus worker grid/sink tests. Frontend currently has only `asset-image.test.tsx` and `run-loss-graph.test.tsx`; route/filter/lightbox preservation has no dedicated regression suite.

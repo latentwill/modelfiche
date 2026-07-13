@@ -15,6 +15,23 @@ from titles_cli import main
 runner = CliRunner()
 
 
+def test_public_cli_name_is_mfiche_and_legacy_name_is_absent() -> None:
+    result = runner.invoke(main.app, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    assert main.app.info.name == "mfiche"
+    assert "Usage: mfiche " in result.output
+    assert "Usage: titles " not in result.output
+
+
+
+def test_unsupported_guidance_uses_mfiche() -> None:
+    result = runner.invoke(main.app, ["import", "refresh", "asset:asset-1"])
+
+    assert result.exit_code == 5, result.output
+    assert "mfiche run refresh <run>" in result.output
+    assert "titles run refresh <run>" not in result.output
+
 class FakeClient:
     def __init__(self, responses: list[Any] | None = None) -> None:
         self.calls: list[tuple[str, str, dict[str, Any] | None, Any]] = []

@@ -1,4 +1,4 @@
-# Titles DAM Agentic CLI Specification
+# Modelfiche Agentic CLI Specification
 
 ## 1. Purpose
 
@@ -7,18 +7,18 @@ The CLI is a complete automation surface for operators, scripts, and coding agen
 Working command name:
 
 ```text
-titles
+mfiche
 ```
 
 The final binary name can change before implementation. Command and JSON contracts should remain stable once Release 1 is operational.
 
 ## 2. Architecture
 
-The CLI calls the local Titles DAM HTTP API. Domain validation, transactions, activity events, provider access, and safety checks remain in the application service layer.
+The CLI calls the local Modelfiche DAM HTTP API. Domain validation, transactions, activity events, provider access, and safety checks remain in the application service layer.
 
 ```text
 Agent or shell
-  -> titles CLI
+  -> mfiche CLI
   -> localhost API
   -> application services
   -> SQLite / worker / local assets / MEGA S4 / FAL
@@ -29,10 +29,10 @@ The CLI must never write directly to SQLite or the asset directory. This keeps U
 Required daemon commands:
 
 ```text
-titles server start
-titles server status
-titles server stop
-titles doctor
+mfiche server start
+mfiche server status
+mfiche server stop
+mfiche doctor
 ```
 
 `server start` runs or supervises the local API, worker, and frontend as one
@@ -114,13 +114,13 @@ Exit code `3` initially represents missing or invalid local profile context; it 
 Profiles provide attribution without authentication.
 
 ```text
-titles profile list
-titles profile create --name "Ed Kennedy" --email "..."
-titles profile show <profile>
-titles profile use <profile>
-titles profile update <profile> --name "..."
-titles profile archive <profile>
-titles context show
+mfiche profile list
+mfiche profile create --name "Ed Kennedy" --email "..."
+mfiche profile show <profile>
+mfiche profile use <profile>
+mfiche profile update <profile> --name "..."
+mfiche profile archive <profile>
+mfiche context show
 ```
 
 The active profile is a workstation preference. Agents should pass `--profile` explicitly for unattended operations so attribution does not depend on mutable local state.
@@ -132,14 +132,14 @@ Comments, notes, ratings, decisions, imports, dataset publications, model-versio
 ### System and configuration
 
 ```text
-titles version
-titles doctor [--json]
-titles server start|status|stop
-titles config show
-titles config set <key> <value>
-titles connection list
-titles connection test mega
-titles connection test fal
+mfiche version
+mfiche doctor [--json]
+mfiche server start|status|stop
+mfiche config show
+mfiche config set <key> <value>
+mfiche connection list
+mfiche connection test mega
+mfiche connection test fal
 ```
 
 Secret values are environment/1Password supplied and cannot be printed by `config show`.
@@ -147,22 +147,22 @@ Secret values are environment/1Password supplied and cannot be printed by `confi
 ### Projects
 
 ```text
-titles project list [--state active]
-titles project create --name <name> [--trigger <word> ...]
-titles project show <project>
-titles project update <project> [fields]
-titles project archive <project>
-titles project activity <project>
+mfiche project list [--state active]
+mfiche project create --name <name> [--trigger <word> ...]
+mfiche project show <project>
+mfiche project update <project> [fields]
+mfiche project archive <project>
+mfiche project activity <project>
 ```
 
 ### S3 browsing and detection
 
 ```text
-titles s3 sources
-titles s3 ls [<prefix>] [--cursor <cursor>] [--limit 100]
-titles s3 stat <key>
-titles s3 detect <prefix>
-titles s3 tree <prefix> --depth 2 --limit 500
+mfiche s3 sources
+mfiche s3 ls [<prefix>] [--cursor <cursor>] [--limit 100]
+mfiche s3 stat <key>
+mfiche s3 detect <prefix>
+mfiche s3 tree <prefix> --depth 2 --limit 500
 ```
 
 The CLI enforces the same allowed roots as the UI. It does not expose delete, move, rename, upload, ACL, or arbitrary bucket commands in the operator releases.
@@ -170,7 +170,7 @@ The CLI enforces the same allowed roots as the UI. It does not expose delete, mo
 Example:
 
 ```bash
-titles s3 detect \
+mfiche s3 detect \
   title-lora/projects/title/runs/kzapata-specialist-track-b-v002/ \
   --json
 ```
@@ -180,18 +180,18 @@ Expected result includes declared versus observed counts, detected trainer, data
 ### Imports and jobs
 
 ```text
-titles import create --project <project> --prefix <prefix> [--kind dataset|run]
-titles import preview --project <project> --prefix <prefix>
-titles import show <import-job>
-titles import retry <import-job>
-titles import cancel <import-job>
-titles import refresh <imported-object>
+mfiche import create --project <project> --prefix <prefix> [--kind dataset|run]
+mfiche import preview --project <project> --prefix <prefix>
+mfiche import show <import-job>
+mfiche import retry <import-job>
+mfiche import cancel <import-job>
+mfiche import refresh <imported-object>
 
-titles job list [--state running]
-titles job show <job>
-titles job wait <job> [--timeout 600]
-titles job cancel <job>
-titles job logs <job> [--tail 100]
+mfiche job list [--state running]
+mfiche job show <job>
+mfiche job wait <job> [--timeout 600]
+mfiche job cancel <job>
+mfiche job logs <job> [--tail 100]
 ```
 
 `import preview` is read-only. `import create --dry-run` returns the same detection and planned object policy without creating records.
@@ -199,26 +199,26 @@ titles job logs <job> [--tail 100]
 ### Datasets
 
 ```text
-titles dataset list [--project <project>]
-titles dataset show <dataset>
-titles dataset versions <dataset>
-titles dataset items <dataset-version> [filters]
-titles dataset draft create <dataset-version>
-titles dataset draft show <draft>
-titles dataset draft discard <draft>
-titles dataset publish <draft> --name <version-name>
+mfiche dataset list [--project <project>]
+mfiche dataset show <dataset>
+mfiche dataset versions <dataset>
+mfiche dataset items <dataset-version> [filters]
+mfiche dataset draft create <dataset-version>
+mfiche dataset draft show <draft>
+mfiche dataset draft discard <draft>
+mfiche dataset publish <draft> --name <version-name>
 ```
 
 Caption operations:
 
 ```text
-titles caption preview <draft> replace --find <text> --replace <text> [scope]
-titles caption apply   <draft> replace --find <text> --replace <text> [scope]
-titles caption preview <draft> add-word --word <word> [scope]
-titles caption apply   <draft> add-word --word <word> [scope]
-titles caption set <draft> <item> --text <caption>
-titles caption import <draft> --file <jsonl-or-directory>
-titles caption export <dataset-version> --format jsonl|txt-pairs --output <path>
+mfiche caption preview <draft> replace --find <text> --replace <text> [scope]
+mfiche caption apply   <draft> replace --find <text> --replace <text> [scope]
+mfiche caption preview <draft> add-word --word <word> [scope]
+mfiche caption apply   <draft> add-word --word <word> [scope]
+mfiche caption set <draft> <item> --text <caption>
+mfiche caption import <draft> --file <jsonl-or-directory>
+mfiche caption export <dataset-version> --format jsonl|txt-pairs --output <path>
 ```
 
 Scopes use explicit filters rather than UI selection state:
@@ -236,20 +236,20 @@ Batch mutation without an explicit scope is rejected.
 ### W&B credentials and training launches
 
 ```text
-titles wandb key generate --private-key-output <path>
-titles wandb key public --private-key-file <path>
-titles wandb credential register --alias <alias> --public-key <key> [--project <id>]
-titles wandb credential list [--project <id>]
-titles wandb credential rotate <credential> --public-key <key>
-titles wandb credential revoke <credential>
+mfiche wandb key generate --private-key-output <path>
+mfiche wandb key public --private-key-file <path>
+mfiche wandb credential register --alias <alias> --public-key <key> [--project <id>]
+mfiche wandb credential list [--project <id>]
+mfiche wandb credential rotate <credential> --public-key <key>
+mfiche wandb credential revoke <credential>
 
-titles training-launch create --input <launch.json>
-titles training-launch show <launch>
-titles training-launch manifest <launch> [--output <path>]
-titles training-launch environment <launch> [--output <path>]
-titles training-launch agent-environment <launch> --private-key-file <path> [--output <path>]
-titles training-launch inspect <launch>
-titles training-launch wait <launch> [--timeout <seconds>] [--poll-interval <seconds>]
+mfiche training-launch create --input <launch.json>
+mfiche training-launch show <launch>
+mfiche training-launch manifest <launch> [--output <path>]
+mfiche training-launch environment <launch> [--output <path>]
+mfiche training-launch agent-environment <launch> --private-key-file <path> [--output <path>]
+mfiche training-launch inspect <launch>
+mfiche training-launch wait <launch> [--timeout <seconds>] [--poll-interval <seconds>]
 ```
 
 Private key generation is local. `credential register` sends only the public
@@ -265,26 +265,26 @@ exits `7` for failed or interrupted launches.
 ### Runs, checkpoints, samples, and models
 
 ```text
-titles run list [--project <project>] [--status <status>]
-titles run show <run>
-titles run live <run>
-titles run metrics <run> [--name <metric>]
-titles run refresh <run>
-titles run config <run> [--raw|--normalized]
-titles run checkpoints <run>
-titles run samples <run> [--step <step>]
-titles run lineage <run>
+mfiche run list [--project <project>] [--status <status>]
+mfiche run show <run>
+mfiche run live <run>
+mfiche run metrics <run> [--name <metric>]
+mfiche run refresh <run>
+mfiche run config <run> [--raw|--normalized]
+mfiche run checkpoints <run>
+mfiche run samples <run> [--step <step>]
+mfiche run lineage <run>
 
-titles checkpoint show <checkpoint>
-titles checkpoint download <checkpoint> [--output <path>]
-titles checkpoint verify <checkpoint>
+mfiche checkpoint show <checkpoint>
+mfiche checkpoint download <checkpoint> [--output <path>]
+mfiche checkpoint verify <checkpoint>
 
-titles model list [--project <project>]
-titles model create --project <project> --name <name>
-titles model version create <model> --checkpoint <checkpoint> --state candidate
-titles model version approve <model-version>
-titles model version archive <model-version>
-titles model version show <model-version>
+mfiche model list [--project <project>]
+mfiche model create --project <project> --name <name>
+mfiche model version create <model> --checkpoint <checkpoint> --state candidate
+mfiche model version approve <model-version>
+mfiche model version archive <model-version>
+mfiche model version show <model-version>
 ```
 
 Creating a model version records intentional use of a checkpoint. It does not alter, copy, or move the source checkpoint unless an explicit download is requested.
@@ -292,21 +292,21 @@ Creating a model version records intentional use of a checkpoint. It does not al
 ### Prompt sets and Evals
 
 ```text
-titles prompt-set list [--project <project>]
-titles prompt-set create --project <project> --name <name>
-titles prompt-set import --project <project> --file <json>
-titles prompt-set export <prompt-set> --output <file>
-titles prompt-set version <prompt-set> --file <json>
+mfiche prompt-set list [--project <project>]
+mfiche prompt-set create --project <project> --name <name>
+mfiche prompt-set import --project <project> --file <json>
+mfiche prompt-set export <prompt-set> --output <file>
+mfiche prompt-set version <prompt-set> --file <json>
 
-titles eval endpoints
-titles eval schema <endpoint>
-titles eval preview --model-version <id> --prompt-set <id> --endpoint <id> [params]
-titles eval create --model-version <id> --prompt-set <id> --endpoint <id> [params]
-titles eval show <eval-run>
-titles eval wait <eval-run>
-titles eval cancel <eval-run>
-titles eval outputs <eval-run>
-titles eval lineage <eval-run>
+mfiche eval endpoints
+mfiche eval schema <endpoint>
+mfiche eval preview --model-version <id> --prompt-set <id> --endpoint <id> [params]
+mfiche eval create --model-version <id> --prompt-set <id> --endpoint <id> [params]
+mfiche eval show <eval-run>
+mfiche eval wait <eval-run>
+mfiche eval cancel <eval-run>
+mfiche eval outputs <eval-run>
+mfiche eval lineage <eval-run>
 ```
 
 Endpoint-specific arguments may be supplied with repeatable structured parameters:
@@ -321,14 +321,14 @@ Endpoint-specific arguments may be supplied with repeatable structured parameter
 ### Grids
 
 ```text
-titles grid create --model-version <id> --prompt-set <id> --endpoint <id> \
+mfiche grid create --model-version <id> --prompt-set <id> --endpoint <id> \
   --x-axis steps --x-values 18,24,32,40 \
   --y-axis strength --y-values 0.6,0.8,1.0
-titles grid show <grid>
-titles grid run <grid>
-titles grid wait <grid-run>
-titles grid cells <grid-run>
-titles grid export-metadata <grid-run> --output <json>
+mfiche grid show <grid>
+mfiche grid run <grid>
+mfiche grid wait <grid-run>
+mfiche grid cells <grid-run>
+mfiche grid export-metadata <grid-run> --output <json>
 ```
 
 The CLI does not generate a giant composite by default. An optional contact-sheet export can be added later as a derived artifact.
@@ -336,13 +336,13 @@ The CLI does not generate a giant composite by default. An optional contact-shee
 ### Gallery and assets
 
 ```text
-titles gallery list [filters]
-titles asset show <asset>
-titles asset locations <asset>
-titles asset metadata <asset>
-titles asset thumbnail <asset> --size 512 --output <path>
-titles asset download <asset> --output <path>
-titles asset lineage <asset> [--direction both] [--depth 3]
+mfiche gallery list [filters]
+mfiche asset show <asset>
+mfiche asset locations <asset>
+mfiche asset metadata <asset>
+mfiche asset thumbnail <asset> --size 512 --output <path>
+mfiche asset download <asset> --output <path>
+mfiche asset lineage <asset> [--direction both] [--depth 3]
 ```
 
 Gallery filters include project, dataset, run, model version, Eval, asset kind, rating, decision, prompt, seed, step, and hydration state.
@@ -350,17 +350,17 @@ Gallery filters include project, dataset, run, model version, Eval, asset kind, 
 ### Reviews, comments, and notes
 
 ```text
-titles review set <subject> [--rating 1..5] [--decision candidate|approved|hold|reject]
-titles review show <subject>
-titles review list [filters]
+mfiche review set <subject> [--rating 1..5] [--decision candidate|approved|hold|reject]
+mfiche review show <subject>
+mfiche review list [filters]
 
-titles comment list <subject>
-titles comment add <subject> --text <text>
-titles comment update <comment> --text <text>
+mfiche comment list <subject>
+mfiche comment add <subject> --text <text>
+mfiche comment update <comment> --text <text>
 
-titles note list <subject>
-titles note add <subject> --file <markdown-file>
-titles note show <note>
+mfiche note list <subject>
+mfiche note add <subject> --file <markdown-file>
+mfiche note show <note>
 ```
 
 Subjects use typed references:
@@ -377,9 +377,9 @@ dataset-version:<uuid>
 ### Activity and lineage
 
 ```text
-titles activity list [--project <project>] [--profile <profile>] [--since <time>]
-titles lineage show <typed-subject> [--depth 3]
-titles lineage path <typed-subject-a> <typed-subject-b>
+mfiche activity list [--project <project>] [--profile <profile>] [--since <time>]
+mfiche lineage show <typed-subject> [--depth 3]
+mfiche lineage path <typed-subject-a> <typed-subject-b>
 ```
 
 ## 6. Safety Model
@@ -409,13 +409,13 @@ Rules:
 The CLI must be self-describing without prose scraping:
 
 ```text
-titles capabilities --json
-titles schema command <command-path> --json
-titles eval schema <endpoint> --json
-titles enums --json
+mfiche capabilities --json
+mfiche schema command <command-path> --json
+mfiche eval schema <endpoint> --json
+mfiche enums --json
 ```
 
-`titles capabilities` returns feature availability, API/schema versions, configured providers, supported endpoint adapters, allowed S3 roots, and maximum operation limits.
+`mfiche capabilities` returns feature availability, API/schema versions, configured providers, supported endpoint adapters, allowed S3 roots, and maximum operation limits.
 
 OpenAPI remains the canonical network contract. The CLI publishes JSON Schemas for command inputs and outputs generated from the same Pydantic models.
 
@@ -427,7 +427,7 @@ Provide:
 
 ## 8. Compatibility and Versioning
 
-- `titles version --json` reports CLI, API, database schema, and command schema versions.
+- `mfiche version --json` reports CLI, API, database schema, and command schema versions.
 - The CLI refuses unsafe major-version mismatches with the local API.
 - Additive JSON fields are allowed in minor releases.
 - Existing fields and enum meanings do not change silently.

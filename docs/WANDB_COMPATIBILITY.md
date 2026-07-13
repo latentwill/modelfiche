@@ -36,9 +36,9 @@ export TITLES_DATABASE_URL='postgresql+psycopg://modelfiche:...@db/modelfiche'
 export TITLES_WANDB_INGRESS_DATABASE_URL="$TITLES_DATABASE_URL"
 export TITLES_WANDB_INGRESS_BASE_URL='https://dam.example.com'
 
-uv run titles-api
-uv run titles-worker
-uv run titles-wandb-ingress
+uv run mfiche-api
+uv run mfiche-worker
+uv run mfiche-wandb-ingress
 ```
 
 The ingress listens on `127.0.0.1:8401` by default. Override it with `TITLES_WANDB_INGRESS_HOST` and `TITLES_WANDB_INGRESS_PORT`.
@@ -62,7 +62,7 @@ Production deployments should use Postgres. SQLite remains useful for one-proces
 The DAM stores only an Ed25519 public key. Generate the private key locally:
 
 ```bash
-uv run titles --json wandb key generate \
+uv run mfiche --json wandb key generate \
   --private-key-output "$HOME/.config/modelfiche/ai-toolkit-signing.key"
 ```
 
@@ -75,7 +75,7 @@ The command:
 Register the returned `public_key`:
 
 ```bash
-uv run titles --json wandb credential register \
+uv run mfiche --json wandb credential register \
   --alias ai-toolkit-production \
   --project-id <project-id> \
   --public-key <public-key>
@@ -84,7 +84,7 @@ uv run titles --json wandb credential register \
 Recover the public key from an existing private key without contacting the DAM:
 
 ```bash
-uv run titles --json wandb key public \
+uv run mfiche --json wandb key public \
   --private-key-file "$HOME/.config/modelfiche/ai-toolkit-signing.key"
 ```
 
@@ -120,27 +120,27 @@ Create `launch.json`:
 Then create the launch:
 
 ```bash
-uv run titles --json \
+uv run mfiche --json \
   --request-id agent-job-2026-07-13-001 \
   training-launch create --input launch.json
 ```
 
 The response contains `id`, `run_id`, launch state, manifest digest, run prefix, export job identity, backup state, checkpoint handoff state, and the redacted launch manifest. Agents should persist `id`, `run_id`, `client_request_id`, and `manifest_digest`.
 
-The same fields can be supplied as flags. Use `uv run titles training-launch create --help` for the complete flag contract.
+The same fields can be supplied as flags. Use `uv run mfiche training-launch create --help` for the complete flag contract.
 
 ## Produce the trainer environment
 
 The ordinary environment endpoint intentionally contains a token placeholder:
 
 ```bash
-uv run titles training-launch environment <launch-id>
+uv run mfiche training-launch environment <launch-id>
 ```
 
 Render a ready-to-source environment locally by signing the launch's canonical claims:
 
 ```bash
-uv run titles --json training-launch agent-environment <launch-id> \
+uv run mfiche --json training-launch agent-environment <launch-id> \
   --private-key-file "$HOME/.config/modelfiche/ai-toolkit-signing.key" \
   --output /run/secrets/modelfiche-training.env
 ```
@@ -184,7 +184,7 @@ All observation commands support the global `--json`, `--quiet`, `--profile`, `-
 Return the launch contract and current live run state in one JSON document:
 
 ```bash
-uv run titles --json training-launch inspect <launch-id>
+uv run mfiche --json training-launch inspect <launch-id>
 ```
 
 The result has stable top-level `launch` and `run` objects. The live run object includes status, current step, latest loss, learning rate, elapsed seconds, last-event time, metric summaries, upload counts, and sample count.
@@ -192,7 +192,7 @@ The result has stable top-level `launch` and `run` objects. The live run object 
 Wait for a terminal launch state:
 
 ```bash
-uv run titles --json --quiet training-launch wait <launch-id> \
+uv run mfiche --json --quiet training-launch wait <launch-id> \
   --timeout 86400 \
   --poll-interval 5
 ```
@@ -206,23 +206,23 @@ Exit behavior:
 Read the current live projection directly by DAM run ID:
 
 ```bash
-uv run titles --json run live <run-id>
+uv run mfiche --json run live <run-id>
 ```
 
 Read one ordered scalar series:
 
 ```bash
-uv run titles --json run metrics <run-id> --name loss/denoise
-uv run titles --json run metrics <run-id> --name learning_rate
+uv run mfiche --json run metrics <run-id> --name loss/denoise
+uv run mfiche --json run metrics <run-id> --name learning_rate
 ```
 
 Inspect samples, checkpoints, configuration, and lineage:
 
 ```bash
-uv run titles --json run samples <run-id> --limit 20
-uv run titles --json run checkpoints <run-id>
-uv run titles --json run config <run-id>
-uv run titles --json run lineage <run-id>
+uv run mfiche --json run samples <run-id> --limit 20
+uv run mfiche --json run checkpoints <run-id>
+uv run mfiche --json run config <run-id>
+uv run mfiche --json run lineage <run-id>
 ```
 
 For shell agents, parse JSON output rather than scraping human text. Diagnostics and wait progress go to stderr; `--quiet` suppresses wait progress.

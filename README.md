@@ -9,7 +9,7 @@ release is an operator tool: it has local attributed profiles but no auth.
 - FastAPI and SQLite API on `http://127.0.0.1:8400`
 - Durable polling worker for S3 imports, checkpoint hydration, exports, and FAL jobs
 - Bare React operator UI on `http://127.0.0.1:5173`
-- `titles` CLI, designed for both interactive and agentic use
+- `mfiche` CLI, designed for both interactive and agentic use
 - Optional W&B 0.28.0 compatibility ingress on `http://127.0.0.1:8401`
 
 ## Install
@@ -36,13 +36,13 @@ The existing Mega source can be injected from 1Password:
 
 ```bash
 cp .env.1password.example .env.1password
-op run --env-file=.env.1password -- uv run titles server start
+op run --env-file=.env.1password -- uv run mfiche server start
 ```
 
 Create a connector from the CLI:
 
 ```bash
-uv run titles s3 source-create \
+uv run mfiche s3 source-create \
   --name training-runs \
   --bucket my-training-bucket \
   --region us-east-1 \
@@ -51,7 +51,7 @@ uv run titles s3 source-create \
 ```
 
 Add `--endpoint-url https://s3.example.com --addressing-style path` for a
-custom provider. `titles s3 sources` returns the UUID required by browse and
+custom provider. `mfiche s3 sources` returns the UUID required by browse and
 import commands.
 
 ## Remote image serving
@@ -73,8 +73,8 @@ selected and admitted.
 Start the API, worker, and frontend together:
 
 ```bash
-uv run titles server start
-uv run titles server status
+uv run mfiche server start
+uv run mfiche server status
 ```
 
 `server start` waits for the API and frontend health checks, then supervises
@@ -85,7 +85,7 @@ services and `server status` reports failure. The frontend runs at
 Stop the complete service stack with:
 
 ```bash
-uv run titles server stop
+uv run mfiche server stop
 ```
 
 Logs are written to `var/server.log`, `var/worker.log`, `var/web.log`, and
@@ -102,12 +102,12 @@ Generate a local signing key, register only its public key, create a launch,
 and render the trainer environment:
 
 ```bash
-uv run titles --json wandb key generate \
+uv run mfiche --json wandb key generate \
   --private-key-output ~/.config/modelfiche/ai-toolkit-signing.key
-uv run titles --json wandb credential register \
+uv run mfiche --json wandb credential register \
   --alias ai-toolkit --project-id <project-id> --public-key <public-key>
-uv run titles --json training-launch create --input launch.json
-uv run titles --json training-launch agent-environment <launch-id> \
+uv run mfiche --json training-launch create --input launch.json
+uv run mfiche --json training-launch agent-environment <launch-id> \
   --private-key-file ~/.config/modelfiche/ai-toolkit-signing.key \
   --output /run/secrets/modelfiche-training.env
 ```
@@ -123,18 +123,18 @@ pinned compatibility-test procedure.
 All commands accept `--json`; collection commands also support `--jsonl`.
 Mutations accept explicit IDs, the active local profile is sent for attribution,
 and long operations expose durable jobs that can be polled with
-`titles job wait <job-id>`.
+`mfiche job wait <job-id>`.
 
 ```bash
-uv run titles --json profile list
-uv run titles --json project list
-uv run titles --json s3 sources
-uv run titles --json s3 ls --source <source-uuid> --prefix completed-runs/
-uv run titles --json import create --source <source-uuid> \
+uv run mfiche --json profile list
+uv run mfiche --json project list
+uv run mfiche --json s3 sources
+uv run mfiche --json s3 ls --source <source-uuid> --prefix completed-runs/
+uv run mfiche --json import create --source <source-uuid> \
   --project <project-uuid> --prefix completed-runs/example/ --wait
 ```
 
-Use `uv run titles --help` for the full command tree.
+Use `uv run mfiche --help` for the full command tree.
 
 ## Operator APIs
 
