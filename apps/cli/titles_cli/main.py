@@ -10,6 +10,8 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -1316,76 +1318,145 @@ def project_root() -> Path:
             return candidate
     return Path(__file__).resolve().parents[4]
 
+def _pid_is_alive(path: Path) -> tuple[int | None, bool]:
+    try:
+        pid = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None, False
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return pid, False
+    return pid, True
+
+
+def _url_is_ready(url: str, *, timeout: float = 0.5) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return 200 <= response.status < 500
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def _terminate_pid(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _service_pid_paths(var: Path) -> dict[str, Path]:
+    return {
+        "supervisor": var / "supervisor.pid",
+        "api": var / "server.pid",
+        "worker": var / "worker.pid",
+        "web": var / "web.pid",
+    }
+
+
+def _stack_state(root_path: Path) -> dict[str, Any]:
+    var = root_path / "var"
+    paths = _service_pid_paths(var)
+    api_port = int(os.environ.get("TITLES_API_PORT", "8400"))
+    web_port = int(os.environ.get("TITLES_WEB_PORT", "5173"))
+    services: dict[str, dict[str, Any]] = {}
+    for name, path in paths.items():
+        pid, alive = _pid_is_alive(path)
+        healthy = alive
+        if name == "api":
+            healthy = alive and _url_is_ready(f"http://127.0.0.1:{api_port}/api/health")
+        elif name == "web":
+            healthy = alive and _url_is_ready(f"http://127.0.0.1:{web_port}/")
+        services[name] = {"pid": pid, "running": alive, "healthy": healthy}
+    ready = (var / "server.ready").exists()
+    ok = ready and all(service["healthy"] for service in services.values())
+    return {
+        "ok": ok,
+        "running": any(service["running"] for service in services.values()),
+        "ready": ready,
+        "services": services,
+        "api_url": f"http://127.0.0.1:{api_port}",
+        "web_url": f"http://127.0.0.1:{web_port}",
+    }
+
 
 @server_app.command("start")
 def server_start(ctx: typer.Context) -> None:
     root_path = project_root()
     var = root_path / "var"
     var.mkdir(parents=True, exist_ok=True)
-    pid_paths = {"api": var / "server.pid", "worker": var / "worker.pid"}
+    pid_paths = _service_pid_paths(var)
     for service, pid_path in pid_paths.items():
         if not pid_path.exists():
             continue
-        try:
-            os.kill(int(pid_path.read_text().strip()), 0)
+        _pid, alive = _pid_is_alive(pid_path)
+        if alive:
             raise typer.BadParameter(f"{service} is already running")
-        except ProcessLookupError:
-            pid_path.unlink(missing_ok=True)
-    api_log = (var / "server.log").open("ab")
-    worker_log = (var / "worker.log").open("ab")
+        pid_path.unlink(missing_ok=True)
+    (var / "server.ready").unlink(missing_ok=True)
+    (var / "server.error").unlink(missing_ok=True)
     pythonpath = os.pathsep.join(str(root_path / "apps" / name) for name in ("api", "worker", "cli"))
     env = {
         **os.environ,
         "PYTHONPATH": pythonpath,
+        "TITLES_PROJECT_ROOT": str(root_path),
         "TITLES_RUN_LEASE_ID": str(uuid.uuid4()),
         "TITLES_RUN_LOCK": str(var / "titles-dam.run.lock"),
     }
-    api_process = subprocess.Popen(
-        [sys.executable, "-m", "titles_api"],
-        cwd=root_path,
-        env=env,
-        stdout=api_log,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    worker_process = subprocess.Popen(
-        [sys.executable, "-m", "titles_worker.main"],
-        cwd=root_path,
-        env=env,
-        stdout=worker_log,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    pid_paths["api"].write_text(str(api_process.pid), encoding="utf-8")
-    pid_paths["worker"].write_text(str(worker_process.pid), encoding="utf-8")
-    emit(
-        {"ok": True, "api_pid": api_process.pid, "worker_pid": worker_process.pid, "url": "http://127.0.0.1:8400"},
-        json_output=rt(ctx).json_output,
-    )
+    supervisor_log = (var / "supervisor.log").open("ab")
+    try:
+        supervisor = subprocess.Popen(
+            [sys.executable, "-m", "titles_cli.server_supervisor"],
+            cwd=root_path,
+            env=env,
+            stdout=supervisor_log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    finally:
+        supervisor_log.close()
+    pid_paths["supervisor"].write_text(str(supervisor.pid), encoding="utf-8")
+    timeout = float(os.environ.get("TITLES_SERVER_START_TIMEOUT", "20"))
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if (var / "server.ready").exists():
+            state = _stack_state(root_path)
+            emit(state, json_output=rt(ctx).json_output)
+            return
+        if supervisor.poll() is not None:
+            detail = (var / "server.error").read_text(encoding="utf-8") if (var / "server.error").exists() else "service supervisor exited during startup"
+            raise typer.BadParameter(detail)
+        time.sleep(0.1)
+    _terminate_pid(supervisor.pid)
+    raise typer.BadParameter(f"service stack did not become ready within {timeout:g}s")
 
 
 @server_app.command("status")
 def server_status(ctx: typer.Context) -> None:
-    call(ctx, lambda client: client.get("/api/health"))
+    state = _stack_state(project_root())
+    emit(state, json_output=rt(ctx).json_output)
+    if not state["ok"]:
+        raise typer.Exit(code=1)
 
 
 @server_app.command("stop")
 def server_stop(ctx: typer.Context) -> None:
     var = project_root() / "var"
-    pid_paths = [var / "server.pid", var / "worker.pid"]
-    existing = [path for path in pid_paths if path.exists()]
-    if not existing:
-        emit({"ok": True, "running": False}, json_output=rt(ctx).json_output)
-        return
-    pids = []
-    for pid_path in existing:
-        pid = int(pid_path.read_text().strip())
-        pids.append(pid)
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        pid_path.unlink(missing_ok=True)
+    pid_paths = _service_pid_paths(var)
+    pids: list[int] = []
+    for name in ("supervisor", "web", "worker", "api"):
+        path = pid_paths[name]
+        pid, alive = _pid_is_alive(path)
+        if pid is not None:
+            pids.append(pid)
+        if alive and pid is not None:
+            _terminate_pid(pid)
+        path.unlink(missing_ok=True)
+    (var / "server.ready").unlink(missing_ok=True)
+    (var / "server.error").unlink(missing_ok=True)
     emit({"ok": True, "running": False, "pids": pids}, json_output=rt(ctx).json_output)
 
 
