@@ -27,6 +27,30 @@ DEFAULT_OPERATOR_SETTINGS = {
     "fal": {"max_parallel_jobs": 4},
     "generation": {"prompt_prepend": "", "prompt_append": ""},
 }
+_LLM_PROVIDER_ALIASES = {
+    "openai": "openai",
+    "openai-compatible": "openai-compatible",
+    "openai_compatible": "openai-compatible",
+    "openrouter": "openrouter",
+    "open-router": "openrouter",
+    "open_router": "openrouter",
+    "anthropic": "anthropic",
+    "claude": "anthropic",
+    "gemini": "gemini",
+    "google": "gemini",
+}
+
+
+def _llm_credential_present(provider: object) -> bool:
+    normalized = _LLM_PROVIDER_ALIASES.get(str(provider or "").strip().lower())
+    names = {
+        "openai": ("LLM_API_KEY", "OPENAI_API_KEY"),
+        "openai-compatible": ("LLM_API_KEY", "OPENAI_API_KEY"),
+        "openrouter": ("OPENROUTER_API_KEY", "LLM_API_KEY"),
+        "anthropic": ("LLM_API_KEY", "ANTHROPIC_API_KEY"),
+        "gemini": ("LLM_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    }.get(normalized, ())
+    return any(os.getenv(name) for name in names)
 
 
 class OperatorSettingsUpdate(BaseModel):
@@ -67,11 +91,10 @@ class GeneratedPrompt(BaseModel):
 
 
 class PromptSetGenerateResponse(BaseModel):
-    provider: Literal["openai", "openai-compatible", "anthropic", "gemini"]
+    provider: Literal["openai", "openai-compatible", "openrouter", "anthropic", "gemini"]
     model: str
     prompts: list[GeneratedPrompt]
     persisted: bool = False
-
 
 def _preference(db: Session) -> models.LocalPreference:
     preference = db.scalar(select(models.LocalPreference).where(models.LocalPreference.key == "operator_settings"))
@@ -101,11 +124,14 @@ def _merge_settings(current: dict[str, Any], patch: OperatorSettingsUpdate) -> d
     concurrency = result["fal"].get("max_parallel_jobs")
     if not isinstance(concurrency, int) or not 1 <= concurrency <= 32:
         raise HTTPException(status_code=422, detail="fal.max_parallel_jobs must be between 1 and 32")
-    llm_provider = str(result["llm"].get("provider") or "").lower()
-    if llm_provider not in {"openai", "openai-compatible", "openai_compatible", "anthropic", "claude", "gemini", "google"}:
+    llm_provider = str(result["llm"].get("provider") or "").strip().lower()
+    normalized_llm_provider = _LLM_PROVIDER_ALIASES.get(llm_provider)
+    if not normalized_llm_provider:
         raise HTTPException(status_code=422, detail="unsupported llm.provider")
-    if llm_provider in {"openai-compatible", "openai_compatible"} and not result["llm"].get("base_url"):
+    if normalized_llm_provider == "openai-compatible" and not result["llm"].get("base_url"):
         raise HTTPException(status_code=422, detail="llm.base_url is required for openai-compatible")
+    if normalized_llm_provider == "openrouter":
+        result["llm"]["provider"] = "openrouter"
     return result
 
 
@@ -118,7 +144,7 @@ def operator_settings(db: DB):
     return {
         **values,
         "credentials": {
-            "llm_configured": bool(os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
+            "llm_configured": _llm_credential_present(values["llm"].get("provider")),
             "fal_configured": fal_status["configured"],
             "storage_credentials_stored": False,
         },
@@ -145,7 +171,7 @@ def test_operator_configuration(provider: Literal["llm", "fal", "storage"], db: 
     if provider == "llm":
         llm = values.get("llm", {})
         configured = bool(llm.get("provider") and llm.get("model"))
-        key_present = bool(os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+        key_present = _llm_credential_present(llm.get("provider"))
         return {"provider": provider, "ok": configured and key_present, "mode": "configuration_only", "configured": configured, "credential_present": key_present, "network_called": False}
     if provider == "fal":
         store = fal_secret_store()

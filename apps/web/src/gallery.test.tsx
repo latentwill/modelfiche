@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AssetGrid, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
+import assetsSource from "./screens-assets.tsx?raw";
 
 vi.mock("./asset-image", () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 
@@ -52,10 +53,29 @@ describe("gallery navigation contracts", () => {
     expect(Object.fromEntries(params)).toMatchObject({ project: "project-1", eval: "run-7", category: "eval_output", asset: "eval-asset", return: "eval/run-7?model=model-2" });
   });
 
-  it("suppresses gallery shortcuts while the operator is typing", () => {
+  it("suppresses gallery shortcuts while the operator is typing or choosing a filter", () => {
     const input = document.createElement("input");
+    const dropdown = document.createElement("div");
+    dropdown.className = "vela-dropdown";
+    const dropdownButton = document.createElement("button");
+    dropdown.append(dropdownButton);
     const button = document.createElement("button");
     expect(isGalleryShortcutTarget(input)).toBe(true);
+    expect(isGalleryShortcutTarget(dropdownButton)).toBe(true);
     expect(isGalleryShortcutTarget(button)).toBe(false);
+  });
+
+  it("keeps Gallery and project Dropdowns while presenting caption metadata as read-only", () => {
+    const gallery = assetsSource.slice(assetsSource.indexOf("export function GalleryScreen"), assetsSource.indexOf("function GalleryImageOverlay"));
+    expect(gallery).not.toContain("<select");
+    expect(gallery.match(/<Dropdown/g)).toHaveLength(7);
+    expect(gallery).toContain('include_dataset_assets: value === "dataset_image"');
+    expect(assetsSource).not.toContain('<Dropdown aria-label="Caption method" disabled');
+    expect(assetsSource).not.toContain('<Dropdown aria-label="Caption format" disabled');
+    expect(assetsSource).toContain('<input aria-label="Caption method" readOnly value="Manual edit"');
+    expect(assetsSource).toContain('<input aria-label="Caption format" readOnly value={str(activeVersion?.caption_format, "Text")}');
+    expect(assetsSource).toContain('title="Only manual caption editing is currently supported"');
+    expect(assetsSource).toContain('title="Format conversion is not supported by this operation"');
+    expect(assetsSource).toContain('<Dropdown aria-label="Project" name="project_id" required defaultValue={projectId}');
   });
 });

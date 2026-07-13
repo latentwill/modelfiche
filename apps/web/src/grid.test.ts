@@ -1,32 +1,49 @@
 import { createElement } from "react";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axisValues, compileGridPlan, type GridAxis } from "./grid";
 import type { GenerationModel } from "./generation";
-import { GridBoard } from "./screens-grids";
-import gridSource from "./screens-grids.tsx?raw";
+import { GridBoard, GridsScreen } from "./screens-grids";
 
 const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelId: `family-${id}`, projectId: "project", name: `Model ${id}`,
   checkpointLabel: `step ${id}`, checkpointRevisionId: `revision-${id}`, provider: "fal", endpoint, providerModelUrl: `fal://${id}`, available: true });
 
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("grid planner", () => {
-  it("uses the fixed/global and ordered axis workflow without legacy Scope controls", () => {
-    expect(gridSource).toContain("Fixed / global settings");
-    expect(gridSource).toContain("X axis · columns");
-    expect(gridSource).toContain("Y axis · rows");
-    expect(gridSource).toContain("Z axis · optional subgrids");
-    expect(gridSource).toContain("<ModelCheckpointPicker mode=\"axis\"");
-    expect(gridSource).toContain("<ModelCheckpointPicker mode=\"fixed\"");
-    expect(gridSource).toContain("Grid incomplete");
-    expect(gridSource).toContain('workflow: "grid"');
-    expect(gridSource).toContain("children: compiled");
-    expect(gridSource).toContain('queue.error ? `/api/grids/${id}` : null');
-    expect(gridSource).toContain("Historical · read only");
-    expect(gridSource).not.toMatch(/\bScope\b/);
-    for (const removed of ["Prompt source", "Num Images", "Acceleration vs Rendering Speed", "billing acknowledgement", "Provider / endpoint"])
-      expect(gridSource).not.toContain(removed);
+  it("renders shared Dropdown controls and preserves project and axis state transitions", async () => {
+    const modelRow = (id: string, projectId: string, name: string) => ({
+      id, project_id: projectId, model_id: `family-${id}`, name, filename: `${id}.safetensors`, checkpoint_step: 1,
+      checkpoint_revision_id: `revision-${id}`, fal_url: `fal://${id}`, endpoint_id: `endpoint-${id}`,
+    });
+    vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem: vi.fn(), removeItem: vi.fn() });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async request => {
+      const url = typeof request === "string" ? request : typeof request === "object" && request !== null && "url" in request ? String(request.url) : String(request);
+      const projectId = /[?&]project_id=([^&]+)/.exec(url)?.[1];
+      const body = url.includes("/api/projects") ? [{ id: "project-a", title: "Project A" }, { id: "project-b", title: "Project B" }]
+        : url.includes("/api/model-versions") && projectId === "project-a" ? [modelRow("version-a", "project-a", "Model A")]
+          : url.includes("/api/model-versions") && projectId === "project-b" ? [modelRow("version-b", "project-b", "Model B")]
+            : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const view = render(createElement(GridsScreen, { params: new URLSearchParams("project=project-a&model_version=version-a") }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Project" })).toHaveTextContent("Project A"));
+    expect(view.container.querySelector("select:not([multiple])")).toBeNull();
+    const fixedModel = screen.getByRole("button", { name: "Fixed model and checkpoint" });
+    await waitFor(() => expect(fixedModel).toHaveTextContent("Model A"));
+
+    const project = screen.getByRole("button", { name: "Project" });
+    fireEvent.click(project);
+    fireEvent.click(screen.getByRole("option", { name: "Project B" }));
+    expect(project).toHaveTextContent("Project B");
+    expect(fixedModel).toHaveTextContent("Select...");
+
+    const xAxis = screen.getAllByRole("button", { name: "Parameter" })[0];
+    xAxis.focus();
+    fireEvent.keyDown(xAxis, { key: "ArrowDown" });
+    fireEvent.keyDown(xAxis, { key: "ArrowDown" });
+    fireEvent.keyDown(xAxis, { key: "Enter" });
+    expect(xAxis).toHaveTextContent("Seed");
   });
 
   it("maps four prompts and two seeds to ordered X columns and Y rows with duplicate labels", () => {

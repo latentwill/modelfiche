@@ -20,6 +20,9 @@ _PROVIDER_ALIASES = {
     "openai": "openai",
     "openai-compatible": "openai-compatible",
     "openai_compatible": "openai-compatible",
+    "openrouter": "openrouter",
+    "open-router": "openrouter",
+    "open_router": "openrouter",
     "anthropic": "anthropic",
     "claude": "anthropic",
     "gemini": "gemini",
@@ -52,6 +55,8 @@ class PromptGenerator:
             with httpx.Client(transport=self.transport, timeout=self.timeout) as client:
                 if normalized_provider in {"openai", "openai-compatible"}:
                     raw = self._openai(client, normalized_provider, model, prompt, base_url)
+                elif normalized_provider == "openrouter":
+                    raw = self._openrouter(client, model, prompt, base_url)
                 elif normalized_provider == "anthropic":
                     raw = self._anthropic(client, model, prompt, base_url)
                 else:
@@ -98,6 +103,28 @@ class PromptGenerator:
             return str(response.json()["choices"][0]["message"]["content"])
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMResponseError("OpenAI response did not contain message content") from exc
+
+    def _openrouter(self, client: httpx.Client, model: str, prompt: str, base_url: str | None) -> str:
+        key = self._key("OPENROUTER_API_KEY", "LLM_API_KEY")
+        root = (base_url or "https://openrouter.ai/api/v1").rstrip("/")
+        url = f"{root}/chat/completions" if not root.endswith("/chat/completions") else root
+        headers = {"authorization": f"Bearer {key}"}
+        site_url = os.getenv("OPENROUTER_SITE_URL")
+        site_title = os.getenv("OPENROUTER_SITE_TITLE")
+        if site_url and site_url.strip():
+            headers["HTTP-Referer"] = site_url.strip()
+        if site_title and site_title.strip():
+            headers["X-Title"] = site_title.strip()
+        response = client.post(url, headers=headers, json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.4,
+        })
+        self._raise(response)
+        try:
+            return str(response.json()["choices"][0]["message"]["content"])
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise LLMResponseError("OpenRouter response did not contain message content") from exc
 
     def _anthropic(self, client: httpx.Client, model: str, prompt: str, base_url: str | None) -> str:
         key = self._key("LLM_API_KEY", "ANTHROPIC_API_KEY")

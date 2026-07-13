@@ -14,13 +14,22 @@ import {
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
-import { DataTable, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
+import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
 import { EndpointFields, GenerationQueue, ModelCheckpointPicker, parametersFromForm } from "./generator";
 import { connectedFalGenerationModels, generationModelFromRow } from "./generation";
 import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
+const evalAxisLabels: Record<string, string> = {
+  prompt: "Prompt",
+  seed: "Seed",
+  guidance: "Guidance",
+  steps: "Steps",
+  lora_scale: "LoRA scale",
+  checkpoint_step: "Model / checkpoint",
+  model: "Model / checkpoint",
+};
 
 export function PromptSetsScreen({ projectId = "", promptSetId = "" }: { projectId?: string; promptSetId?: string }) {
   const resource = useResource<unknown>(`/api/prompt-sets${query({ project_id: projectId })}`);
@@ -97,12 +106,15 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
     <Panel title="Prompt-set builder">
       <div className="prompt-builder-toolbar">
         <Field label="Saved set">
-          <select value={selectedId} onChange={event => onSelect(event.target.value)}>
-            <option value="">New prompt set...</option>
-            {rows(resource.data).map(set => (
-              <option key={idOf(set)} value={idOf(set)}>{str(set.name)} · v{str(set.version, "1")}</option>
-            ))}
-          </select>
+          <Dropdown
+            aria-label="Saved set"
+            value={selectedId}
+            onChange={onSelect}
+            options={[
+              { value: "", label: "New prompt set..." },
+              ...rows(resource.data).map(set => ({ value: idOf(set), label: `${str(set.name)} · v${str(set.version, "1")}` })),
+            ]}
+          />
         </Field>
         <Field label="Find"><input value={find} onChange={event => setFind(event.target.value)} /></Field>
         <Field label="Replace"><input value={replace} onChange={event => setReplace(event.target.value)} /></Field>
@@ -254,10 +266,42 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
     >
       <Notice error={models.error || modelFamilies.error || projects.error || endpoints.error} loading={models.loading || modelFamilies.loading || projects.loading || endpoints.loading} />
       <Panel title="Evaluation context"><div className="form-grid">
-        <Field label="Scope"><select value={scope} onChange={event => { setScope(event.target.value as "project" | "model"); setSelectedModels([]); }}><option value="project">Project</option><option value="model">Model / checkpoint</option></select></Field>
-        <Field label="Project"><select value={project} onChange={event => { setProject(event.target.value); setModelId(""); setSelectedModels([]); }}><option value="">Select…</option>{rows(projects.data).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.title ?? row.name)}</option>)}</select></Field>
-        {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelectedModels([]); }}><option value="">Select…</option>{rows(modelFamilies.data).filter(row => eligibleModelIds.has(idOf(row))).map(row => <option key={idOf(row)} value={idOf(row)}>{str(row.name)}</option>)}</select></Field>}
-      </div><ModelCheckpointPicker models={generationModels} selected={selectedModels} onChange={setSelectedModels} />
+        <Field label="Scope">
+          <Dropdown
+            aria-label="Scope"
+            value={scope}
+            onChange={value => { setScope(value as "project" | "model"); setSelectedModels([]); }}
+            options={[
+              { value: "project", label: "Project" },
+              { value: "model", label: "Model / checkpoint" },
+            ]}
+          />
+        </Field>
+        <Field label="Project">
+          <Dropdown
+            aria-label="Project"
+            value={project}
+            onChange={value => { setProject(value); setModelId(""); setSelectedModels([]); }}
+            options={[
+              { value: "", label: "Select…" },
+              ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) })),
+            ]}
+          />
+        </Field>
+        {scope === "model" && <Field label="Model">
+          <Dropdown
+            aria-label="Model"
+            value={modelId}
+            onChange={value => { setModelId(value); setSelectedModels([]); }}
+            options={[
+              { value: "", label: "Select…" },
+              ...rows(modelFamilies.data)
+                .filter(row => eligibleModelIds.has(idOf(row)))
+                .map(row => ({ value: idOf(row), label: str(row.name) })),
+            ]}
+          />
+        </Field>}
+      </div><ModelCheckpointPicker mode="multiple" models={generationModels} selected={selectedModels} onChange={setSelectedModels} />
       {selectedModels.map(id => { const model = generationModels.find(item => item.id === id); return model && !model.available ? <div className="vela-notice vela-notice-error" role="alert" key={id}>{model.name} / {model.checkpointLabel}: {model.unavailableReason}</div> : null; })}</Panel>
       <div className={`vela-notice${evalPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>Eval preflight</strong><span>{evalPreflightError || `Ready to compare ${readyPromptCount} prompt${readyPromptCount === 1 ? "" : "s"} across ${selectedGenerationModels.length} checkpoint${selectedGenerationModels.length === 1 ? "" : "s"}.`}</span></div>
       <Panel title="Ordered manual prompts"><div className="prompt-editor">
@@ -525,27 +569,50 @@ export function GridsScreen({ projectId = "", initialModelVersionId = "" }: { pr
           }}
         >
           <div className="form-grid">
-            <ModelCheckpointPicker multiple={false} models={generationModels} selected={modelVersionId ? [modelVersionId] : []} onChange={ids => setModelVersionId(ids[0] ?? "")} />
+            <ModelCheckpointPicker mode="single" models={generationModels} selected={modelVersionId ? [modelVersionId] : []} onChange={ids => setModelVersionId(ids[0] ?? "")} label="Model and checkpoint" />
             <Field label="Prompt source"><SelectRecords name="prompt_set_id" records={rows(prompts.data)} required /></Field>
             <Field label="Provider / endpoint"><input readOnly value={endpointId ? `FAL / ${endpointId}` : "Select a provider-registered model"} /></Field>
             <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
             <Field label="Preset">
-              <select onChange={event => { const [x, y] = event.target.value.split("|"); changeAxis(x, setXField, setXValues); changeAxis(y, setYField, setYValues); }}>
-                <option value="prompt|checkpoint_step">Prompt × Checkpoint</option>
-                <option value="checkpoint_step|lora_scale">Checkpoint × LoRA scale</option>
-                <option value="checkpoint_step|seed">Checkpoint × Seed</option>
-                <option value="prompt|model">Prompt × Model</option>
-              </select>
+              <Dropdown
+                aria-label="Preset"
+                defaultValue="prompt|checkpoint_step"
+                onChange={value => {
+                  const [x, y] = value.split("|");
+                  changeAxis(x, setXField, setXValues);
+                  changeAxis(y, setYField, setYValues);
+                }}
+                options={[
+                  { value: "prompt|checkpoint_step", label: "Prompt × Checkpoint" },
+                  { value: "checkpoint_step|lora_scale", label: "Checkpoint × LoRA scale" },
+                  { value: "checkpoint_step|seed", label: "Checkpoint × Seed" },
+                  { value: "prompt|model", label: "Prompt × Model" },
+                ]}
+              />
             </Field>
-            <Field label="X axis"><select value={xField} onChange={event => changeAxis(event.target.value, setXField, setXValues)}>{axes.map(axis => <option key={axis}>{axis}</option>)}</select></Field>
+            <Field label="X axis">
+              <Dropdown
+                aria-label="X axis"
+                value={xField}
+                onChange={value => changeAxis(value, setXField, setXValues)}
+                options={axes.map(axis => ({ value: axis, label: evalAxisLabels[axis] ?? axis }))}
+              />
+            </Field>
             <AxisValuesField label="X values" field={xField} value={xValues} onChange={setXValues} options={constrainedValues(xField)} />
-            <Field label="Y axis"><select value={yField} onChange={event => changeAxis(event.target.value, setYField, setYValues)}>{axes.map(axis => <option key={axis}>{axis}</option>)}</select></Field>
+            <Field label="Y axis">
+              <Dropdown
+                aria-label="Y axis"
+                value={yField}
+                onChange={value => changeAxis(value, setYField, setYValues)}
+                options={axes.map(axis => ({ value: axis, label: evalAxisLabels[axis] ?? axis }))}
+              />
+            </Field>
             <AxisValuesField label="Y values" field={yField} value={yValues} onChange={setYValues} options={constrainedValues(yField)} />
             <EndpointFields key={endpointId} schema={activeSchema} />
           </div>
         </Form>
       </Panel>
-      <GridPreview xLabel={xField} yLabel={yField} xValues={csv(xValues)} yValues={csv(yValues)} />
+      <GridPreview xLabel={evalAxisLabels[xField] ?? xField} yLabel={evalAxisLabels[yField] ?? yField} xValues={csv(xValues)} yValues={csv(yValues)} />
       <Panel title="Saved grids">
         <Notice error={grids.error} loading={grids.loading} empty={!grids.loading && !rows(grids.data).length} />
         <DataTable rows={rows(grids.data)} columns={[["name", "Name"], ["endpoint_adapter", "Endpoint"], ["x_axis", "X axis"], ["y_axis", "Y axis"], ["status", "Status"]]} onRow={row => { location.hash = `grid/${idOf(row)}`; }} />
@@ -703,8 +770,22 @@ export function ReviewsScreen({ subject = "", projectId = "" }: { subject?: stri
         <Panel title="Decision">
           <Form submit="Save review" onSubmit={async form => { await api("/api/reviews", jsonBody({ subject_type: subjectType, subject_id: subjectId, rating: Number(form.get("rating")), decision: form.get("decision") })); await reviews.reload(); }}>
             <div className="form-grid">
-              <Field label="Rating"><select name="rating" defaultValue="3">{[1, 2, 3, 4, 5].map(value => <option key={value}>{value}</option>)}</select></Field>
-              <Field label="Decision"><select name="decision"><option>candidate</option><option>approved</option><option>hold</option><option>reject</option></select></Field>
+              <Field label="Rating">
+                <Dropdown
+                  aria-label="Rating"
+                  name="rating"
+                  defaultValue="3"
+                  options={[1, 2, 3, 4, 5].map(value => ({ value: String(value), label: String(value) }))}
+                />
+              </Field>
+              <Field label="Decision">
+                <Dropdown
+                  aria-label="Decision"
+                  name="decision"
+                  defaultValue="candidate"
+                  options={["candidate", "approved", "hold", "reject"].map(value => ({ value, label: value }))}
+                />
+              </Field>
             </div>
           </Form>
         </Panel>

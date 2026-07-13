@@ -12,7 +12,10 @@ describe("Eval workflow contracts", () => {
   it("uses the shared model/checkpoint picker and Generate Eval action with square previews", () => {
     const generator = evalSource.slice(evalSource.indexOf("export function EvalsScreen"), evalSource.indexOf("export function EvalScreen"));
     expect(generator).toContain("Ordered manual prompts");
-    expect(generator).toContain("<ModelCheckpointPicker models={generationModels}");
+    expect(generator).toContain('<ModelCheckpointPicker mode="multiple" models={generationModels}');
+    expect(evalSource).toContain('mode="single"');
+    expect(evalSource).toContain('label="Model and checkpoint"');
+    expect(evalSource).not.toContain("multiple={false}");
     expect(generator).toContain("submit=\"Generate Eval\"");
     expect(evalSource).toContain("className=\"comparison-image\"");
     expect(generator).toContain("children: compiled.map");
@@ -22,6 +25,22 @@ describe("Eval workflow contracts", () => {
     expect(comparison).toContain("Comparison filters");
     expect(comparison).toContain("Prompt contains");
     expect(comparison).toContain("Model checkpoints");
+  });
+
+  it("uses Dropdown for single-value evaluation controls while retaining listboxes", () => {
+    expect(evalSource).not.toMatch(/<select(?![^>]*\bmultiple\b)/);
+    expect(evalSource).toContain('aria-label="Saved set"');
+    expect(evalSource).toContain('aria-label="Scope"');
+    expect(evalSource).toContain('aria-label="Preset"');
+    expect(evalSource).toContain('name="rating"');
+    expect(evalSource).toContain('name="decision"');
+    expect(evalSource).toContain("<select multiple value={visibleModels}");
+    expect(evalSource).toContain("<select multiple size=");
+    expect(evalSource).toContain('prompt: "Prompt"');
+    expect(evalSource).toContain('checkpoint_step: "Model / checkpoint"');
+    expect(evalSource).toContain("label: evalAxisLabels[axis] ?? axis");
+    expect(evalSource).toContain("xLabel={evalAxisLabels[xField] ?? xField}");
+    expect(evalSource).not.toContain("options={axes.map(axis => ({ value: axis, label: axis }))}");
   });
 
   it("keeps four ordered prompts distinct even when text is repeated or similar", () => {

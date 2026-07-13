@@ -28,7 +28,7 @@ import {
 import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
-import { DataTable, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status } from "./ui";
+import { DataTable, Dropdown, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status } from "./ui";
 import { generationReplayFromMetadata, generatorHref } from "./generation";
 import { DitherLossChart } from "./dither-loss-chart";
 
@@ -252,8 +252,8 @@ export function DatasetScreen({ id }: { id: string }) {
         </div>
       </div>
       <div className="form-grid">
-        <Field label="Caption method" hint="Automated caption models are not connected yet."><select disabled title="Only manual caption editing is currently supported"><option>Manual edit</option></select></Field>
-        <Field label="Caption format" hint="The imported version determines caption format."><select disabled title="Format conversion is not supported by this operation"><option>{str(activeVersion?.caption_format, "Text")}</option></select></Field>
+        <Field label="Caption method" hint="Automated caption models are not connected yet."><input aria-label="Caption method" readOnly value="Manual edit" title="Only manual caption editing is currently supported" /></Field>
+        <Field label="Caption format" hint="The imported version determines caption format."><input aria-label="Caption format" readOnly value={str(activeVersion?.caption_format, "Text")} title="Format conversion is not supported by this operation" /></Field>
         <Field label="Find"><input value={find} onChange={event => setFind(event.target.value)} placeholder="Text to replace" /></Field>
         <Field label="Replace with"><input value={replace} onChange={event => setReplace(event.target.value)} placeholder="Replacement text" /></Field>
         <Field label="Add word"><input value={word} onChange={event => setWord(event.target.value)} placeholder="Trigger or tag word" /></Field>
@@ -504,7 +504,7 @@ export function ModelsScreen({ projectId = "" }: { projectId?: string }) {
       {!!projectRows.length && <Form submit="Create model" onSubmit={async form => {
         await api("/api/models", jsonBody({ name: form.get("name"), project_id: form.get("project_id"), description: form.get("description") || null }));
         await resource.reload();
-      }}><Field label="Project"><select name="project_id" required defaultValue={projectId}><option value="">Select...</option>{projectRows.map(project => <option key={idOf(project)} value={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field><Field label="Name"><input name="name" required placeholder="Model name" /></Field><Field label="Description"><textarea name="description" placeholder="Subject, style, and intended use" /></Field></Form>}
+      }}><Field label="Project"><Dropdown aria-label="Project" name="project_id" required defaultValue={projectId} options={[{ value: "", label: "Select..." }, ...projectRows.map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} /></Field><Field label="Name"><input name="name" required placeholder="Model name" /></Field><Field label="Description"><textarea name="description" placeholder="Subject, style, and intended use" /></Field></Form>}
     </Panel>
     <Panel title="Model registry"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data.length} />{!!data.length && <DataTable rows={data} columns={[["name", "Name"], ["project_name", "Project"], ["base_model", "Base model"], ["latest_version", "Latest version"], ["lifecycle_state", "State"]]} onRow={row => { location.hash = `model/${idOf(row)}`; }} />}</Panel>
   </Page>;
@@ -697,7 +697,7 @@ export function galleryOpenHref(asset: Row, category = "") {
 }
 
 export function isGalleryShortcutTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable=true]"));
+  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, .vela-dropdown, [contenteditable=true]"));
 }
 
 export function GalleryScreen({ projectId = "", params = new URLSearchParams() }: { projectId?: string; params?: URLSearchParams }) {
@@ -748,14 +748,14 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
     <Panel title="Filters">
       <Notice error={projects.error} loading={projects.loading} />
       <div className="form-grid">
-        <Field label="Project"><select value={filters.project_id} onChange={event => setFilters({ ...filters, project_id: event.target.value, model_id: "", dataset_id: "" })}><option value="">All projects</option>{rows(projects.data).map(project => <option key={idOf(project)} value={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field>
-        <Field label="Model"><select value={filters.model_id} onChange={event => setFilters({ ...filters, model_id: event.target.value })}><option value="">All models</option>{rows(models.data).map(model => <option key={idOf(model)} value={idOf(model)}>{str(model.name)}</option>)}</select></Field>
-        <Field label="Dataset"><select value={filters.dataset_id} onChange={event => setFilters({ ...filters, dataset_id: event.target.value })}><option value="">All datasets</option>{rows(datasets.data).map(dataset => <option key={idOf(dataset)} value={idOf(dataset)}>{str(dataset.name)}</option>)}</select></Field>
-        <Field label="Image set"><select value={filters.category} onChange={event => setFilters({ ...filters, category: event.target.value, include_dataset_assets: event.target.value === "dataset_image" ? true : filters.include_dataset_assets })}><option value="">All image sets</option><option value="eval_output">Eval outputs</option><option value="sample">Training samples</option><option value="dataset_image">Dataset images</option></select></Field>
+        <Field label="Project"><Dropdown aria-label="Project" value={filters.project_id} onChange={value => setFilters({ ...filters, project_id: value, model_id: "", dataset_id: "" })} options={[{ value: "", label: "All projects" }, ...rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} /></Field>
+        <Field label="Model"><Dropdown aria-label="Model" value={filters.model_id} onChange={value => setFilters({ ...filters, model_id: value })} options={[{ value: "", label: "All models" }, ...rows(models.data).map(model => ({ value: idOf(model), label: str(model.name) }))]} /></Field>
+        <Field label="Dataset"><Dropdown aria-label="Dataset" value={filters.dataset_id} onChange={value => setFilters({ ...filters, dataset_id: value })} options={[{ value: "", label: "All datasets" }, ...rows(datasets.data).map(dataset => ({ value: idOf(dataset), label: str(dataset.name) }))]} /></Field>
+        <Field label="Image set"><Dropdown aria-label="Image set" value={filters.category} onChange={value => setFilters({ ...filters, category: value, include_dataset_assets: value === "dataset_image" ? true : filters.include_dataset_assets })} options={[{ value: "", label: "All image sets" }, { value: "eval_output", label: "Eval outputs" }, { value: "sample", label: "Training samples" }, { value: "dataset_image", label: "Dataset images" }]} /></Field>
         <Field label="Search"><input value={filters.q} onChange={event => setFilters({ ...filters, q: event.target.value })} placeholder="Filename" /></Field>
-        <Field label="Decision"><select value={filters.decision} onChange={event => setFilters({ ...filters, decision: event.target.value })}><option value="">Any</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="hold">Hold</option><option value="reject">Reject</option></select></Field>
-        <Field label="Rating"><select value={filters.rating} onChange={event => setFilters({ ...filters, rating: event.target.value })}><option value="">Any</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} star{value === 1 ? "" : "s"}</option>)}</select></Field>
-        <Field label="Sort"><select value={filters.sort} onChange={event => setFilters({ ...filters, sort: event.target.value })}><option value="origin_time_desc">Newest generated or modified</option><option value="origin_time_asc">Oldest generated or modified</option></select></Field>
+        <Field label="Decision"><Dropdown aria-label="Decision" value={filters.decision} onChange={value => setFilters({ ...filters, decision: value })} options={[{ value: "", label: "Any" }, { value: "candidate", label: "Candidate" }, { value: "approved", label: "Approved" }, { value: "hold", label: "Hold" }, { value: "reject", label: "Reject" }]} /></Field>
+        <Field label="Rating"><Dropdown aria-label="Rating" value={filters.rating} onChange={value => setFilters({ ...filters, rating: value })} options={[{ value: "", label: "Any" }, ...[1, 2, 3, 4, 5].map(value => ({ value: String(value), label: `${value} star${value === 1 ? "" : "s"}` }))]} /></Field>
+        <Field label="Sort"><Dropdown aria-label="Sort" value={filters.sort} onChange={value => setFilters({ ...filters, sort: value })} options={[{ value: "origin_time_desc", label: "Newest generated or modified" }, { value: "origin_time_asc", label: "Oldest generated or modified" }]} /></Field>
         <Field label="Dataset images"><label><input type="checkbox" checked={filters.include_dataset_assets} onChange={event => setFilters({ ...filters, include_dataset_assets: event.target.checked })} /> Include dataset members</label></Field>
         <Field label={`Thumbnail size · ${size}px`}><input aria-label="Thumbnail size" type="range" min="120" max="260" value={size} onChange={event => setSize(Number(event.target.value))} /></Field>
       </div>

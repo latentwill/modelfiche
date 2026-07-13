@@ -4,7 +4,7 @@ import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { previewAssetId } from "./activity";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
-import { DataTable, Field, Form, Notice, Page, Panel } from "./ui";
+import { DataTable, Dropdown, Field, Form, Notice, Page, Panel } from "./ui";
 import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
@@ -76,7 +76,7 @@ function TransferImport() {
     const detection = await api<Row>(`/api/import-sources/${sourceId}/detect`, jsonBody({ prefix }));
     const created = await api<Row>("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: form.get("project_id"), prefix, kind: detection.kind }));
     setMessage(`${str(detection.kind, "Unknown")} detected at ${Math.round(Number(detection.confidence ?? 0) * 100)}% confidence. Import queued as ${str(created.id)}.`);
-  }}><div className="form-grid"><Field label="S3 source"><select name="source_id" required><option value="">Select...</option>{rows(sources.data).map(source => <option value={idOf(source)} key={idOf(source)}>{str(source.name)}</option>)}</select></Field><Field label="Target project"><select name="project_id" required><option value="">Select...</option>{rows(projects.data).map(project => <option value={idOf(project)} key={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field><Field label="Prefix"><input name="prefix" required /></Field></div></Form>{message && <div className="vela-notice" role="status"><strong>Import queued</strong><span>{message}</span></div>}<a href="#/import">Open full S3 browser</a></Panel>;
+  }}><div className="form-grid"><Field label="S3 source"><Dropdown name="source_id" options={rows(sources.data).map(source => ({ value: idOf(source), label: str(source.name) }))} required placeholder="Select..." /></Field><Field label="Target project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select..." /></Field><Field label="Prefix"><input name="prefix" required /></Field></div></Form>{message && <div className="vela-notice" role="status"><strong>Import queued</strong><span>{message}</span></div>}<a href="#/import">Open full S3 browser</a></Panel>;
 }
 
 function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>; params: URLSearchParams }) {
@@ -97,7 +97,7 @@ function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>;
       include_reviews: form.get("include_reviews") === "on",
     }));
     setMessage(`Export ${str(created.name)} queued.`); await onCreated();
-  }}><div className="form-grid"><Field label="Package name"><input key={targetName || "manual"} name="name" defaultValue={targetName} required /></Field>{target ? <Field label="Export scope"><input readOnly value={`${target.label}: ${targetName}`} /></Field> : <Field label="Export project"><select name="project_id" required><option value="">Select project...</option>{rows(projects.data).map(project => <option value={idOf(project)} key={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field>}</div><label><input name="include_files" type="checkbox" defaultChecked /> Include available hydrated files</label><label><input name="include_reviews" type="checkbox" defaultChecked /> Include comments, ratings, and review metadata</label></Form>}{message && <div className="vela-notice" role="status"><strong>Export queued</strong><span>{message}</span></div>}</Panel>;
+  }}><div className="form-grid"><Field label="Package name"><input key={targetName || "manual"} name="name" defaultValue={targetName} required /></Field>{target ? <Field label="Export scope"><input readOnly value={`${target.label}: ${targetName}`} /></Field> : <Field label="Export project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select project..." /></Field>}</div><label><input name="include_files" type="checkbox" defaultChecked /> Include available hydrated files</label><label><input name="include_reviews" type="checkbox" defaultChecked /> Include comments, ratings, and review metadata</label></Form>}{message && <div className="vela-notice" role="status"><strong>Export queued</strong><span>{message}</span></div>}</Panel>;
 }
 
 export function ImageReviewScreen({ id }: { id: string }) {

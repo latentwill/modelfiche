@@ -3,7 +3,7 @@ import { ImagePlus } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
-import { Field, Form, Notice, Page, Panel, Status } from "./ui";
+import { Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { falAdapter, generationModelFromRow, generationModelUnavailableReason, pickerModeMultiple, normalizedParametersFromMetadata, type GenerationContext, type GenerationModel, type GenerationPickerMode, type NormalizedGenerationParameters } from "./generation";
 
 type Row = Record<string, unknown>;
@@ -13,21 +13,34 @@ export type ModelCheckpointPickerProps = {
   models: GenerationModel[];
   selected: string[];
   onChange: (ids: string[]) => void;
-  /** `multiple` is retained as a compatibility alias for existing Eval/Grid callers. */
-  multiple?: boolean;
-  mode?: GenerationPickerMode;
+  mode: GenerationPickerMode;
   label?: string;
 };
 
 /** Shared stable-ID checkpoint picker. Unavailable registrations remain visible and explain why. */
-export function ModelCheckpointPicker({ models, selected, onChange, multiple, mode, label = "Models / checkpoints" }: ModelCheckpointPickerProps) {
-  const pickerMode: GenerationPickerMode = mode ?? (multiple === false ? "single" : "multiple");
-  const isMultiple = pickerModeMultiple(pickerMode);
+export function ModelCheckpointPicker({ models, selected, onChange, mode, label }: ModelCheckpointPickerProps) {
+  const isMultiple = pickerModeMultiple(mode);
   const selectedIds = selected.filter(id => models.some(model => model.id === id));
-  const ariaLabel = pickerMode === "fixed" ? "Fixed model and checkpoint" : pickerMode === "axis" ? "Axis model checkpoints" : "Models and checkpoints";
-  return <Field label={label}>
-    <select className={isMultiple ? "vela-multi-select" : undefined} aria-label={ariaLabel} multiple={isMultiple} size={isMultiple ? Math.min(8, Math.max(3, models.length)) : undefined} value={isMultiple ? selectedIds : selectedIds[0] ?? ""} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
-      {!isMultiple && <option value="">Select...</option>}
+  const pickerLabel = label ?? (mode === "single" ? "Model and checkpoint" : "Models / checkpoints");
+  const ariaLabel = mode === "single" ? pickerLabel : mode === "fixed" ? "Fixed model and checkpoint" : mode === "axis" ? "Axis model checkpoints" : "Models and checkpoints";
+  if (!isMultiple) {
+    return <Field label={pickerLabel}>
+      <Dropdown
+        aria-label={ariaLabel}
+        value={selectedIds[0] ?? ""}
+        options={[
+          { value: "", label: "Select..." },
+          ...models.map(model => {
+            const reason = generationModelUnavailableReason(model);
+            return { value: model.id, label: `${model.name} · ${model.checkpointLabel} · ${reason || `${model.provider?.toUpperCase()} / ${model.endpoint}`}`, disabled: Boolean(reason) };
+          }),
+        ]}
+        onChange={id => onChange(id ? [id] : [])}
+      />
+    </Field>;
+  }
+  return <Field label={pickerLabel}>
+    <select className="vela-multi-select" aria-label={ariaLabel} multiple size={Math.min(8, Math.max(3, models.length))} value={selectedIds} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value))}>
       {models.map(model => {
         const reason = generationModelUnavailableReason(model);
         return <option key={model.id} value={model.id} disabled={Boolean(reason)} title={reason || undefined}>{model.name} · {model.checkpointLabel} · {reason || `${model.provider?.toUpperCase()} / ${model.endpoint}`}</option>;
@@ -60,13 +73,14 @@ function EndpointField({ field, value, schema = {} }: { field: string; value: un
   const type = str(schema.type, typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "string");
   const options = Array.isArray(schema.options) ? schema.options.map(String) : [];
   const [imageSize, setImageSize] = useState(typeof value === "object" ? "custom" : str(value, options[0]));
-  if (type === "boolean") return <Field label={label}><select name={field} defaultValue={String(value ?? false)}><option value="true">Enabled</option><option value="false">Disabled</option></select></Field>;
+  if (type === "boolean") return <Field label={label}><Dropdown aria-label={label} name={field} defaultValue={String(value ?? false)} options={[{ value: "true", label: "Enabled" }, { value: "false", label: "Disabled" }]} /></Field>;
   if (type === "image_size") {
     const custom = (schema.custom ?? {}) as Row;
     const current = typeof value === "object" && value ? value as Row : {};
-    return <><Field label={label} hint="Presets come from the selected FAL endpoint. Use custom dimensions only when exact pixels are required."><select name={field} value={imageSize} onChange={event => setImageSize(event.target.value)}>{options.map(option => <option key={option} value={option}>{imageSizeLabels[option] ?? option.replaceAll("_", " ")}</option>)}<option value="custom">Custom dimensions</option></select></Field>{imageSize === "custom" && <><Field label="Custom width"><input name={`${field}_width`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.width, "1024")} required /></Field><Field label="Custom height"><input name={`${field}_height`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.height, "1024")} required /></Field></>}</>;
+    return <><Field label={label} hint="Presets come from the selected FAL endpoint. Use custom dimensions only when exact pixels are required."><Dropdown aria-label={label} name={field} value={imageSize} onChange={setImageSize} options={[...options.map(option => ({ value: option, label: imageSizeLabels[option] ?? option.replaceAll("_", " ") })), { value: "custom", label: "Custom dimensions" }]} /></Field>{imageSize === "custom" && <><Field label="Custom width"><input name={`${field}_width`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.width, "1024")} required /></Field><Field label="Custom height"><input name={`${field}_height`} type="number" min={Number(custom.min ?? 1)} max={Number(custom.max ?? 16384)} step={Number(custom.step ?? 1)} defaultValue={str(current.height, "1024")} required /></Field></>}
+    </>;
   }
-  if (type === "enum" && options.length) return <Field label={label}><select name={field} defaultValue={str(value, options[0])}>{options.map(option => <option key={option}>{option}</option>)}</select></Field>;
+  if (type === "enum" && options.length) return <Field label={label}><Dropdown aria-label={label} name={field} defaultValue={str(value, options[0])} options={options.map(option => ({ value: option, label: option }))} /></Field>;
   if (type === "integer" || type === "number") return <Field label={label}><input name={field} type="number" min={schema.min === undefined ? undefined : Number(schema.min)} max={schema.max === undefined ? undefined : Number(schema.max)} step={schema.step === undefined ? (type === "integer" ? 1 : "any") : Number(schema.step)} defaultValue={value === undefined ? "" : Number(value)} /></Field>;
   return <Field label={label}><input name={field} defaultValue={str(value, "")} /></Field>;
 }
@@ -149,9 +163,9 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
     <Notice error={projects.error || modelFamilies.error || versions.error || assetContext.error || endpointSchema.error} loading={projects.loading || modelFamilies.loading || versions.loading || assetContext.loading} />
     {prefillAssetId && <div className="generation-source-layout"><figure className="generation-image-frame"><AssetImage assetRevisionId={prefillAssetId} variant="content" alt="Source image for generation settings" /><figcaption>Source image · settings reference</figcaption></figure><div className="vela-notice" role="status"><strong>Settings loaded</strong><span>Supported settings from image {prefillAssetId} are prefilled. Nothing will run until you submit.</span></div></div>}
     <Panel title="Generation context"><div className="form-grid">
-      <Field label="Scope"><select value={scope} onChange={event => { setScope(event.target.value as "project" | "model"); setModelId(""); setSelected([]); }}><option value="project">Project</option><option value="model">Model / checkpoint</option></select></Field>
-      <Field label="Project"><select value={projectId} onChange={event => { setProjectId(event.target.value); setModelId(""); setSelected([]); }}><option value="">Select...</option>{rows(projects.data).map(project => <option value={idOf(project)} key={idOf(project)}>{str(project.title ?? project.name)}</option>)}</select></Field>
-      {scope === "model" && <Field label="Model"><select value={modelId} onChange={event => { setModelId(event.target.value); setSelected([]); }} disabled={!projectId}><option value="">Select...</option>{rows(modelFamilies.data).map(model => <option value={idOf(model)} key={idOf(model)}>{str(model.name)}</option>)}</select></Field>}
+      <Field label="Scope"><Dropdown aria-label="Scope" value={scope} options={[{ value: "project", label: "Project" }, { value: "model", label: "Model / checkpoint" }]} onChange={value => { setScope(value as "project" | "model"); setModelId(""); setSelected([]); }} /></Field>
+      <Field label="Project"><Dropdown aria-label="Project" value={projectId} options={[{ value: "", label: "Select..." }, ...rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} onChange={value => { setProjectId(value); setModelId(""); setSelected([]); }} /></Field>
+      {scope === "model" && <Field label="Model"><Dropdown aria-label="Model" value={modelId} disabled={!projectId} options={[{ value: "", label: "Select..." }, ...rows(modelFamilies.data).map(model => ({ value: idOf(model), label: str(model.name) }))]} onChange={value => { setModelId(value); setSelected([]); }} /></Field>}
     </div>
     <ModelCheckpointPicker mode="single" models={generationModels} selected={selected} onChange={setSelected} label="Model / checkpoint" />
     {context && selected[0] && <p className="vela-meta">Provider and endpoint: {generationModels.find(model => model.id === selected[0])?.provider?.toUpperCase()} / {generationModels.find(model => model.id === selected[0])?.endpoint}</p>}

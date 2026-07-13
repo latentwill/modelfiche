@@ -43,36 +43,43 @@ describe("shared generation contracts", () => {
 
   it("renders and serializes only the selected FAL endpoint fields", () => {
     const schema = {
-      defaults: { image_size: "square_hd", acceleration: "none", num_images: 1 },
-      request_fields: ["prompt", "image_size", "acceleration", "num_images", "sync_mode", "loras"],
+      defaults: { image_size: "square_hd", acceleration: "none", safety: true, num_images: 1 },
+      request_fields: ["prompt", "image_size", "acceleration", "safety", "num_images", "sync_mode", "loras"],
       fields: {
         image_size: { type: "image_size", options: ["square_hd", "portrait_4_3"], custom: { min: 512, max: 2048, step: 16 } },
         acceleration: { type: "enum", options: ["none", "regular"] },
+        safety: { type: "boolean" },
         num_images: { type: "integer", min: 1, max: 4 },
       },
     };
     const view = render(<form data-testid="endpoint-form"><EndpointFields schema={schema} omit={["num_images"]} /></form>);
-    const size = screen.getByLabelText(/Aspect ratio \/ resolution/);
+    const size = screen.getByRole("button", { name: /Aspect ratio \/ resolution/ });
+    expect(view.container.querySelector("select")).toBeNull();
+    fireEvent.click(size);
     expect(screen.getByRole("option", { name: "Portrait 4:3" })).toBeTruthy();
-    expect(screen.queryByLabelText("Steps")).toBeNull();
-    fireEvent.change(size, { target: { value: "custom" } });
+    fireEvent.click(screen.getByRole("option", { name: "Custom dimensions" }));
     fireEvent.change(screen.getByLabelText(/Custom width/), { target: { value: "768" } });
     fireEvent.change(screen.getByLabelText(/Custom height/), { target: { value: "1024" } });
-    fireEvent.change(screen.getByLabelText("acceleration"), { target: { value: "regular" } });
+    fireEvent.click(screen.getByRole("button", { name: "acceleration" }));
+    fireEvent.click(screen.getByRole("option", { name: "regular" }));
     const parameters = parametersFromForm(new FormData(view.getByTestId("endpoint-form") as HTMLFormElement), schema);
-    expect(parameters).toEqual({ image_size: { width: 768, height: 1024 }, acceleration: "regular", num_images: 1, sync_mode: false });
+    expect(parameters).toEqual({ image_size: { width: 768, height: 1024 }, acceleration: "regular", safety: true, num_images: 1, sync_mode: false });
   });
 
   it("supports both one and many checkpoint selection", () => {
     const models = [generationModelFromRow({ id: "v1", model_id: "m1", project_id: "p1", checkpoint_revision_id: "r1", readiness: { fal_url: "https://example.test/1", endpoint_id: "fal-ai/krea-2/turbo/lora" } }), generationModelFromRow({ id: "v2", model_id: "m2", project_id: "p1", checkpoint_revision_id: "r2", readiness: { fal_url: "https://example.test/2", endpoint_id: "fal-ai/krea-2/turbo/lora" } })];
     const onMany = vi.fn();
-    const { rerender } = render(<ModelCheckpointPicker models={models} selected={[]} onChange={onMany} />);
+    const { rerender, container } = render(<ModelCheckpointPicker mode="multiple" models={models} selected={[]} onChange={onMany} />);
     const picker = screen.getByLabelText("Models and checkpoints") as HTMLSelectElement;
+    expect(picker).toHaveClass("vela-multi-select");
+    expect(picker).toHaveAttribute("multiple");
     picker.options[0].selected = true; picker.options[1].selected = true; fireEvent.change(picker);
     expect(onMany).toHaveBeenCalledWith(["v1", "v2"]);
     const onOne = vi.fn();
-    rerender(<ModelCheckpointPicker multiple={false} models={models} selected={[]} onChange={onOne} />);
-    fireEvent.change(screen.getByLabelText("Models and checkpoints"), { target: { value: "v2" } });
+    rerender(<ModelCheckpointPicker mode="single" models={models} selected={[]} onChange={onOne} />);
+    expect(container.querySelector("select")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model and checkpoint" }));
+    fireEvent.click(screen.getAllByRole("option")[2]);
     expect(onOne).toHaveBeenCalledWith(["v2"]);
   });
 

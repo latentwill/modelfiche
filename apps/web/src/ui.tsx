@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Check, ChevronLeft, ChevronRight, LoaderCircle, UserRound } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, LoaderCircle, UserRound } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
 
@@ -18,14 +18,281 @@ export function Notice({ error, loading, empty }: { error?: string; loading?: bo
   return null;
 }
 
+export type DropdownOption = {
+  value: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+};
+
+export type DropdownProps = {
+  options: DropdownOption[];
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  name?: string;
+  required?: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+  id?: string;
+  className?: string;
+  "aria-label"?: string;
+};
+
+function nextEnabledOption(options: DropdownOption[], current: number, direction: -1 | 1) {
+  const start = current >= 0 && current < options.length ? current : direction === 1 ? -1 : 0;
+  for (let offset = 1; offset <= options.length; offset += 1) {
+    const index = (start + direction * offset + options.length) % options.length;
+    if (!options[index].disabled) return index;
+  }
+  return -1;
+}
+
+export function Dropdown({
+  options,
+  value,
+  defaultValue = "",
+  onChange,
+  name,
+  required = false,
+  disabled = false,
+  placeholder = "Select...",
+  id,
+  className,
+  "aria-label": ariaLabel,
+}: DropdownProps) {
+  const generatedId = useId();
+  const buttonId = id ?? `${generatedId}-button`;
+  const listboxId = `${generatedId}-listbox`;
+  const validationId = `${generatedId}-validation`;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [internalValue, setInternalValue] = useState(defaultValue);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [invalid, setInvalid] = useState(false);
+  const selectedValue = value === undefined ? internalValue : value;
+  const selectedIndex = options.findIndex(option => option.value === selectedValue);
+  const selectedOption = options[selectedIndex];
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const positionMenu = () => {
+      const button = buttonRef.current;
+      const menu = menuRef.current;
+      if (!button || !menu) return;
+
+      const anchor = button.getBoundingClientRect();
+      const theme = getComputedStyle(rootRef.current ?? button);
+      const gap = Number.parseFloat(theme.getPropertyValue("--vela-space-1")) || 0;
+      const inset = Number.parseFloat(theme.getPropertyValue("--vela-space-2")) || 0;
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      menu.style.setProperty("--mf-dropdown-anchor-width", `${anchor.width}px`);
+
+      const menuHeight = menu.getBoundingClientRect().height;
+      const spaceBelow = Math.max(0, viewportHeight - anchor.bottom - gap - inset);
+      const spaceAbove = Math.max(0, anchor.top - gap - inset);
+      const openAbove = menuHeight > spaceBelow && spaceAbove > spaceBelow;
+      menu.style.setProperty("--mf-dropdown-available-height", `${openAbove ? spaceAbove : spaceBelow}px`);
+
+      const menuRect = menu.getBoundingClientRect();
+      const left = Math.min(Math.max(anchor.left, inset), Math.max(inset, viewportWidth - inset - menuRect.width));
+      menu.style.left = `${left}px`;
+      menu.style.top = `${openAbove ? Math.max(inset, anchor.top - gap - menuRect.height) : anchor.bottom + gap}px`;
+    };
+
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    document.addEventListener("scroll", positionMenu, true);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      document.removeEventListener("scroll", positionMenu, true);
+    };
+  }, [open, options]);
+
+  useEffect(() => {
+    if (open && activeIndex >= 0) optionRefs.current[activeIndex]?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex, open]);
+
+  useEffect(() => {
+    const form = rootRef.current?.closest("form");
+    if (!form) return;
+    const handleSubmit = (event: SubmitEvent) => {
+      if (!required || disabled || selectedValue) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setInvalid(true);
+      buttonRef.current?.focus();
+    };
+    const handleReset = () => {
+      if (value === undefined) setInternalValue(defaultValue);
+      setInvalid(false);
+      setOpen(false);
+    };
+    form.addEventListener("submit", handleSubmit, true);
+    form.addEventListener("reset", handleReset);
+    return () => {
+      form.removeEventListener("submit", handleSubmit, true);
+      form.removeEventListener("reset", handleReset);
+    };
+  }, [defaultValue, disabled, required, selectedValue, value]);
+
+  const openAt = (direction: -1 | 1 = 1) => {
+    setActiveIndex(selectedIndex >= 0 && !selectedOption.disabled
+      ? selectedIndex
+      : nextEnabledOption(options, direction === 1 ? -1 : 0, direction));
+    setOpen(true);
+  };
+  const close = (returnFocus = false) => {
+    setOpen(false);
+    if (returnFocus) buttonRef.current?.focus();
+  };
+  const select = (index: number) => {
+    const option = options[index];
+    if (!option || option.disabled) return;
+    if (value === undefined) setInternalValue(option.value);
+    setInvalid(false);
+    onChange?.(option.value);
+    close(true);
+  };
+
+  return <div
+    className={`vela-dropdown${className ? ` ${className}` : ""}`}
+    ref={rootRef}
+    onBlur={event => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
+    }}
+  >
+    {name && <input type="hidden" name={name} value={selectedValue} disabled={disabled} readOnly />}
+    <button
+      id={buttonId}
+      ref={buttonRef}
+      className={`vela-dropdown-button${selectedOption ? "" : " is-placeholder"}`}
+      type="button"
+      aria-haspopup="listbox"
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-describedby={invalid ? validationId : undefined}
+      aria-expanded={open}
+      aria-controls={listboxId}
+      aria-activedescendant={open && options[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined}
+      aria-required={required || undefined}
+      aria-invalid={invalid || undefined}
+      onClick={() => open ? close() : openAt()}
+      onKeyDown={event => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const direction = event.key === "ArrowDown" ? 1 : -1;
+          open ? setActiveIndex(current => nextEnabledOption(options, current, direction)) : openAt(direction);
+        } else if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          const direction = event.key === "Home" ? 1 : -1;
+          if (!open) setOpen(true);
+          setActiveIndex(nextEnabledOption(options, direction === 1 ? -1 : 0, direction));
+        } else if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (open) select(activeIndex);
+          else openAt();
+        } else if (event.key === "Escape" && open) {
+          event.preventDefault();
+          close(true);
+        } else if (event.key === "Tab") {
+          close();
+        }
+      }}
+    >
+      <span className="vela-dropdown-value">{selectedOption?.label ?? placeholder}</span>
+      <ChevronDown size={15} aria-hidden="true" />
+    </button>
+    {invalid && <span className="sr-only" id={validationId} role="alert">Select an option.</span>}
+    {open && <div
+      ref={menuRef}
+      className="vela-dropdown-menu"
+      id={listboxId}
+      role="listbox"
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabel ? undefined : buttonId}
+    >
+      {options.map((option, index) => {
+        const optionId = `${listboxId}-option-${index}`;
+        return <div
+          id={optionId}
+          ref={node => { optionRefs.current[index] = node; }}
+          key={`${option.value}-${index}`}
+          className="vela-dropdown-option"
+          role="option"
+          aria-selected={option.value === selectedValue}
+          aria-disabled={option.disabled || undefined}
+          aria-labelledby={`${optionId}-label`}
+          aria-describedby={option.description ? `${optionId}-description` : undefined}
+          data-active={index === activeIndex || undefined}
+          onPointerDown={event => event.preventDefault()}
+          onPointerMove={() => { if (!option.disabled) setActiveIndex(index); }}
+          onClick={() => select(index)}
+        >
+          <span className="vela-dropdown-option-copy">
+            <strong id={`${optionId}-label`}>{option.label}</strong>
+            {option.description && <small id={`${optionId}-description`}>{option.description}</small>}
+          </span>
+          {option.value === selectedValue && <Check size={14} aria-hidden="true" />}
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
+
 export function ProfileSelect({ compact = false, workspaceName = "" }: { compact?: boolean; workspaceName?: string }) {
   const resource = useResource<unknown>("/api/profiles");
   const serverActive = useResource<Record<string, unknown>>("/api/profiles/active");
   const profiles = listOf<Record<string, unknown>>(resource.data).filter(profile => profile.is_active !== false);
   const [active, setActive] = useState(() => localStorage.getItem("titles.activeProfileId") ?? "");
   const [error, setError] = useState("");
+  const controlId = useId();
+  const label = `Active profile${workspaceName ? ` in ${workspaceName}` : ""}`;
   useEffect(() => { if (!active && serverActive.data?.id) setActive(idOf(serverActive.data)); }, [active, serverActive.data]);
-  return <div className={`vela-profile-select ${compact ? "is-compact" : ""}`} title={error || `Active comment profile${workspaceName ? ` in ${workspaceName}` : ""}`}><UserRound size={16} aria-hidden="true" /><label className={compact ? "sr-only" : ""} htmlFor="active-profile">Active profile{workspaceName ? ` in ${workspaceName}` : ""}</label><select id="active-profile" aria-label={`Active profile${workspaceName ? ` in ${workspaceName}` : ""}`} value={active} onChange={async event => { const profileId = event.target.value; const previous = active; setActive(profileId); setError(""); try { if (profileId) { await api(`/api/profiles/${profileId}/active`, { method: "PUT" }); localStorage.setItem("titles.activeProfileId", profileId); } else { localStorage.removeItem("titles.activeProfileId"); } location.reload(); } catch (reason) { setActive(previous); setError(reason instanceof Error ? reason.message : String(reason)); } }}><option value="">{workspaceName ? `${workspaceName} profile` : "Profile"}</option>{profiles.map(profile => <option key={idOf(profile)} value={idOf(profile)}>{str(profile.display_name ?? profile.name)}</option>)}</select>{error && <span className="sr-only" role="alert">{error}</span>}</div>;
+  return <div className={`vela-profile-select ${compact ? "is-compact" : ""}`} title={error || label}>
+    <UserRound size={16} aria-hidden="true" />
+    <label className={compact ? "sr-only" : ""} htmlFor={controlId}>{label}</label>
+    <Dropdown
+      id={controlId}
+      aria-label={label}
+      value={active}
+      options={[
+        { value: "", label: workspaceName ? `${workspaceName} profile` : "Profile" },
+        ...profiles.map(profile => ({ value: idOf(profile), label: str(profile.display_name ?? profile.name) })),
+      ]}
+      onChange={async profileId => {
+        const previous = active;
+        setActive(profileId);
+        setError("");
+        try {
+          if (profileId) {
+            await api(`/api/profiles/${profileId}/active`, { method: "PUT" });
+            localStorage.setItem("titles.activeProfileId", profileId);
+          } else {
+            localStorage.removeItem("titles.activeProfileId");
+          }
+          location.reload();
+        } catch (reason) {
+          setActive(previous);
+          setError(reason instanceof Error ? reason.message : String(reason));
+        }
+      }}
+    />
+    {error && <span className="sr-only" role="alert">{error}</span>}
+  </div>;
 }
 
 export function Field(props: { label: string; children: ReactNode; hint?: string }) {
@@ -46,7 +313,7 @@ export function Pagination({ page, pageSize, total, onPage, onPageSize }: { page
   const end = Math.min(page * pageSize, total);
   return <nav className="vela-pagination" aria-label="Pagination">
     <span>{start}–{end} of {total}</span>
-    <label>Per page <select value={pageSize} onChange={event => onPageSize(Number(event.target.value))}>{[50, 100, 250].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+    <label>Per page <Dropdown aria-label="Items per page" value={String(pageSize)} options={[50, 100, 250].map(size => ({ value: String(size), label: String(size) }))} onChange={next => onPageSize(Number(next))} /></label>
     <button aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button>
     <span>Page {page} of {pages}</span>
     <button aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}><ChevronRight size={15} /></button>
@@ -59,9 +326,21 @@ export function DataTable(props: { rows: Record<string, unknown>[]; columns: Arr
 
 function renderCell(value: unknown): ReactNode { if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.map(String).join(", "); if (value && typeof value === "object") return JSON.stringify(value); if (typeof value === "string" && /^https?:\/\//.test(value)) return <a href={value} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Open</a>; return str(value); }
 
-export function SelectRecords(props: { name: string; records: Record<string, unknown>[]; labelKey?: string; valueKey?: string; required?: boolean; value?: string; onChange?: (value: string) => void }) {
-  const labelKey = props.labelKey ?? "name"; const valueKey = props.valueKey ?? "id";
-  return <select name={props.name} required={props.required} value={props.value} onChange={event => props.onChange?.(event.target.value)}><option value="">Select...</option>{props.records.map((row, index) => <option key={String(row[valueKey] ?? index)} value={String(row[valueKey] ?? "")}>{str(row[labelKey] ?? row[valueKey])}</option>)}</select>;
+export function SelectRecords(props: { name: string; records: Record<string, unknown>[]; labelKey?: string; valueKey?: string; required?: boolean; disabled?: boolean; value?: string; defaultValue?: string; onChange?: (value: string) => void }) {
+  const labelKey = props.labelKey ?? "name";
+  const valueKey = props.valueKey ?? "id";
+  return <Dropdown
+    name={props.name}
+    required={props.required}
+    disabled={props.disabled}
+    value={props.value}
+    defaultValue={props.defaultValue}
+    options={[
+      { value: "", label: "Select..." },
+      ...props.records.map(row => ({ value: String(row[valueKey] ?? ""), label: str(row[labelKey] ?? row[valueKey]) })),
+    ]}
+    onChange={props.onChange}
+  />;
 }
 
 export function Status({ value }: { value: unknown }) { const text = str(value, "unknown"); return <span className="vela-status" data-state={statusTone(text)} aria-label={`Status: ${text}`}>{text}</span>; }
