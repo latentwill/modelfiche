@@ -29,6 +29,7 @@ describe("gallery navigation contracts", () => {
     expect(screen.getByText("Flux · SAMPLE")).toBeInTheDocument();
     expect(screen.getByText("Checkpoint model · step 1200")).toBeInTheDocument();
     expect(screen.getByRole("link")).not.toHaveAttribute("title");
+    expect(screen.getByRole("link")).not.toHaveAttribute("data-origin");
   });
 
   it("keeps gallery tiles square and responsive at boundary widths", () => {

@@ -10,7 +10,7 @@ type ActiveRunResources = {
 };
 
 export const ACTIVE_RUN_LIMIT = 6;
-const ACTIVE_STATUSES = ["running", "pending"] as const;
+const ACTIVE_STATUSES = ["running"] as const;
 const rows = (value: unknown) => listOf<Row>(value);
 
 function runTimestamp(run: Row) {
@@ -33,11 +33,10 @@ export function orderActiveRuns(runs: Row[]) {
 
 export function useActiveRuns(projectId = "", limit = ACTIVE_RUN_LIMIT): ActiveRunResources {
   const running = useResource<unknown>(`/api/runs${query({ project_id: projectId || undefined, status: "running", limit })}`);
-  const pending = useResource<unknown>(`/api/runs${query({ project_id: projectId || undefined, status: "pending", limit })}`);
   return {
-    runs: orderActiveRuns([...rows(running.data), ...rows(pending.data)]).slice(0, limit),
-    loading: running.loading || pending.loading,
-    error: running.error || pending.error,
+    runs: orderActiveRuns(rows(running.data)).slice(0, limit),
+    loading: running.loading,
+    error: running.error,
   };
 }
 

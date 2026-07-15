@@ -6,34 +6,24 @@
 export type Rgb = [number, number, number]
 
 export type DitherColor =
-  | "green"
   | "blue"
-  | "purple"
-  | "pink"
-  | "orange"
-  | "red"
+  | "cyan"
+  | "teal"
+  | "green"
+  | "mint"
   | "grey"
 
 export type Seed = { fill: Rgb; line: Rgb; star: Rgb }
 
 // Each seed: the area-fill hue, the bright series line, and the star sparkle.
 export const PALETTE: Record<DitherColor, Seed> = {
-  green: { fill: [40, 210, 110], line: [150, 255, 180], star: [200, 255, 220] },
-  blue: { fill: [53, 143, 243], line: [150, 200, 255], star: [205, 228, 255] },
-  purple: {
-    fill: [150, 110, 255],
-    line: [200, 175, 255],
-    star: [225, 210, 255],
-  },
-  pink: { fill: [240, 90, 190], line: [255, 170, 220], star: [255, 205, 235] },
-  orange: {
-    fill: [255, 150, 50],
-    line: [255, 195, 130],
-    star: [255, 220, 175],
-  },
-  red: { fill: [240, 70, 70], line: [255, 150, 140], star: [255, 195, 185] },
-  // No-data: a muted grey so empty metrics read as "nothing here".
-  grey: { fill: [92, 92, 100], line: [140, 140, 150], star: [165, 165, 175] },
+  blue: { fill: [37, 99, 235], line: [147, 197, 253], star: [219, 234, 254] },
+  cyan: { fill: [14, 165, 233], line: [125, 211, 252], star: [224, 242, 254] },
+  teal: { fill: [13, 148, 136], line: [94, 234, 212], star: [204, 251, 241] },
+  green: { fill: [22, 163, 74], line: [134, 239, 172], star: [220, 252, 231] },
+  mint: { fill: [52, 211, 153], line: [167, 243, 208], star: [236, 253, 245] },
+  // No-data remains neutral so empty metrics read as "nothing here".
+  grey: { fill: [100, 116, 139], line: [148, 163, 184], star: [203, 213, 225] },
 }
 
 export const rgb = ([r, g, b]: Rgb, k = 1, a = 1) =>

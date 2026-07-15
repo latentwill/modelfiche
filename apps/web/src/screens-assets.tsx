@@ -1105,7 +1105,7 @@ export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsse
     const modelLine = [model, checkpoint].filter(Boolean).join(" · ");
     const assetId = String(asset.asset_revision_id ?? asset.asset_id ?? asset.id);
     const name = str(asset.filename ?? asset.name, "Generated image");
-    return <a className="asset-card" data-origin={originType.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")} key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}>
+    return <a className="asset-card" key={idOf(asset) || index} href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}>
       <AssetImage assetRevisionId={assetId} alt={name} loading="lazy" />
       <span className="asset-card-name">{name}</span>
       <small className="asset-card-footer"><span>{originLine || "Unknown"}</span><span>{modelLine || "Unknown"}</span></small>

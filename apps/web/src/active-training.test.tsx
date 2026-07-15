@@ -33,20 +33,19 @@ afterEach(() => {
 });
 
 describe("active training ordering", () => {
-  it("keeps running work ahead of pending work and excludes terminal records", () => {
+  it("includes only running work and excludes queued or terminal records", () => {
     expect(orderActiveRuns([
       { id: "pending-new", status: "pending", last_event_at: "2026-07-13T12:00:00Z" },
       { id: "completed", status: "completed", last_event_at: "2026-07-13T13:00:00Z" },
       { id: "running-old", status: "running", last_event_at: "2026-07-13T09:00:00Z" },
       { id: "running-new", status: "running", last_event_at: "2026-07-13T11:00:00Z" },
-    ]).map(run => run.id)).toEqual(["running-new", "running-old", "pending-new"]);
+    ]).map(run => run.id)).toEqual(["running-new", "running-old"]);
   });
 
-  it("uses bounded status queries and exposes status in the run link name", async () => {
+  it("uses one bounded running-status query and exposes status in the run link name", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path === "/api/runs?status=running&limit=6") return response([runningRun]);
-      if (path === "/api/runs?status=pending&limit=6") return response([{ ...runningRun, id: "run-wait", name: "Queued portrait", status: "pending" }]);
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -56,14 +55,26 @@ describe("active training ordering", () => {
 
     const list = await screen.findByLabelText("Active training runs");
     const links = within(list).getAllByRole("link");
-    expect(links.map(link => link.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("Portrait live"), expect.stringContaining("Queued portrait")]));
+    expect(links).toHaveLength(1);
     expect(links[0]).toHaveAccessibleName("Open Portrait live, status running");
     expect(within(links[0]).getByLabelText("Status: running")).toBeInTheDocument();
     expect(links[0]).toHaveTextContent("0.0001");
     expect(links[0]).toHaveTextContent("Uploads: 2 pending · 1 uploaded");
     expect(links[0]).not.toHaveTextContent("[object Object]");
     expect(fetchMock).toHaveBeenCalledWith("/api/runs?status=running&limit=6", expect.any(Object));
-    expect(fetchMock).toHaveBeenCalledWith("/api/runs?status=pending&limit=6", expect.any(Object));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/runs?status=pending&limit=6", expect.any(Object));
+  });
+
+  it("hides the panel when a run was created but never started", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/runs?status=running&limit=6") return response([]);
+      throw new Error(`Unexpected request: ${input}`);
+    }));
+    installStorage();
+
+    render(<ActiveTrainingPanel />);
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Active training" })).not.toBeInTheDocument());
   });
 });
 

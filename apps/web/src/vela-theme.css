@@ -27,8 +27,8 @@
   --mf-active-text: #ffffff;
   --mf-accent: #1237b8;
   --mf-success: #176b4a;
-  --mf-warning: #8b580e;
-  --mf-danger: #a12b32;
+  --mf-warning: #0f766e;
+  --mf-danger: #0b5fb8;
   --mf-shadow: rgb(8 38 137 / 14%);
   --mf-grid: rgb(18 55 184 / 6%);
   --mf-media-bed: #ffffff;
@@ -104,8 +104,8 @@ html[data-theme="dark"] .vela-theme {
   --mf-active-text: #081b78;
   --mf-accent: #87a9ff;
   --mf-success: #8ed8b3;
-  --mf-warning: #f0c675;
-  --mf-danger: #ff9aa0;
+  --mf-warning: #7dd3c7;
+  --mf-danger: #8fc5ff;
   --mf-shadow: rgb(5 16 74 / 48%);
   --mf-grid: rgb(143 165 239 / 8%);
   --mf-media-bed: #081b78;
@@ -1203,7 +1203,7 @@ html[data-theme="dark"] :is(
   .training-metric-summary > div
 ) {
   border-color: var(--mf-accent);
-  background: #112d9d;
+  background: #0b5fb8;
 }
 html[data-theme="dark"] .vela-theme .vela-button-primary,
 html[data-theme="dark"] .vela-theme .primary { color: var(--mf-active-text); }
@@ -1447,42 +1447,33 @@ html[data-theme="dark"] .vela-theme .mf-rail-ornament-dark {
 
 .vela-theme .asset-grid {
   align-items: start;
-  padding: 8px;
-  border: 1px solid var(--mf-border);
-  background:
-    linear-gradient(var(--mf-surface), var(--mf-surface)) padding-box,
-    var(--mf-surface);
+  padding: 6px;
 }
 .vela-theme .asset-card {
   position: relative;
-  border-color: color-mix(in srgb, var(--mf-border) 60%, transparent);
+  border-color: var(--mf-border);
   background: var(--mf-surface);
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--mf-border) 25%, transparent);
+  box-shadow: inset 0 -3px 0 var(--mf-surface-muted);
 }
-.vela-theme .asset-card::after {
-  content: "";
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 8px;
-  height: 8px;
-  pointer-events: none;
-  border-right: 1px solid var(--mf-border-strong);
-  border-bottom: 1px solid var(--mf-border-strong);
+.vela-theme .asset-card::after,
+.vela-theme .asset-card::before {
+  content: none;
 }
 .vela-theme .asset-card img {
   border: 1px solid var(--mf-border);
-  border-radius: 0;
+  border-radius: var(--vela-radius-sm);
 }
 .vela-theme .asset-card-footer {
-  padding-top: 6px;
+  padding-top: 4px;
   border-top: 1px solid var(--mf-border);
 }
 .vela-theme .asset-card:hover,
 .vela-theme .asset-card:focus-visible {
   z-index: 1;
-  transform: translateY(-2px);
-  box-shadow: 3px 3px 0 var(--mf-shadow);
+  transform: none;
+  border-color: var(--mf-border-strong);
+  background: var(--mf-surface-raised);
+  box-shadow: inset 0 -3px 0 var(--mf-surface-muted);
 }
 
 .vela-theme .image-review-main {
@@ -1519,7 +1510,7 @@ html[data-theme="dark"] .vela-theme .mf-rail-ornament-dark {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--mf-border-strong) 58%, transparent);
   background: color-mix(in srgb, var(--mf-surface) 88%, transparent);
-  color: #111;
+  color: var(--vela-fg);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1760,58 +1751,13 @@ html[data-theme="dark"] .vela-theme .asset-image-loading {
   from { opacity: .62; filter: saturate(.72) contrast(.94); }
   to { opacity: 1; filter: none; }
 }
-
-.vela-theme .gallery-assets-panel .asset-grid {
-  position: relative;
-  padding: 10px;
-  box-shadow:
-    inset 0 8px 0 color-mix(in srgb, var(--mf-border) 18%, transparent),
-    inset 0 -8px 0 color-mix(in srgb, var(--mf-border) 18%, transparent);
-}
-.vela-theme .asset-card {
-  --mf-lineage: var(--mf-border-strong);
-  transition:
-    transform var(--vela-duration) var(--vela-ease),
-    border-color var(--vela-duration) var(--vela-ease),
-    box-shadow var(--vela-duration) var(--vela-ease);
-  box-shadow:
-    inset 0 2px 0 var(--mf-lineage),
-    2px 2px 0 color-mix(in srgb, var(--mf-border) 25%, transparent);
-}
-.vela-theme .asset-card[data-origin*="eval"] { --mf-lineage: var(--mf-accent); }
-.vela-theme .asset-card[data-origin*="sample"] { --mf-lineage: var(--mf-success); }
-.vela-theme .asset-card[data-origin*="dataset"] { --mf-lineage: var(--mf-warning); }
-.vela-theme .asset-card::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 4px;
-  left: 4px;
-  width: 8px;
-  height: 8px;
-  pointer-events: none;
-  border-top: 1px solid var(--mf-lineage);
-  border-left: 1px solid var(--mf-lineage);
-}
 .vela-theme .asset-card img {
-  transition:
-    transform 240ms var(--vela-ease),
-    filter 240ms var(--vela-ease);
+  transition: none;
 }
 .vela-theme .asset-card:hover img,
 .vela-theme .asset-card:focus-visible img {
-  transform: scale(1.025);
-  filter: contrast(1.02);
-}
-.vela-theme .asset-card:hover,
-.vela-theme .asset-card:focus-visible {
-  box-shadow:
-    inset 0 3px 0 var(--mf-lineage),
-    4px 4px 0 var(--mf-shadow);
-}
-
-.vela-theme .project-image-panel {
-  position: relative;
+  transform: none;
+  filter: none;
 }
 .vela-theme .project-image-mosaic {
   padding: 4px 4px 10px;
