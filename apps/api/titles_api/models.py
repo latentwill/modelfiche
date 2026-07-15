@@ -308,6 +308,7 @@ class TrainingRun(UUIDMixin, TimestampMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     last_event_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
     exit_code: Mapped[int | None] = mapped_column(Integer)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
 
 
 class TrainingStage(UUIDMixin, TimestampMixin, Base):

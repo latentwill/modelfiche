@@ -6,6 +6,7 @@ import { GridScreen, GridsScreen } from "./screens-grids";
 import { WorkbenchShell, useThemeController } from "./shell";
 import { DashboardScreen, ImageReviewScreen, SampleViewerScreen, TransfersScreen } from "./screens-wireframe";
 import { GenerationQueueScreen, ImageGeneratorScreen } from "./generator";
+import { TrainingLaunchCreateScreen, TrainingLaunchScreen } from "./training";
 
 export function App() {
   const rawRoute = useHashRoute();
@@ -37,6 +38,8 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "dataset": return <DatasetScreen id={id} />;
     case "runs": return <RunsScreen projectId={projectId} />;
     case "run": return <RunScreen id={id} />;
+    case "training-new": return <TrainingLaunchCreateScreen params={params} />;
+    case "training": return <TrainingLaunchScreen id={id} />;
     case "checkpoint": return <CheckpointScreen id={id} />;
     case "gallery": return <GalleryScreen projectId={projectId} params={params} />;
     case "generate": return <ImageGeneratorScreen params={params} />;

@@ -691,3 +691,31 @@ def test_training_launch_wait_returns_exit_7_for_unsuccessful_terminal_state(
 
     assert result.exit_code == 7
     assert json.loads(result.output)["state"] == state
+
+
+def test_training_prepare_bundles_self_contained_checkpoint_sync(monkeypatch, tmp_path) -> None:
+    packet = {
+        "run_id": "run-1",
+        "manifest": {"telemetry": {"token": {"claims": {"launch_id": "launch-1"}}}},
+        "preflight": {"ready_to_start": True},
+        "ai_toolkit": {"logging": {"use_wandb": True}},
+    }
+    fake = FakeClient([packet, 'export WANDB_API_KEY="<MF1_BASE32_ED25519_SIGNED_TOKEN>"\n'])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+    monkeypatch.setattr(main, "read_private_key", lambda _path: object())
+    monkeypatch.setattr(main, "sign_launch_claims", lambda _claims, _key: "signed-token")
+    key = tmp_path / "signing.key"
+    key.write_text("private", encoding="utf-8")
+    output = tmp_path / "packet"
+
+    result = runner.invoke(
+        main.app,
+        ["--json", "training", "run", "prepare", "launch-1", "--output", str(output), "--private-key-file", str(key)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output / "modelfiche-run-sync.py").read_text(encoding="utf-8") == main.Path(main.__file__).with_name("run_sync.py").read_text(encoding="utf-8")
+    assert (output / "run-sync-command.txt").read_text(encoding="utf-8") == "python3 modelfiche-run-sync.py --manifest manifest.json\n"
+    assert 'WANDB_API_KEY="signed-token"' in (output / "trainer.env").read_text(encoding="utf-8")
+    checksums = json.loads((output / "checksums.json").read_text(encoding="utf-8"))["files"]
+    assert set(checksums) >= {"manifest.json", "trainer.env", "modelfiche-run-sync.py", "run-sync-command.txt"}

@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from titles_api import app as app_module
 from titles_api import models
-from titles_api.database import build_engine
+from titles_api.database import bootstrap_empty_local_database, build_engine
 from titles_api.database import upgrade_installed_database
 from titles_api.storage.baselines import frozen_schema_sql
 
@@ -21,7 +21,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0019_training_run_archival",)
 
 
 def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) -> None:
@@ -30,7 +30,7 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0019_training_run_archival",)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)
@@ -87,6 +87,20 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
         assert connection.execute("SELECT marker FROM storage_cutover_marker WHERE id=1").fetchone() is None
 
 
+def test_fresh_local_database_bootstraps_storage_contract_once(tmp_path: Path) -> None:
+    database_path = tmp_path / "fresh-local.sqlite3"
+    database_url = f"sqlite:///{database_path}"
+    upgrade_installed_database(database_url)
+
+    assert bootstrap_empty_local_database(database_url) is True
+    assert bootstrap_empty_local_database(database_url) is False
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT marker FROM storage_cutover_marker WHERE id=1").fetchone() == (1,)
+        assert connection.execute(
+            "SELECT state, verification_receipt_id FROM storage_feature_gates WHERE name='storage_contract'"
+        ).fetchone()[0] == "ready"
+
+
 def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path) -> None:
     database_path = tmp_path / "installed-0007.sqlite3"
     database_url = f"sqlite:///{database_path}"
@@ -99,7 +113,7 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0018_run_uploads_and_handoffs",
+            "0019_training_run_archival",
         )
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(eval_definitions)").fetchall()}
         assert columns["prompt_set_id"][3] == 0
@@ -124,7 +138,7 @@ def test_upgrade_installed_database_accepts_checkpoint_revision_head(tmp_path: P
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0018_run_uploads_and_handoffs",
+            "0019_training_run_archival",
         )
 
 
@@ -137,7 +151,7 @@ def test_upgrade_installed_database_accepts_live_inline_prompts_head(tmp_path: P
         connection.execute("UPDATE alembic_version SET version_num = ?", ("0009_inline_generation_prompts",))
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0019_training_run_archival",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_items'").fetchone() == (1,)
 
 
@@ -150,11 +164,11 @@ def test_upgrade_installed_database_accepts_live_generation_queue_head(tmp_path:
         connection.execute("UPDATE alembic_version SET version_num = ?", ("0010_generation_queue",))
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0018_run_uploads_and_handoffs",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0019_training_run_archival",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_children'").fetchone() == (1,)
 
 
-def test_runtime_initialization_migrates_but_does_not_seed_before_cutover_marker(
+def test_runtime_initialization_bootstraps_fresh_local_install(
     tmp_path: Path, monkeypatch
 ) -> None:
     database_path = tmp_path / "runtime.sqlite3"
@@ -169,11 +183,12 @@ def test_runtime_initialization_migrates_but_does_not_seed_before_cutover_marker
     monkeypatch.setattr(app_module, "engine", test_engine)
     monkeypatch.setattr(app_module, "SessionLocal", test_session)
 
-    assert app_module.initialize_database() is False
+    assert app_module.initialize_database() is True
 
     with test_session() as session:
-        assert session.scalar(select(models.Workspace)) is None
+        assert session.scalar(select(models.Workspace)) is not None
+        assert session.scalar(select(models.UserProfile)) is not None
         assert session.execute(
-            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_cutover_marker'")
+            text("SELECT marker FROM storage_cutover_marker WHERE id=1")
         ).fetchone() == (1,)
     app_module.get_settings.cache_clear()

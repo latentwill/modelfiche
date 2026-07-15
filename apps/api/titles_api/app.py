@@ -3,10 +3,11 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 
 from . import __version__, models
-from .database import SessionLocal, engine, upgrade_installed_database
+from .database import SessionLocal, bootstrap_empty_local_database, engine, upgrade_installed_database
 from .routers import (
     asset_delivery,
     collaboration,
@@ -35,6 +36,7 @@ def initialize_database() -> bool:
     settings = get_settings()
     settings.ensure_runtime_dirs()
     upgrade_installed_database(settings.database_url)
+    bootstrap_empty_local_database(settings.database_url)
     with SessionLocal.begin() as db:
         if not _storage_contract_ready(db):
             return False
@@ -188,4 +190,7 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
     app.include_router(compat.router, prefix="/api")
     app.include_router(integrations.router)
     app.include_router(local_imports.router, prefix="/api")
+    web_dist = os.getenv("TITLES_WEB_DIST")
+    if web_dist:
+        app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
     return app

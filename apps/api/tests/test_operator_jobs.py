@@ -261,6 +261,8 @@ def test_durable_export_history_manifest_and_download(client: TestClient):
 
 
 def test_operator_settings_are_nonsecret_and_storage_policy_is_not_legacy_config(client: TestClient, monkeypatch):
+    for name in ("LLM_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("FAL_KEY", "not-a-real-key")
     monkeypatch.setattr("titles_api.routers.operator_config.validate_fal_connection", lambda _key: None)
 

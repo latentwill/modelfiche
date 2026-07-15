@@ -176,6 +176,7 @@ def runs(
     project_id: str | None = None,
     run_status: str | None = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=1000),
+    include_archived: bool = False,
 ):
     query = (
         select(models.TrainingRun)
@@ -186,6 +187,8 @@ def runs(
         query = query.where(models.TrainingRun.project_id == project_id)
     if run_status:
         query = query.where(models.TrainingRun.status == run_status)
+    if not include_archived:
+        query = query.where(models.TrainingRun.archived_at.is_(None))
     run_rows = db.scalars(query).all()
     previews = _run_preview_asset_ids(db, {row.id for row in run_rows})
     rows = []
@@ -228,6 +231,48 @@ def create_run(body: schemas.RunCreate, db: DB, x_profile_id: Annotated[str | No
     db.add(run)
     db.flush()
     record_activity(db, action="run.created", subject_type="run", subject_id=run.id, profile_id=active_profile(db, x_profile_id).id, project_id=run.project_id)
+    db.commit()
+    return dump(run)
+
+
+@router.post("/runs/{run_id}/archive")
+def archive_run(
+    run_id: str,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    if run.status not in {"completed", "failed", "interrupted", "canceled"}:
+        raise HTTPException(status_code=409, detail="only terminal training runs can be archived")
+    run.archived_at = models.utcnow()
+    record_activity(
+        db,
+        action="run.archived",
+        subject_type="run",
+        subject_id=run.id,
+        profile_id=active_profile(db, x_profile_id).id,
+        project_id=run.project_id,
+    )
+    db.commit()
+    return dump(run)
+
+
+@router.post("/runs/{run_id}/restore")
+def restore_run(
+    run_id: str,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    run.archived_at = None
+    record_activity(
+        db,
+        action="run.restored",
+        subject_type="run",
+        subject_id=run.id,
+        profile_id=active_profile(db, x_profile_id).id,
+        project_id=run.project_id,
+    )
     db.commit()
     return dump(run)
 

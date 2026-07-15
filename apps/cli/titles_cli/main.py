@@ -16,9 +16,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 import typer
+import yaml
 
 from . import __version__
-from .client import ApiError, LocalContext, TitlesClient
+from .client import ApiError, LocalContext, TitlesClient, context_path
 from .render import emit, fail
 from .wandb_helpers import (
     generate_keypair,
@@ -783,6 +784,292 @@ def training_launch_wait(
         fail(exc, json_output=runtime.json_output)
     finally:
         client.close()
+
+
+training_app = typer.Typer(no_args_is_help=True, help="Guided training setup, preflight, and launch")
+training_run_app = typer.Typer(no_args_is_help=True)
+app.add_typer(training_app, name="training")
+training_app.add_typer(training_run_app, name="run")
+
+
+def _training_profile_path() -> Path:
+    return context_path().parent / "training.json"
+
+
+def _load_training_profile() -> dict[str, Any]:
+    path = _training_profile_path()
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _save_training_profile(value: dict[str, Any]) -> Path:
+    path = _training_profile_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
+@training_app.command("doctor")
+def training_doctor(ctx: typer.Context) -> None:
+    """Return one actionable readiness report for training setup."""
+    call(ctx, lambda client: client.get("/api/training-setup"))
+
+
+@training_app.command("setup")
+def training_setup(
+    ctx: typer.Context,
+    alias: str = typer.Option("ai-toolkit", "--alias"),
+    private_key_file: Path = typer.Option(
+        Path.home() / ".config" / "modelfiche" / "ai-toolkit-signing.key",
+        "--private-key-file",
+    ),
+) -> None:
+    """Create or reconcile the local signing identity without exposing its private key."""
+    destination = private_key_file.expanduser()
+    if destination.exists():
+        private_key = read_private_key(destination)
+        public_key = public_key_for_private(private_key)
+        generated = False
+    else:
+        private_key, public_key = generate_keypair()
+        destination = write_private_key(destination, private_key)
+        generated = True
+
+    runtime = rt(ctx)
+    client = runtime.client()
+    try:
+        credentials = client.get("/api/integrations/wandb/credentials")
+        matches = [item for item in credentials if item.get("alias") == alias]
+        if matches:
+            credential = matches[0]
+            if credential.get("public_key") != public_key:
+                raise ApiError(
+                    f"Credential alias {alias!r} is registered to a different private key",
+                    status_code=4,
+                    code="TRAINING_SIGNING_KEY_MISMATCH",
+                )
+        else:
+            credential = client.post(
+                "/api/integrations/wandb/credentials",
+                {"alias": alias, "public_key": public_key, "project_id": None},
+            )
+        profile_path = _save_training_profile(
+            {
+                "credential_alias": alias,
+                "credential_id": credential["id"],
+                "private_key_path": str(destination),
+                "key_id": credential["key_id"],
+            }
+        )
+        readiness = client.get("/api/training-setup")
+        emit(
+            {
+                "configured": True,
+                "generated_private_key": generated,
+                "private_key_path": str(destination),
+                "credential_alias": alias,
+                "credential_id": credential["id"],
+                "key_id": credential["key_id"],
+                "profile_path": str(profile_path),
+                "readiness": readiness,
+            },
+            json_output=runtime.json_output,
+            jsonl=runtime.jsonl,
+        )
+    except ApiError as exc:
+        fail(exc, json_output=runtime.json_output)
+    finally:
+        client.close()
+
+
+def _resolve_dataset_version(client: TitlesClient, dataset_value: str, version_value: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    datasets = client.get("/api/datasets", limit=1000)
+    matches = [item for item in datasets if item.get("id") == dataset_value or str(item.get("name", "")).casefold() == dataset_value.casefold()]
+    if len(matches) != 1:
+        raise ApiError(
+            f"Dataset {dataset_value!r} did not resolve uniquely",
+            status_code=4,
+            code="TRAINING_DATASET_AMBIGUOUS",
+            details={"matches": [{"id": item.get("id"), "name": item.get("name")} for item in matches]},
+        )
+    dataset = matches[0]
+    versions = client.get(f"/api/datasets/{dataset['id']}/versions")
+    if version_value is None:
+        version_id = dataset.get("current_version_id")
+        selected = next((item for item in versions if item.get("id") == version_id), None)
+    else:
+        selected = next(
+            (
+                item
+                for item in versions
+                if item.get("id") == version_value
+                or str(item.get("version_number")) == version_value
+                or str(item.get("name", "")).casefold() == version_value.casefold()
+            ),
+            None,
+        )
+    if selected is None:
+        raise ApiError(
+            f"Published version {version_value or 'current'} was not found",
+            status_code=4,
+            code="TRAINING_DATASET_VERSION_NOT_FOUND",
+        )
+    return dataset, selected
+
+
+@training_run_app.command("create")
+def training_run_create(
+    ctx: typer.Context,
+    dataset: str = typer.Option(..., "--dataset"),
+    name: str = typer.Option(..., "--name"),
+    base_model: str = typer.Option(..., "--base-model"),
+    version: str | None = typer.Option(None, "--version"),
+    output_directory: str = typer.Option("/workspace/output", "--output-directory"),
+    checkpoint_every: int = typer.Option(1000, "--checkpoint-every", min=1),
+    backup_every: int = typer.Option(300, "--backup-every", min=30, max=3600),
+    max_duration: int = typer.Option(86400, "--max-duration-seconds", min=300, max=2592000),
+) -> None:
+    """Create a launch from human-readable inputs using verified setup defaults."""
+    runtime = rt(ctx)
+    client = runtime.client()
+    try:
+        dataset_row, version_row = _resolve_dataset_version(client, dataset, version)
+        setup = client.get("/api/training-setup")
+        profile = _load_training_profile()
+        credential_id = profile.get("credential_id")
+        credential = next((item for item in setup.get("credentials", []) if item.get("id") == credential_id), None)
+        if credential is None and len(setup.get("credentials", [])) == 1:
+            credential = setup["credentials"][0]
+        sources = [item for item in setup.get("sources", []) if item.get("verified")]
+        if credential is None:
+            raise ApiError("Run `mfiche training setup` first", status_code=4, code="TRAINING_SIGNING_NOT_CONFIGURED")
+        if len(sources) != 1:
+            raise ApiError(
+                "Exactly one verified training storage source is required for guided launch",
+                status_code=4,
+                code="TRAINING_STORAGE_NOT_RESOLVED",
+                details={"sources": sources},
+            )
+        request_id = rt(ctx).request_id or f"training-{uuid.uuid4()}"
+        launch = client.post(
+            "/api/training-launches",
+            {
+                "dataset_version_id": version_row["id"],
+                "wandb_credential_id": credential["id"],
+                "source_id": sources[0]["id"],
+                "client_request_id": request_id,
+                "name": name,
+                "trainer": "ai-toolkit",
+                "base_model": base_model,
+                "output_directory": output_directory,
+                "checkpoint_policy": {"every_n_steps": checkpoint_every},
+                "backup_policy": {"interval_seconds": backup_every},
+                "supported_endpoint_ids": [],
+                "expected_duration_seconds": max_duration,
+            },
+        )
+        emit(
+            {
+                "launch": launch,
+                "dataset": {"id": dataset_row["id"], "name": dataset_row.get("name")},
+                "version": {"id": version_row["id"], "name": version_row.get("name"), "number": version_row.get("version_number")},
+                "next_action": f"mfiche training run preflight {launch['id']}",
+            },
+            json_output=runtime.json_output,
+            jsonl=runtime.jsonl,
+        )
+    except ApiError as exc:
+        fail(exc, json_output=runtime.json_output)
+    finally:
+        client.close()
+
+
+@training_run_app.command("preflight")
+def training_run_preflight(ctx: typer.Context, launch: str) -> None:
+    call(ctx, lambda client: client.get(f"/api/training-launches/{launch}/preflight"))
+
+
+@training_run_app.command("prepare")
+def training_run_prepare(
+    ctx: typer.Context,
+    launch: str,
+    output: Path = typer.Option(..., "--output", "-o"),
+    private_key_file: Path | None = typer.Option(None, "--private-key-file"),
+) -> None:
+    """Write a checksummed, ready-to-run packet only after preflight passes."""
+    profile = _load_training_profile()
+    key_path = (private_key_file or Path(str(profile.get("private_key_path", "")))).expanduser()
+    if not str(key_path) or not key_path.is_file():
+        raise typer.BadParameter("Run `mfiche training setup` or provide --private-key-file")
+    runtime = rt(ctx)
+    client = runtime.client()
+    try:
+        packet = client.get(f"/api/training-launches/{launch}/packet")
+        template = client.get_text(f"/api/training-launches/{launch}/environment")
+        claims = packet["manifest"]["telemetry"]["token"]["claims"]
+        secret_environment = render_agent_environment(template, sign_launch_claims(claims, read_private_key(key_path)))
+        destination = output.expanduser().resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        destination.chmod(0o700)
+        files = {
+            "manifest.json": json.dumps(packet["manifest"], indent=2, sort_keys=True) + "\n",
+            "preflight.json": json.dumps(packet["preflight"], indent=2, sort_keys=True) + "\n",
+            "ai-toolkit-logging.yaml": yaml.safe_dump(packet["ai_toolkit"], sort_keys=False),
+            "trainer.env": secret_environment,
+            "modelfiche-run-sync.py": Path(__file__).with_name("run_sync.py").read_text(encoding="utf-8"),
+            "run-sync-command.txt": "python3 modelfiche-run-sync.py --manifest manifest.json\n",
+            "README.txt": (
+                "ModelFiche training packet\n\n"
+                "1. Copy this directory to the trainer host over an encrypted channel.\n"
+                "2. Source trainer.env only in the AI Toolkit process.\n"
+                "3. Merge ai-toolkit-logging.yaml into the selected AI Toolkit job config.\n"
+                "4. Download dataset.download_url from manifest.json before starting.\n"
+                "5. Start `python3 modelfiche-run-sync.py --manifest manifest.json` beside AI Toolkit.\n"
+                "6. Keep ModelFiche ingress reachable until the run finishes.\n"
+            ),
+        }
+        checksums: dict[str, str] = {}
+        for filename, body in files.items():
+            path = destination / filename
+            path.write_text(body, encoding="utf-8")
+            path.chmod(0o600 if filename == "trainer.env" else 0o644)
+            checksums[filename] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        checksum_body = json.dumps({"algorithm": "sha256", "files": checksums}, indent=2, sort_keys=True) + "\n"
+        (destination / "checksums.json").write_text(checksum_body, encoding="utf-8")
+        emit(
+            {
+                "ready": True,
+                "launch_id": launch,
+                "run_id": packet["run_id"],
+                "output": str(destination),
+                "files": sorted([*files, "checksums.json"]),
+                "next_action": "Copy the packet to the trainer host and start AI Toolkit with trainer.env.",
+            },
+            json_output=runtime.json_output,
+            jsonl=runtime.jsonl,
+        )
+    except (ApiError, ValueError) as exc:
+        if isinstance(exc, ApiError):
+            fail(exc, json_output=runtime.json_output)
+        raise typer.BadParameter(str(exc)) from exc
+    finally:
+        client.close()
+
+
+@training_run_app.command("cancel")
+def training_run_cancel(ctx: typer.Context, launch: str) -> None:
+    call(ctx, lambda client: client.post(f"/api/training-launches/{launch}/cancel"))
+
+
+@training_run_app.command("delete")
+def training_run_delete(ctx: typer.Context, launch: str) -> None:
+    call(ctx, lambda client: client.delete(f"/api/training-launches/{launch}"))
 
 
 s3_app = typer.Typer(no_args_is_help=True)

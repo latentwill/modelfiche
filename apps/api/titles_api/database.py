@@ -1,4 +1,8 @@
 from collections.abc import Generator
+import os
+import hashlib
+import sqlite3
+import uuid
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, make_url
@@ -35,8 +39,10 @@ def upgrade_installed_database(database_url: str | None = None) -> None:
 
     resolved_url = database_url or get_settings().database_url
     project_root = Path(__file__).resolve().parents[3]
-    config = Config(str(project_root / "alembic.ini"))
-    config.set_main_option("script_location", str(project_root / "apps" / "api" / "alembic"))
+    config_path = project_root / "alembic.ini"
+    config = Config(str(config_path)) if config_path.is_file() else Config()
+    script_location = os.getenv("TITLES_ALEMBIC_SCRIPT_LOCATION") or str(project_root / "apps" / "api" / "alembic")
+    config.set_main_option("script_location", script_location)
     config.set_main_option("sqlalchemy.url", resolved_url)
 
     if resolved_url.startswith("sqlite:"):
@@ -51,6 +57,45 @@ def upgrade_installed_database(database_url: str | None = None) -> None:
                     command.stamp(config, "0002_generic_s3_sources")
 
     command.upgrade(config, "head")
+
+
+def bootstrap_empty_local_database(database_url: str | None = None) -> bool:
+    """Commit the storage contract only for a brand-new local SQLite install."""
+    resolved_url = database_url or get_settings().database_url
+    if not resolved_url.startswith("sqlite:"):
+        return False
+    database = make_url(resolved_url).database
+    if not database or database in {":memory:", ""} or "mode=memory" in resolved_url:
+        return False
+    path = Path(database).resolve()
+    with sqlite3.connect(path) as connection:
+        workspace_count = connection.execute("SELECT COUNT(*) FROM workspaces").fetchone()[0]
+        marker = connection.execute("SELECT marker FROM storage_cutover_marker WHERE id=1").fetchone()
+        if workspace_count or marker is not None:
+            return False
+        binding_digest = hashlib.sha256(f"modelfiche-local:{path}".encode("utf-8")).hexdigest()
+        connection.execute(
+            "INSERT INTO storage_cutover_marker(id,marker,binding_digest,effect_epoch) VALUES(1,1,?,0)",
+            (binding_digest,),
+        )
+        connection.commit()
+        from .storage.gates import GateEvidence, StorageGateStore
+
+        version = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        lease = f"local-bootstrap-{uuid.uuid4()}"
+        evidence_digest = hashlib.sha256(f"{version}:1:{binding_digest}:1".encode("utf-8")).hexdigest()
+        StorageGateStore(connection).verify_storage_contract(
+            GateEvidence(
+                run_lease_id=lease,
+                alembic_head=version,
+                marker=1,
+                binding_digest=binding_digest,
+                contract_version=1,
+                evidence_digest=evidence_digest,
+            ),
+            expected_run_lease_id=lease,
+        )
+    return True
 
 
 engine = build_engine()

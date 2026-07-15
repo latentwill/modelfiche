@@ -2023,7 +2023,193 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   font: 9px var(--vela-font-mono);
 }
 
+.vela-theme .training-wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: var(--vela-space-4);
+  align-items: start;
+}
+.vela-theme .training-wizard-main {
+  display: grid;
+  gap: var(--vela-space-3);
+}
+.vela-theme .training-wizard-aside {
+  position: sticky;
+  top: var(--vela-space-4);
+  display: grid;
+  gap: var(--vela-space-3);
+  padding: var(--vela-space-4);
+  border: 1px solid var(--vela-border);
+  background: color-mix(in srgb, var(--mf-accent) 6%, var(--vela-surface));
+  box-shadow: var(--vela-shadow-sm);
+}
+.vela-theme .training-wizard-aside > strong {
+  font: 700 12px var(--vela-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.vela-theme .training-wizard-aside ol {
+  display: grid;
+  gap: var(--vela-space-2);
+  margin: 0;
+  padding-left: 20px;
+  color: var(--vela-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.vela-theme .training-wizard-aside p,
+.vela-theme .training-intro {
+  margin: 0;
+  color: var(--vela-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.vela-theme .training-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--vela-space-3);
+}
+.vela-theme .training-summary {
+  margin-bottom: var(--vela-space-3);
+}
+.vela-theme .training-checks {
+  display: grid;
+  gap: 0;
+  margin: 0 0 var(--vela-space-3);
+  padding: 0;
+  border: 1px solid var(--vela-border);
+  list-style: none;
+}
+.vela-theme .training-checks li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--vela-space-2);
+  align-items: center;
+  min-height: 54px;
+  padding: var(--vela-space-2) var(--vela-space-3);
+  border-bottom: 1px solid var(--vela-border);
+}
+.vela-theme .training-checks li:last-child {
+  border-bottom: 0;
+}
+.vela-theme .training-checks li.is-pass > svg {
+  color: var(--mf-success);
+}
+.vela-theme .training-checks li.is-blocked > svg {
+  color: var(--mf-danger);
+}
+.vela-theme .training-checks li div {
+  display: grid;
+  gap: 2px;
+}
+.vela-theme .training-checks li small {
+  color: var(--vela-muted);
+}
+.vela-theme .training-submit-rail {
+  position: sticky;
+  bottom: var(--vela-space-3);
+  z-index: 5;
+  display: flex;
+  gap: var(--vela-space-4);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--vela-space-3) var(--vela-space-4);
+  border: 1px solid color-mix(in srgb, var(--mf-accent) 40%, var(--vela-border));
+  background: color-mix(in srgb, var(--vela-surface) 94%, transparent);
+  box-shadow: var(--vela-shadow-lg);
+  backdrop-filter: blur(12px);
+}
+.vela-theme .training-submit-rail > div {
+  display: flex;
+  gap: var(--vela-space-2);
+  align-items: center;
+}
+.vela-theme .training-submit-rail span {
+  display: grid;
+}
+.vela-theme .training-submit-rail small {
+  color: var(--vela-muted);
+}
+.vela-theme .training-readiness-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--vela-space-3);
+  padding: var(--vela-space-4);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+}
+.vela-theme .training-readiness-hero.is-ready {
+  border-color: color-mix(in srgb, var(--mf-success) 45%, var(--vela-border));
+  background: color-mix(in srgb, var(--mf-success) 7%, var(--vela-surface));
+}
+.vela-theme .training-readiness-hero.is-blocked {
+  border-color: color-mix(in srgb, var(--mf-warning) 45%, var(--vela-border));
+  background: color-mix(in srgb, var(--mf-warning) 7%, var(--vela-surface));
+}
+.vela-theme .training-readiness-hero > div {
+  display: flex;
+  gap: var(--vela-space-3);
+  align-items: center;
+}
+.vela-theme .training-readiness-hero span {
+  display: grid;
+  gap: 2px;
+}
+.vela-theme .training-readiness-hero small {
+  color: var(--vela-muted);
+  font: 10px var(--vela-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.vela-theme .training-readiness-hero strong {
+  font-size: 20px;
+}
+.vela-theme .training-readiness-hero p {
+  margin: 0;
+  color: var(--vela-muted);
+}
+.vela-theme .training-command {
+  display: flex;
+  gap: var(--vela-space-2);
+  align-items: center;
+  margin: var(--vela-space-3) 0;
+  padding: var(--vela-space-2);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-inset);
+}
+.vela-theme .training-command code {
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.vela-theme .training-command button {
+  display: inline-flex;
+  gap: var(--vela-space-1);
+  align-items: center;
+}
+.vela-theme .vela-button-danger {
+  color: var(--mf-danger);
+  border-color: color-mix(in srgb, var(--mf-danger) 45%, var(--vela-border));
+}
+.vela-theme .is-disabled {
+  pointer-events: none;
+  opacity: .5;
+}
+
 @media (max-width: 780px) {
+  .vela-theme .training-wizard-layout,
+  .vela-theme .training-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vela-theme .training-wizard-aside {
+    position: static;
+    order: -1;
+  }
+  .vela-theme .training-submit-rail {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .vela-theme .active-training-metrics {
     grid-template-columns: minmax(0, 1fr);
   }

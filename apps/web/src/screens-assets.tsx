@@ -358,7 +358,8 @@ export function DatasetScreen({ id }: { id: string }) {
   const subtitle = `${str(data?.project_name, "Project dataset")} · ${items.length} images · ${draft ? "Working draft" : `v${str(activeVersion?.version_number ?? data?.current_version, "-")}`}`;
   return <Page title={str(data?.name, "Dataset")} subtitle={subtitle} actions={<>
     {activeVersionId ? <a className="button vela-button" href={`#/transfers?mode=export&dataset_version=${activeVersionId}`}><Download size={15} />Export version</a> : <button disabled title="Publish a dataset version before exporting"><Download size={15} />Export unavailable</button>}
-    {!draft && <button className="vela-button vela-button-primary" onClick={() => void createDraft()} disabled={!activeVersionId || busy === "draft"} title={!activeVersionId ? "Import a dataset version before editing captions" : undefined}><Plus size={15} />{busy === "draft" ? "Creating..." : "New version"}</button>}
+    {!draft && activeVersion?.status === "published" && <a className="button vela-button vela-button-primary" href={`#/training-new?dataset=${id}&version=${activeVersionId}`}><Sparkles size={15} />Start training</a>}
+    {!draft && <button className="vela-button" onClick={() => void createDraft()} disabled={!activeVersionId || busy === "draft"} title={!activeVersionId ? "Import a dataset version before editing captions" : undefined}><Plus size={15} />{busy === "draft" ? "Creating..." : "New version"}</button>}
   </>}>
     <Notice error={resource.error || versionsResource.error} loading={resource.loading} />
     <ActionMessage message={message} error={actionError} />

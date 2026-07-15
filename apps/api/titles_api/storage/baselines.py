@@ -31,7 +31,7 @@ ALEMBIC_ASSET_TIMESTAMP_HEAD = "0007_asset_origin_timestamps"
 ALEMBIC_CHECKPOINT_REVISION_HEAD = "0008_checkpoint_revisions"
 ALEMBIC_INLINE_PROMPTS_HEAD = "0009_inline_generation_prompts"
 ALEMBIC_GENERATION_QUEUE_HEAD = "0010_generation_queue"
-ALEMBIC_HEAD = "0018_run_uploads_and_handoffs"
+ALEMBIC_HEAD = "0019_training_run_archival"
 ALEMBIC_POST_QUEUE_REVISIONS = frozenset(
     {
         "0011_generation_queue_children",
@@ -42,6 +42,7 @@ ALEMBIC_POST_QUEUE_REVISIONS = frozenset(
         "0016_training_launch_foundation",
         "0017_live_training_telemetry",
         "0018_run_uploads_and_handoffs",
+        "0019_training_run_archival",
     }
 )
 
