@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      allowedHosts: ["modelfiche.kinamix.com"],
       proxy: {
         "/api": {
           target: `http://127.0.0.1:${apiPort}`,
