@@ -32,6 +32,7 @@
   --mf-shadow: rgb(8 38 137 / 14%);
   --mf-grid: rgb(18 55 184 / 6%);
   --mf-media-bed: #ffffff;
+  --mf-data-fill: var(--mf-surface-muted);
 
   /* Existing Vela API mapped onto semantic ModelFiche roles. */
   --vela-bg: var(--mf-bg);
@@ -66,8 +67,9 @@
   --vela-duration: 160ms;
   --vela-ease: cubic-bezier(.16, 1, .3, 1);
   --vela-control-height: 40px;
+  --vela-touch-target: 44px;
   --vela-compact-control: 42px;
-  --vela-compact-control-mobile: 38px;
+  --vela-compact-control-mobile: var(--vela-touch-target);
   --vela-dropdown-min-width: 150px;
   --vela-dropdown-max-height: 320px;
   --mf-dropdown-menu-max-width: 32rem;
@@ -109,6 +111,7 @@ html[data-theme="dark"] .vela-theme {
   --mf-shadow: rgb(5 16 74 / 48%);
   --mf-grid: rgb(143 165 239 / 8%);
   --mf-media-bed: #081b78;
+  --mf-data-fill: #0b3d81;
   background-color: var(--vela-bg);
   background-image:
     linear-gradient(var(--mf-grid) 1px, transparent 1px),
@@ -125,8 +128,22 @@ body:has(.vela-theme) { overflow-x: clip; }
 .vela-theme button, .vela-theme input { color: inherit; font: inherit; }
 .vela-theme button { cursor: pointer; }
 .vela-theme a { color: inherit; text-decoration: none; }
-.vela-theme :is(button, a, input):focus-visible { outline: 2px solid var(--vela-accent); outline-offset: 2px; }
+.vela-theme :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--vela-accent); outline-offset: 2px; }
 
+.vela-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: var(--vela-space-2);
+  left: var(--vela-space-2);
+  transform: translateY(-180%);
+  padding: var(--vela-space-2) var(--vela-space-3);
+  border: 1px solid var(--mf-border-strong);
+  background: var(--mf-surface);
+  color: var(--mf-ink-strong);
+  font: 700 11px var(--vela-font-mono);
+}
+.vela-skip-link:focus { transform: translateY(0); }
+.vela-route-stage { scroll-margin-top: var(--vela-topbar); }
 .vela-shell {
   min-height: 100vh;
   min-height: 100dvh;
@@ -155,6 +172,8 @@ body:has(.vela-theme) { overflow-x: clip; }
 .vela-shell[data-inspector-collapsed="true"] .vela-inspector > :not(.vela-rail-label) { display: none; }
 
 .vela-brand { min-height: 42px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 16px; }
+.vela-theme .vela-create-button,
+.vela-theme .vela-theme-toggle { width: var(--vela-touch-target); min-height: var(--vela-touch-target); }
 .vela-workspace-context { flex: 0 0 auto; display: grid; gap: 2px; margin: 0 8px 10px; padding: 8px 10px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-md); background: var(--vela-surface-soft); }
 .vela-workspace-context strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px var(--vela-font-display); text-transform: uppercase; }
 .vela-wordmark { font: 24px/1 var(--vela-font-serif); letter-spacing: 0; }
@@ -451,6 +470,19 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   font: 700 10px var(--vela-font-mono);
   text-transform: uppercase;
 }
+.vela-theme .vela-table-row-action {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  font-weight: 650;
+}
+.vela-theme .vela-table-row-action:hover { color: var(--vela-accent); text-decoration: underline; }
 .vela-status::before { content: "•"; color: currentColor; font-size: 12px; line-height: 1; }
 .vela-status[data-state="success"] { border-color: color-mix(in oklch, var(--vela-success) 38%, var(--vela-border)); background: color-mix(in oklch, var(--vela-success) 10%, var(--vela-surface)); color: color-mix(in oklch, var(--vela-success) 78%, var(--vela-fg)); }
 .vela-status[data-state="success"]::before { content: "✓"; }
@@ -518,6 +550,7 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   box-shadow: 4px 4px 0 var(--mf-shadow);
 }
 .vela-dropdown-option {
+  min-height: var(--vela-touch-target);
   min-width: 0;
   display: flex;
   align-items: center;
@@ -566,6 +599,7 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-tree-group > .vela-nav-group { display: block; color: var(--vela-muted); }
 .vela-tree-group .vela-nav-item { min-height: 30px; padding-block: 7px; }
 .vela-storage strong { display: flex; align-items: center; gap: 7px; font: 700 11px var(--vela-font-display); text-transform: uppercase; }
+.vela-storage .vela-meta { display: block; margin-top: 8px; }
 
 .vela-muted-copy { margin-top: 12px !important; color: var(--vela-muted); font-size: .8125rem; line-height: 1.45; }
 .vela-metadata-list { display: grid; margin: 13px 0 0; }
@@ -643,6 +677,18 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-theme .caption-item { display: grid; grid-template-columns: 154px minmax(0, 1fr); gap: 13px; padding: 10px; border: 1px solid var(--vela-border); border-radius: var(--vela-radius-md); }
 .vela-theme .caption-item.selected { border-color: var(--vela-accent); outline: 1px solid var(--vela-accent); background: var(--vela-accent-soft); }
 .vela-theme .caption-item img { width: 154px; height: 154px; object-fit: contain; border-radius: var(--vela-radius-sm); background: var(--vela-surface-soft); }
+.vela-theme .caption-copy { min-width: 0; }
+.vela-theme .caption-image > .caption-select { min-width: var(--vela-touch-target); min-height: var(--vela-touch-target); display: grid; place-items: center; padding: 0; }
+.vela-theme .caption-image a span { min-height: var(--vela-touch-target); display: grid; place-items: center; padding: var(--vela-space-1) var(--vela-space-2); background: var(--mf-active-fill); color: var(--mf-active-text); font-family: var(--vela-font-mono); }
+.vela-theme .caption-included { min-height: var(--vela-touch-target); display: flex; align-items: center; gap: var(--vela-space-2); }
+.vela-theme :is(.caption-json, .caption-json-editor) { width: 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.55 var(--vela-font-mono); }
+.vela-theme .caption-json { max-height: 320px; overflow: auto; margin: 0; padding: var(--vela-space-3); border: 1px solid var(--vela-border); background: var(--vela-surface-soft); }
+.vela-theme .selection-toolbar > div:first-child { display: grid; gap: var(--vela-space-1); }
+.vela-theme .caption-operation-preview { display: grid; gap: var(--vela-space-3); }
+.vela-theme .caption-operation-history ol { display: grid; gap: var(--vela-space-2); margin: 0; padding: var(--vela-space-3) 0 0; list-style: none; }
+.vela-theme .caption-operation-history li { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--vela-space-3); padding-block: var(--vela-space-2); border-top: 1px solid var(--vela-border); }
+.vela-theme .caption-operation-history li > span:first-child { min-width: 0; display: grid; gap: var(--vela-space-1); }
+.vela-theme .caption-operation-history li small { color: var(--vela-muted); font-family: var(--vela-font-mono); }
 .vela-theme .caption-heading,
 .vela-theme .selection-toolbar,
 .vela-theme .integration-heading { display: flex; align-items: center; justify-content: space-between; gap: 9px; flex-wrap: wrap; }
@@ -726,6 +772,11 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   .vela-theme .comparison-columns { grid-template-columns: minmax(0, 1fr); }
   .vela-theme .caption-item { grid-template-columns: 92px minmax(0, 1fr); }
   .vela-theme .caption-item img { width: 92px; height: 92px; }
+  .vela-theme .caption-preview-actions > *,
+  .vela-theme .caption-image a span,
+  .vela-theme .caption-included { min-height: var(--vela-touch-target); }
+  .vela-theme .caption-operation-history li { align-items: stretch; }
+  .vela-theme .caption-operation-history li > button { min-width: var(--vela-touch-target); }
 }
 
 /* Focused visual-review workspaces intentionally leave the three-column shell. */
@@ -736,6 +787,8 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   border: 0;
   background: var(--vela-surface);
 }
+.gallery-review-overlay { height: 100vh; height: 100dvh; overflow-y: auto; overscroll-behavior: contain; }
+.gallery-review-overlay .viewer-topbar { position: sticky; top: 0; z-index: 2; }
 .vela-focus-workspace .viewer-topbar {
   min-height: 64px;
   padding: 0 18px;
@@ -749,19 +802,21 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-focus-workspace .image-review-main > img { height: calc(100vh - 208px); }
 .vela-focus-workspace .image-nav { align-items: center; background: var(--mf-bg-deep); }
 .vela-focus-workspace .image-nav a { display: flex; align-items: center; gap: 5px; color: var(--mf-ink-primary); font-size: 12px; }
+.vela-focus-workspace .image-nav a { min-height: var(--vela-touch-target); padding-inline: var(--vela-space-3); }
 .vela-focus-workspace .image-nav a:last-child { justify-self: end; }
 .vela-focus-workspace .image-nav a[aria-disabled="true"] { pointer-events: none; opacity: .35; }
 .vela-focus-workspace .filmstrip { min-height: 80px; align-items: center; justify-content: center; background: var(--mf-media-bed); }
+.vela-focus-workspace .filmstrip a { min-width: var(--vela-touch-target); min-height: var(--vela-touch-target); }
 .vela-focus-workspace .filmstrip a.active { border-color: var(--vela-accent); }
 .vela-focus-workspace .image-review-inspector { padding: 18px; border-color: var(--vela-border); background: var(--vela-surface); }
 .vela-focus-workspace .image-review-inspector h2 { font: 700 15px var(--vela-font-display); }
 .vela-focus-workspace .details { margin-top: 15px; }
 .vela-focus-workspace .details dt { color: var(--vela-muted); font-family: var(--vela-font-mono); }
 .vela-focus-workspace .rating-control { padding-block: 12px; border-block: 1px solid var(--vela-border); }
-.vela-focus-workspace .vela-rating-button { width: 30px; min-height: 30px; padding: 0; color: var(--vela-muted); }
+.vela-focus-workspace .vela-rating-button { width: var(--vela-touch-target); min-height: var(--vela-touch-target); padding: 0; color: var(--vela-muted); }
 .vela-focus-workspace .vela-rating-button[aria-pressed="true"] { border-color: var(--vela-accent); color: var(--vela-accent); background: var(--vela-accent-soft); }
 .vela-focus-workspace .comparison-toolbar { min-height: 58px; border-color: var(--vela-border); background: var(--vela-surface-soft); }
-.vela-focus-workspace .chiplets button.active { border-color: var(--vela-accent); background: var(--vela-accent); color: white; }
+.vela-focus-workspace .chiplets button.active { border-color: var(--vela-accent); background: var(--vela-accent); color: var(--mf-active-text); }
 .vela-focus-workspace .comparison-columns { background: var(--vela-bg); }
 .vela-focus-workspace .comparison-column { padding: 12px; border-color: var(--vela-border); border-radius: var(--vela-radius-md); background: var(--vela-surface); }
 .vela-focus-workspace .comparison-image { border-color: var(--vela-border); }
@@ -770,6 +825,9 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   .vela-focus-workspace .image-review-stage { grid-template-columns: 1fr; }
   .vela-focus-workspace .image-review-main > img { height: 62vh; }
   .vela-focus-workspace .image-review-inspector { border-left: 0; border-top: 1px solid var(--vela-border); }
+  .gallery-review-overlay .image-review-stage { min-height: 0; }
+  .gallery-review-overlay .image-review-main { min-height: min-content; }
+  .gallery-review-overlay .image-review-inspector { min-height: min-content; overflow: visible; }
 }
 
 .vela-theme { --vela-selection: var(--mf-border-strong); }
@@ -836,7 +894,7 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 }
 .vela-theme :is(button, .button, .vela-button, input, select, textarea) { border-radius: var(--vela-radius-md); }
 .vela-theme :is(button, .button, .vela-button) { letter-spacing: .02em; }
-.vela-theme :is(button, .button, .vela-button, a, input, select, textarea):focus-visible {
+.vela-theme :is(button, .button, .vela-button, a, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 1px solid var(--mf-border-strong);
   outline-offset: 3px;
   box-shadow: 0 0 0 1px var(--mf-surface), 0 0 0 3px var(--mf-border-strong);
@@ -903,6 +961,10 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-topbar :is(.vela-icon-button, .vela-profile-select.is-compact) svg { stroke: currentColor; }
 .vela-breadcrumbs { min-width: 0; overflow: hidden; color: var(--mf-ink-muted); font: 10px var(--vela-font-mono); letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .vela-breadcrumbs strong { color: var(--mf-ink-strong); }
+.vela-workspace-switcher { display: inline-block; width: clamp(128px, 14vw, 210px); vertical-align: middle; }
+.vela-workspace-switcher .vela-dropdown-button { min-height: 34px; padding: 6px 9px; border-color: transparent; background: transparent; color: var(--mf-ink-strong); font: 10px var(--vela-font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.vela-workspace-switcher .vela-dropdown-button:hover,
+.vela-workspace-switcher .vela-dropdown-button:focus-visible { border-color: var(--mf-border-strong); background: var(--mf-surface); }
 .vela-search,
 .vela-global-search .vela-search {
   min-height: 40px;
@@ -1203,7 +1265,7 @@ html[data-theme="dark"] :is(
   .training-metric-summary > div
 ) {
   border-color: var(--mf-accent);
-  background: #0b5fb8;
+  background: var(--mf-data-fill);
 }
 html[data-theme="dark"] .vela-theme .vela-button-primary,
 html[data-theme="dark"] .vela-theme .primary { color: var(--mf-active-text); }
@@ -1243,6 +1305,7 @@ html[data-theme="dark"] .vela-theme .primary { color: var(--mf-active-text); }
   .vela-main { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; }
   .vela-topbar { height: 60px; padding: 0 12px; }
   .vela-theme :is(.vela-button, .button, button, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select) { min-height: 44px; }
+  .vela-theme :is(.vela-create-menu a, .vela-create-menu button, .vela-search-results a, .vela-dropdown-option, .vela-text-button, .vela-pagination button) { min-height: var(--vela-touch-target); }
   .vela-page-header,
   .vela-hero { min-height: auto; padding: 24px 16px 20px; }
   .vela-page-header::before,
@@ -2219,5 +2282,571 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   }
   .vela-theme .active-training-metrics > span:last-child {
     border-bottom: 0;
+  }
+}
+
+.vela-theme .asset-card-preview,
+.vela-theme .asset-card-name {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.vela-theme .asset-card-preview { display: grid; gap: 5px; }
+.vela-theme .asset-card-generate {
+  width: 100%;
+  min-height: 30px;
+  justify-content: center;
+  font-size: 10px;
+}
+.vela-theme .image-generation-details { margin-top: -6px; }
+.vela-theme .image-all-metadata {
+  border-top: 1px solid var(--mf-border);
+  border-bottom: 1px solid var(--mf-border);
+}
+.vela-theme .image-all-metadata summary {
+  padding: 9px 0;
+  cursor: pointer;
+  color: var(--vela-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.vela-theme .image-all-metadata pre {
+  max-height: 360px;
+  margin: 0 0 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+/* Model review workspaces: bounded checkpoint comparison, typed lineage, and
+   consequence-aware artifact/version actions. */
+.vela-theme .sample-comparison-boundary,
+.vela-theme .sample-comparison-workspace {
+  display: grid;
+  align-content: start;
+  gap: var(--vela-space-4);
+  min-width: 0;
+  padding: var(--vela-space-5);
+}
+.vela-theme .sample-comparison-boundary { max-width: calc(var(--vela-space-6) * 24); }
+.vela-theme .sample-comparison-boundary h1,
+.vela-theme .sample-comparison-workspace h1 {
+  font: 700 27px/1.05 var(--vela-font-display);
+  text-transform: uppercase;
+}
+.vela-theme .sample-comparison-workspace .comparison-toolbar {
+  min-height: auto;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--vela-space-4);
+}
+.vela-theme .sample-comparison-workspace .comparison-toolbar p,
+.vela-theme .sample-comparison-selector p,
+.vela-theme .sample-review-panel p,
+.vela-theme .run-refresh-review p,
+.vela-theme .checkpoint-hydration-review p {
+  color: var(--vela-muted);
+}
+.vela-theme .sample-comparison-selector,
+.vela-theme .sample-review-panel,
+.vela-theme .run-refresh-review,
+.vela-theme .checkpoint-hydration-review {
+  display: grid;
+  gap: var(--vela-space-3);
+  padding: var(--vela-space-4);
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-lg);
+  background: var(--vela-surface);
+}
+.vela-theme .sample-comparison-selector h2,
+.vela-theme .sample-review-panel h2,
+.vela-theme .run-refresh-review h2,
+.vela-theme .checkpoint-hydration-review h2 {
+  font: 700 15px/1.05 var(--vela-font-display);
+  text-transform: uppercase;
+}
+.vela-theme .sample-comparison-selector .chiplets {
+  display: flex;
+  gap: var(--vela-space-2);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: var(--vela-space-1);
+  scroll-snap-type: x proximity;
+}
+.vela-theme .sample-comparison-selector .chiplets button {
+  flex: 0 0 calc(var(--vela-space-6) * 5);
+  display: grid;
+  justify-items: start;
+  gap: var(--vela-space-1);
+  scroll-snap-align: start;
+  text-align: left;
+}
+.vela-theme .sample-comparison-selector .chiplets button span {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--vela-muted);
+  font: 10px/1.4 var(--vela-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vela-theme .sample-comparison-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-md);
+  background: var(--vela-surface);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.vela-theme .sample-comparison-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.vela-theme .sample-comparison-table :is(th, td) {
+  width: calc(var(--vela-space-6) * 6);
+  min-width: calc(var(--vela-space-6) * 5);
+  padding: var(--vela-space-2);
+  border-right: 1px solid var(--vela-border);
+  border-bottom: 1px solid var(--vela-border);
+  vertical-align: top;
+}
+.vela-theme .sample-comparison-table :is(th, td):last-child { border-right: 0; }
+.vela-theme .sample-comparison-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: calc(var(--vela-space-6) * 4);
+  background: var(--vela-surface-soft);
+  text-align: left;
+}
+.vela-theme .sample-comparison-table thead th > * {
+  display: block;
+  margin-bottom: var(--vela-space-1);
+}
+.vela-theme .sample-comparison-table thead th > a { color: var(--vela-accent); }
+.vela-theme .sample-comparison-table :is(th, td):first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: calc(var(--vela-space-6) * 5);
+  background: var(--vela-surface);
+}
+.vela-theme .sample-comparison-table thead th:first-child {
+  z-index: 4;
+  background: var(--vela-surface-soft);
+}
+.vela-theme .sample-comparison-table tbody th {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.vela-theme .sample-comparison-table tbody th span {
+  display: block;
+  margin-top: var(--vela-space-1);
+  color: var(--vela-muted);
+  font: 10px/1.4 var(--vela-font-mono);
+}
+.vela-theme .sample-comparison-cell {
+  width: 100%;
+  display: grid;
+  gap: var(--vela-space-2);
+  padding: var(--vela-space-1);
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+.vela-theme .sample-comparison-cell:hover,
+.vela-theme .sample-comparison-cell.active {
+  border-color: var(--vela-accent);
+  background: var(--vela-accent-soft);
+}
+.vela-theme .sample-comparison-cell img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: var(--vela-surface-soft);
+}
+.vela-theme .sample-comparison-cell > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vela-space-1);
+}
+.vela-theme .sample-comparison-cell small,
+.vela-theme .sample-comparison-missing {
+  color: var(--vela-muted);
+  font: 10px/1.4 var(--vela-font-mono);
+}
+.vela-theme .sample-comparison-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vela-space-3);
+}
+.vela-theme .sample-comparison-pagination button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vela-space-1);
+}
+.vela-theme .sample-comparison-mobile { display: none; }
+.vela-theme .sample-review-panel > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--vela-space-3);
+}
+.vela-theme .sample-review-layout,
+.vela-theme .model-version-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--vela-space-4);
+}
+.vela-theme .sample-review-layout > img {
+  width: 100%;
+  max-height: calc(var(--vela-space-6) * 14);
+  object-fit: contain;
+  background: var(--vela-surface-soft);
+}
+.vela-theme .sample-review-controls {
+  display: grid;
+  align-content: start;
+  gap: var(--vela-space-3);
+}
+.vela-theme .sample-review-controls fieldset {
+  margin: 0;
+  padding: var(--vela-space-3);
+  border: 1px solid var(--vela-border);
+}
+.vela-theme .sample-review-controls legend {
+  padding-inline: var(--vela-space-1);
+  font: 700 11px var(--vela-font-display);
+  text-transform: uppercase;
+}
+.vela-theme .sample-rating-options {
+  display: flex;
+  gap: var(--vela-space-1);
+}
+.vela-theme .sample-rating-options label {
+  min-width: var(--vela-touch-target);
+  min-height: var(--vela-touch-target);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.vela-theme .sample-rating-options label span { font: 10px var(--vela-font-mono); }
+.vela-theme .model-version-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--vela-border);
+  border-radius: var(--vela-radius-md);
+}
+.vela-theme .model-version-link {
+  display: grid;
+  gap: var(--vela-space-1);
+  color: var(--vela-accent);
+}
+.vela-theme .model-version-link small {
+  color: var(--vela-muted);
+  font: 10px/1.4 var(--vela-font-mono);
+}
+.vela-theme .model-version-mobile-list { display: none; }
+.vela-theme .production-decision-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--vela-space-3);
+}
+.vela-theme .lineage-list {
+  display: grid;
+  gap: var(--vela-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.vela-theme .lineage-list > li {
+  display: grid;
+  gap: var(--vela-space-2);
+  padding: var(--vela-space-3);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface-soft);
+}
+.vela-theme .lineage-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--vela-space-3);
+}
+.vela-theme .lineage-entity {
+  display: grid;
+  gap: var(--vela-space-1);
+  min-width: 0;
+}
+.vela-theme .lineage-entity small,
+.vela-theme .lineage-list time {
+  color: var(--vela-muted);
+  font: 10px/1.4 var(--vela-font-mono);
+  text-transform: uppercase;
+}
+.vela-theme .lineage-entity :is(a, strong) { overflow-wrap: anywhere; }
+.vela-theme .lineage-entity a { color: var(--vela-accent); }
+.vela-theme .lineage-relationship {
+  padding: var(--vela-space-1) var(--vela-space-2);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+  font: 10px/1.4 var(--vela-font-mono);
+  text-transform: uppercase;
+}
+.vela-theme .lineage-list dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vela-space-2);
+  margin: 0;
+}
+.vela-theme .lineage-list dl div {
+  display: flex;
+  gap: var(--vela-space-1);
+  padding: var(--vela-space-1) var(--vela-space-2);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+}
+.vela-theme .lineage-list :is(dt, dd) { margin: 0; }
+.vela-theme .lineage-list dt { color: var(--vela-muted); }
+.vela-theme .checkpoint-readiness-static {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vela-space-2);
+  max-width: calc(var(--vela-space-6) * 10);
+}
+.vela-theme .run-refresh-review,
+.vela-theme .checkpoint-hydration-review {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  background: var(--vela-surface-soft);
+}
+.vela-theme .run-refresh-review label,
+.vela-theme .checkpoint-hydration-review label {
+  display: flex;
+  align-items: start;
+  gap: var(--vela-space-2);
+}
+
+@media (max-width: 680px) {
+  .vela-theme .sample-comparison-workspace,
+  .vela-theme .sample-comparison-boundary { padding: var(--vela-space-3); }
+  .vela-theme .sample-comparison-workspace .comparison-toolbar,
+  .vela-theme .sample-review-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .vela-theme .sample-comparison-table-wrap { display: none; }
+  .vela-theme .sample-comparison-mobile {
+    display: grid;
+    gap: var(--vela-space-3);
+    padding: var(--vela-space-3);
+    border: 1px solid var(--vela-border);
+    background: var(--vela-surface);
+  }
+  .vela-theme .sample-comparison-mobile .sample-comparison-cell {
+    max-width: calc(var(--vela-space-6) * 12);
+    margin-inline: auto;
+  }
+  .vela-theme .sample-comparison-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .vela-theme .sample-review-layout,
+  .vela-theme .model-version-detail-grid,
+  .vela-theme .production-decision-layout,
+  .vela-theme .run-refresh-review,
+  .vela-theme .checkpoint-hydration-review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vela-theme .model-version-table-wrap { display: none; }
+  .vela-theme .model-version-mobile-list {
+    display: grid;
+    gap: var(--vela-space-2);
+  }
+  .vela-theme .model-version-mobile-list > a {
+    display: grid;
+    gap: var(--vela-space-2);
+    padding: var(--vela-space-3);
+    border: 1px solid var(--vela-border);
+    background: var(--vela-surface-soft);
+  }
+  .vela-theme .model-version-mobile-list span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vela-space-2);
+  }
+  .vela-theme .lineage-route { grid-template-columns: minmax(0, 1fr); }
+  .vela-theme .lineage-relationship { justify-self: start; }
+}
+
+/* Eval and Grid workspaces */
+.vela-theme .eval-review-toolbar,
+.vela-theme .grid-board-tools,
+.vela-theme .grid-scan-help {
+  color: var(--vela-muted);
+  font: .625rem/1.4 var(--vela-font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.vela-theme .eval-review-toolbar,
+.vela-theme .eval-comparison-range,
+.vela-theme .grid-board-tools,
+.vela-theme .grid-preview-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vela-space-2);
+}
+.vela-theme .eval-prompt-column,
+.vela-theme .eval-output-list,
+.vela-theme .eval-output-card,
+.vela-theme .eval-output-review,
+.vela-theme .eval-saved-index,
+.vela-theme .grid-axis-layout,
+.vela-theme .grid-subgrids,
+.vela-theme .grid-result-links {
+  display: grid;
+  gap: var(--vela-space-3);
+  min-width: 0;
+}
+.vela-theme .eval-prompt-column {
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--vela-space-6) * 4), 1fr));
+}
+.vela-theme .eval-output-card {
+  grid-template-columns: minmax(0, 1fr) minmax(calc(var(--vela-space-6) * 3), auto);
+  padding: var(--vela-space-3);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+}
+.vela-theme .eval-output-card > a { min-width: 0; }
+.vela-theme .eval-output-review { align-content: start; }
+.vela-theme .eval-roving-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vela-space-1);
+}
+.vela-theme .eval-roving-group [role="radio"][aria-checked="true"] {
+  border-color: var(--vela-accent);
+  background: var(--mf-active-fill);
+  color: var(--mf-active-text);
+}
+.vela-theme .eval-saved-index,
+.vela-theme .grid-axis-layout {
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--vela-space-6) * 5), 1fr));
+}
+.vela-theme .eval-saved-index section,
+.vela-theme .grid-axis-editor {
+  display: grid;
+  align-content: start;
+  gap: var(--vela-space-2);
+  min-width: 0;
+}
+.vela-theme .grid-board-frame {
+  --mf-grid-cell: calc(var(--vela-space-6) * 4);
+  display: grid;
+  gap: var(--vela-space-2);
+  min-width: 0;
+}
+.vela-theme .grid-board-region {
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+}
+.vela-theme table.grid-board {
+  display: table;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--vela-surface);
+}
+.vela-theme .grid-board caption {
+  padding: var(--vela-space-2);
+  color: var(--vela-muted);
+  text-align: left;
+}
+.vela-theme .grid-board :is(th, td) {
+  min-width: calc(var(--mf-grid-cell) * var(--grid-zoom));
+  padding: var(--vela-space-2);
+  border-right: 1px solid var(--vela-border);
+  border-bottom: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+  vertical-align: top;
+}
+.vela-theme .grid-board thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--vela-surface-soft);
+}
+.vela-theme .grid-board tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--vela-surface-soft);
+}
+.vela-theme .grid-board .grid-cell {
+  display: grid;
+  gap: var(--vela-space-1);
+  width: 100%;
+  min-height: calc(var(--mf-grid-cell) * var(--grid-zoom));
+}
+.vela-theme .grid-board .grid-cell img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+.vela-theme .grid-board-region[data-fit="true"] .grid-board {
+  width: 100%;
+  table-layout: fixed;
+}
+.vela-theme .grid-board-region[data-fit="true"] .grid-board :is(th, td) { min-width: 0; }
+.vela-theme .grid-result-links { grid-template-columns: repeat(auto-fit, minmax(calc(var(--vela-space-6) * 4), 1fr)); }
+
+@media (max-width: 680px) {
+  .vela-theme .eval-output-card { grid-template-columns: minmax(0, 1fr); }
+  .vela-theme .eval-saved-index,
+  .vela-theme .grid-axis-layout { grid-template-columns: minmax(0, 1fr); }
+  .vela-theme .grid-board-region { border: 0; overflow: visible; }
+  .vela-theme table.grid-board,
+  .vela-theme .grid-board :is(tbody, tr, td) { display: grid; width: 100%; }
+  .vela-theme .grid-board thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .vela-theme .grid-board tbody { gap: var(--vela-space-3); }
+  .vela-theme .grid-board tr {
+    gap: var(--vela-space-2);
+    padding: var(--vela-space-3);
+    border: 1px solid var(--vela-border);
+    background: var(--vela-surface);
+  }
+  .vela-theme .grid-board tbody th {
+    position: static;
+    padding: 0 0 var(--vela-space-2);
+    border: 0;
+  }
+  .vela-theme .grid-board td {
+    min-width: 0;
+    padding: var(--vela-space-2);
+    border: 1px solid var(--vela-border);
+  }
+  .vela-theme .grid-board td::before {
+    content: attr(data-x-label) " × " attr(data-y-label);
+    display: block;
+    margin-bottom: var(--vela-space-2);
+    color: var(--vela-muted);
+    font: .625rem/1.4 var(--vela-font-mono);
   }
 }

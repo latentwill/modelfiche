@@ -12,6 +12,21 @@ export class ApiError extends Error {
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "");
 export const API_BASE = configuredBase ?? "";
+export const WORKSPACE_STORAGE_KEY = "titles.activeWorkspaceId";
+
+export function activeWorkspaceId(): string {
+  try {
+    return localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setActiveWorkspaceId(workspaceId: string) {
+  localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
+  localStorage.removeItem("titles.activeProfileId");
+}
+
 
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -19,6 +34,8 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   headers.set("accept", "application/json");
   const profileId = localStorage.getItem("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
+  const workspaceId = activeWorkspaceId();
+  if (workspaceId) headers.set("x-workspace-id", workspaceId);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();

@@ -134,8 +134,8 @@ class JobRunner:
         # Materialize one DAM-owned generation item into the existing FAL job queue.
         # Provider-owned queues are excluded by the queue claim contract.
         with self.session_factory() as session:
-            from titles_api.routers.generation_queue import claim_next
-            claim_next(session)
+            from titles_api.routers.generation_queue import claim_next_for_worker
+            claim_next_for_worker(session)
         job = self.claim()
         if job is None:
             return False

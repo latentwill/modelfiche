@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from .. import models, schemas
 from ..checkpoint_revisions import establish_checkpoint_revision
 from ..database import get_db
-from ..services import active_profile, get_or_404, record_activity
+from ..services import active_profile, current_workspace, get_or_404, record_activity
 
 router = APIRouter()
 DB = Annotated[Session, Depends(get_db)]
@@ -141,6 +141,141 @@ def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> di
     }
 
 
+def run_dataset_link(db: Session, run: models.TrainingRun | None) -> dict[str, Any] | None:
+    if run is None or not run.dataset_version_id:
+        return None
+    version = db.get(models.DatasetVersion, run.dataset_version_id)
+    dataset = db.get(models.Dataset, version.dataset_id) if version else None
+    return {
+        "dataset_id": dataset.id if dataset else None,
+        "dataset_name": dataset.name if dataset else None,
+        "dataset_version_id": run.dataset_version_id,
+        "dataset_version_name": version.name if version else None,
+        "available": bool(dataset and version),
+    }
+
+
+def checkpoint_readiness(
+    db: Session,
+    checkpoint: models.Checkpoint,
+    version: models.ModelVersion | None = None,
+) -> dict[str, Any]:
+    artifact = checkpoint_artifact(db, checkpoint) or {}
+    storage = artifact.get("storage") if isinstance(artifact.get("storage"), list) else []
+    local = next(
+        (
+            location
+            for location in storage
+            if str(location.get("provider", "")).lower() == "local"
+            and str(location.get("hydration_state", "")).lower() in {"hydrated", "available", "present"}
+        ),
+        None,
+    )
+    remote = next(
+        (
+            location
+            for location in storage
+            if str(location.get("provider", "")).lower() != "local"
+            and bool(location.get("uri") or location.get("object_key"))
+        ),
+        None,
+    )
+    hydration_job = db.scalar(
+        select(models.Job)
+        .where(
+            models.Job.kind == "checkpoint.hydrate",
+            models.Job.payload["checkpoint_id"].as_string() == checkpoint.id,
+            models.Job.state.in_([models.JobState.queued, models.JobState.running]),
+        )
+        .order_by(models.Job.created_at.desc())
+    )
+    checkpoint_state = str(checkpoint.state or "").lower()
+    hydrated = bool(local) or checkpoint_state == "hydrated"
+    local_status = "hydrated" if hydrated else "hydrating" if hydration_job else "failed" if checkpoint_state == "failed" else "remote" if remote else "missing"
+    can_hydrate = bool(remote and not hydrated and hydration_job is None and checkpoint_state != "failed")
+    if hydrated:
+        reason = "A verified local copy is already available."
+    elif hydration_job:
+        reason = "Hydration is already queued or running."
+    elif checkpoint_state == "failed":
+        reason = "The checkpoint is failed; repair its source before hydration."
+    elif not remote:
+        reason = "No remote checkpoint location is available."
+    else:
+        reason = "Review the artifact size and source before downloading a local copy."
+
+    raw_readiness = dict(version.readiness or {}) if version else {}
+    fal_url = raw_readiness.get("fal_url") or raw_readiness.get("fal_path")
+    endpoint_id = raw_readiness.get("endpoint_id") or raw_readiness.get("endpoint") or raw_readiness.get("fal_endpoint")
+    fal_status = raw_readiness.get("fal_status") or ("ready" if fal_url and endpoint_id else "registered" if fal_url else "not_registered")
+    return {
+        "local": {
+            "status": local_status,
+            "available": hydrated,
+            "can_hydrate": can_hydrate,
+            "reason": reason,
+            "path": local.get("relative_path") or local.get("uri") if local else None,
+            "verification_state": local.get("verification_state") if local else None,
+            "job_id": hydration_job.id if hydration_job else None,
+        },
+        "remote": {
+            "available": bool(remote),
+            "provider": remote.get("provider") if remote else None,
+            "size": remote.get("size") if remote else None,
+            "location": remote.get("object_key") or remote.get("uri") if remote else None,
+        },
+        "fal": {
+            "status": fal_status,
+            "available": bool(fal_url and endpoint_id),
+            "url": fal_url,
+            "endpoint_id": endpoint_id,
+        },
+    }
+
+
+def checkpoint_projection(db: Session, checkpoint: models.Checkpoint) -> dict[str, Any]:
+    artifact = checkpoint_artifact(db, checkpoint)
+    version = db.scalar(
+        select(models.ModelVersion)
+        .where(models.ModelVersion.checkpoint_id == checkpoint.id)
+        .order_by(models.ModelVersion.created_at.desc())
+    )
+    model = db.get(models.Model, version.model_id) if version else None
+    run = db.get(models.TrainingRun, checkpoint.run_id)
+    registered_version = None if version is None else {
+        "id": version.id,
+        "name": version.name,
+        "model_id": version.model_id,
+        "model_name": model.name if model else None,
+        "lifecycle_state": version.lifecycle_state,
+        "checkpoint_revision_id": version.checkpoint_revision_id,
+    }
+    return {
+        **dump(checkpoint),
+        "artifact": artifact,
+        "asset_revision_id": checkpoint.asset_id,
+        "filename": artifact["filename"] if artifact else None,
+        "size": next((location.get("size") for location in artifact["storage"] if location.get("size") is not None), None) if artifact else None,
+        "registered_version": registered_version,
+        "model_version_id": version.id if version else None,
+        "model_version_name": version.name if version else None,
+        "readiness_summary": checkpoint_readiness(db, checkpoint, version),
+        "dataset": run_dataset_link(db, run),
+    }
+
+
+def sample_identity(sample: models.Sample, asset: models.Asset | None) -> tuple[str, str, int | None]:
+    filename = asset.name if asset else ""
+    match = re.search(r"__(\d{9})_(\d+)\.[^.]+$", filename)
+    if match:
+        ordinal = int(match.group(2))
+        return f"sample-{ordinal}", sample.prompt or f"Sample {ordinal + 1}", ordinal
+    if sample.prompt:
+        seed = "" if sample.seed is None else str(sample.seed)
+        return f"prompt:{sample.prompt}\x1fseed:{seed}", sample.prompt, None
+    return f"sample-record:{sample.id}", asset.name if asset else "Unlabelled sample", None
+
+
 def _run_preview_asset_ids(db: Session, run_ids: set[str]) -> dict[str, str]:
     """Batch-resolve latest image samples, then image checkpoints as a safe fallback."""
     if not run_ids:
@@ -180,6 +315,8 @@ def runs(
 ):
     query = (
         select(models.TrainingRun)
+        .join(models.Project, models.Project.id == models.TrainingRun.project_id)
+        .where(models.Project.workspace_id == current_workspace(db).id)
         .order_by(models.TrainingRun.created_at.desc(), models.TrainingRun.id.desc())
         .limit(limit)
     )
@@ -203,9 +340,14 @@ def runs(
             .order_by(models.Checkpoint.step.desc(), models.ModelVersion.created_at.desc(), models.ModelVersion.id.desc())
         ).first()
         result_model, result_version = result if result else (None, None)
+        dataset = run_dataset_link(db, row)
         rows.append({
             **dump(row),
             "project_name": project.title if project else None,
+            "dataset_id": dataset["dataset_id"] if dataset else None,
+            "dataset_name": dataset["dataset_name"] if dataset else None,
+            "dataset_version_name": dataset["dataset_version_name"] if dataset else None,
+            "dataset_linkage": dataset,
             "checkpoint_count": int(db.scalar(select(func.count()).select_from(models.Checkpoint).where(models.Checkpoint.run_id == row.id)) or 0),
             "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == row.id)) or 0),
             "result_model_id": result_model.id if result_model else None,
@@ -281,21 +423,7 @@ def restore_run(
 def run(run_id: str, db: DB):
     run = get_or_404(db, models.TrainingRun, run_id)
     checkpoints = db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run.id).order_by(models.Checkpoint.step)).all()
-    dataset_version = db.get(models.DatasetVersion, run.dataset_version_id) if run.dataset_version_id else None
-    checkpoint_rows = []
-    for checkpoint in checkpoints:
-        asset = db.get(models.Asset, checkpoint.asset_id)
-        location = db.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == checkpoint.asset_id).order_by(models.AssetLocation.created_at.desc()))
-        version = db.scalar(select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id))
-        checkpoint_rows.append({
-            **dump(checkpoint),
-            "asset_revision_id": checkpoint.asset_id,
-            "filename": asset.name if asset else None,
-            "size": location.size if location else None,
-            "hydration_state": location.hydration_state if location else None,
-            "model_version_name": version.name if version else None,
-        })
-    dataset = db.get(models.Dataset, dataset_version.dataset_id) if dataset_version else None
+    dataset = run_dataset_link(db, run)
     stages = db.scalars(
         select(models.TrainingStage)
         .where(models.TrainingStage.run_id == run.id)
@@ -304,11 +432,12 @@ def run(run_id: str, db: DB):
     return {
         **dump(run),
         **{key: value for key, value in dict(run.normalized_config or {}).items() if key in {"learning_rate", "lora_rank", "steps", "epochs", "usable_output", "source_status", "source_message", "status_evidence"}},
-        "dataset_id": dataset.id if dataset else None,
-        "dataset_name": dataset.name if dataset else None,
-        "dataset_version_name": dataset_version.name if dataset_version else None,
+        "dataset_id": dataset["dataset_id"] if dataset else None,
+        "dataset_name": dataset["dataset_name"] if dataset else None,
+        "dataset_version_name": dataset["dataset_version_name"] if dataset else None,
+        "dataset_linkage": dataset,
         "stages": [dump(stage) for stage in stages],
-        "checkpoints": checkpoint_rows,
+        "checkpoints": [checkpoint_projection(db, checkpoint) for checkpoint in checkpoints],
         "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0),
         "metric_count": int(db.scalar(select(func.count()).select_from(models.TrainingMetric).where(models.TrainingMetric.run_id == run.id)) or 0),
     }
@@ -465,7 +594,14 @@ def create_checkpoint(run_id: str, body: schemas.CheckpointCreate, db: DB, x_pro
 @router.get("/runs/{run_id}/checkpoints")
 def checkpoints(run_id: str, db: DB):
     get_or_404(db, models.TrainingRun, run_id)
-    return [{**dump(c), "asset_revision_id": c.asset_id} for c in db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run_id).order_by(models.Checkpoint.step)).all()]
+    return [
+        checkpoint_projection(db, checkpoint)
+        for checkpoint in db.scalars(
+            select(models.Checkpoint)
+            .where(models.Checkpoint.run_id == run_id)
+            .order_by(models.Checkpoint.step)
+        ).all()
+    ]
 
 
 @router.post("/runs/{run_id}/samples", status_code=status.HTTP_201_CREATED)
@@ -498,10 +634,36 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
     if step is not None:
         query = query.where(models.Sample.step == step)
     rows = []
+    checkpoint_cache: dict[str, dict[str, Any]] = {}
+    step_checkpoint_cache: dict[tuple[int, str | None], models.Checkpoint | None] = {}
     for sample in db.scalars(query.offset(offset).limit(limit)).all():
         asset = db.get(models.Asset, sample.asset_id)
         review = db.scalar(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == sample.asset_id).order_by(models.Review.created_at.desc()))
         training_step, sample_track = sample_provenance(db, sample, asset)
+        identity, identity_label, identity_ordinal = sample_identity(sample, asset)
+        profile = db.get(models.UserProfile, review.profile_id) if review else None
+        checkpoint = db.get(models.Checkpoint, sample.checkpoint_id) if sample.checkpoint_id else None
+        if checkpoint is None and training_step is not None:
+            cache_key = (training_step, sample_track)
+            if cache_key not in step_checkpoint_cache:
+                candidates = db.execute(
+                    select(models.Checkpoint, models.Asset)
+                    .join(models.Asset, models.Asset.id == models.Checkpoint.asset_id)
+                    .where(models.Checkpoint.run_id == run_id, models.Checkpoint.step == training_step)
+                ).all()
+                matching = [
+                    candidate
+                    for candidate in candidates
+                    if sample_track and sample_track in str(candidate[1].name or "").lower()
+                ]
+                step_checkpoint_cache[cache_key] = (matching or candidates)[0][0] if (matching or candidates) else None
+            checkpoint = step_checkpoint_cache[cache_key]
+        checkpoint_row = None
+        if checkpoint:
+            checkpoint_row = checkpoint_cache.get(checkpoint.id)
+            if checkpoint_row is None:
+                checkpoint_row = checkpoint_projection(db, checkpoint)
+                checkpoint_cache[checkpoint.id] = checkpoint_row
         rows.append({
             **dump(sample),
             "asset_revision_id": sample.asset_id,
@@ -514,7 +676,19 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
             "modified_at": sample.modified_at,
             "generated_at": None,
             "training_step": training_step,
+            "sample_identity": identity,
+            "sample_label": identity_label,
+            "sample_ordinal": identity_ordinal,
             "sample_track": sample_track,
+            "review_id": review.id if review else None,
+            "reviewed_by": profile.display_name if profile else None,
+            "reviewed_at": review.created_at if review else None,
+            "checkpoint_id": checkpoint.id if checkpoint else sample.checkpoint_id,
+            "checkpoint_filename": checkpoint_row["filename"] if checkpoint_row else None,
+            "checkpoint_state": checkpoint.state if checkpoint else None,
+            "checkpoint_readiness": checkpoint_row["readiness_summary"] if checkpoint_row else None,
+            "model_version_id": checkpoint_row["model_version_id"] if checkpoint_row else None,
+            "model_version_name": checkpoint_row["model_version_name"] if checkpoint_row else None,
         })
     return rows
 
@@ -522,21 +696,31 @@ def samples(run_id: str, db: DB, step: int | None = None, limit: int = Query(200
 @router.get("/checkpoints/{checkpoint_id}")
 def checkpoint(checkpoint_id: str, db: DB):
     checkpoint = get_or_404(db, models.Checkpoint, checkpoint_id)
-    asset = db.get(models.Asset, checkpoint.asset_id)
-    locations = db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == checkpoint.asset_id)).all()
     run = db.get(models.TrainingRun, checkpoint.run_id)
-    asset_row = None if asset is None else {
-        "asset_revision_id": asset.id,
-        "id": asset.id, "project_id": asset.project_id, "kind": asset.kind,
-        "name": asset.name, "mime_type": asset.mime_type, "sha256": asset.sha256,
-        "metadata": asset.metadata_, "created_at": asset.created_at, "updated_at": asset.updated_at,
+    projection = checkpoint_projection(db, checkpoint)
+    return {
+        **projection,
+        "run_name": run.name if run else None,
+        "run_id": checkpoint.run_id,
+        "asset": None if projection["artifact"] is None else {
+            "asset_revision_id": projection["artifact"]["asset_id"],
+            "id": projection["artifact"]["asset_id"],
+            "project_id": run.project_id if run else None,
+            "kind": "model",
+            "name": projection["artifact"]["filename"],
+            "mime_type": projection["artifact"]["mime_type"],
+            "sha256": projection["artifact"]["sha256"],
+            "metadata": projection["artifact"]["metadata"],
+        },
     }
-    return {**dump(checkpoint), "run_name": run.name if run else None, "run_id": checkpoint.run_id, "asset": asset_row, "locations": [dump(location) for location in locations], "artifact": checkpoint_artifact(db, checkpoint)}
 
 
 @router.post("/checkpoints/{checkpoint_id}/hydrate", status_code=status.HTTP_202_ACCEPTED)
 def hydrate_checkpoint(checkpoint_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     checkpoint = get_or_404(db, models.Checkpoint, checkpoint_id)
+    readiness = checkpoint_readiness(db, checkpoint)
+    if not readiness["local"]["can_hydrate"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=readiness["local"]["reason"])
     run = get_or_404(db, models.TrainingRun, checkpoint.run_id)
     existing = db.scalar(select(models.Job).where(
         models.Job.kind == "checkpoint.hydrate",
@@ -555,7 +739,9 @@ def hydrate_checkpoint(checkpoint_id: str, db: DB, x_profile_id: Annotated[str |
 
 @router.get("/models")
 def models_list(db: DB, project_id: str | None = None):
-    query = select(models.Model).order_by(models.Model.updated_at.desc())
+    query = select(models.Model).join(models.Project, models.Project.id == models.Model.project_id).where(
+        models.Project.workspace_id == current_workspace(db).id,
+    ).order_by(models.Model.updated_at.desc())
     if project_id:
         query = query.where(models.Model.project_id == project_id)
     rows = []
@@ -582,21 +768,7 @@ def model_detail(model_id: str, db: DB):
         key=lambda version: model_version_chronology(db, version),
         reverse=True,
     )
-    version_rows = []
-    for version in versions:
-        checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
-        artifact = checkpoint_artifact(db, checkpoint)
-        version_rows.append({
-            **dump(version),
-            "checkpoint_step": checkpoint.step if checkpoint else None,
-            "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
-            "artifact": artifact,
-            "filename": artifact["filename"] if artifact else None,
-            "asset_id": artifact["asset_id"] if artifact else None,
-            "storage": artifact["storage"] if artifact else [],
-            "fal_status": version.readiness.get("fal_status") if version.readiness else None,
-            "fal_url": version.readiness.get("fal_url") if version.readiness else None,
-        })
+    version_rows = [model_version_projection(db, version) for version in versions]
     return {**dump(model), "versions": version_rows}
 
 
@@ -611,6 +783,29 @@ def create_model(body: schemas.ModelCreate, db: DB, x_profile_id: Annotated[str 
     return dump(model)
 
 
+def model_version_projection(db: Session, version: models.ModelVersion) -> dict[str, Any]:
+    model = db.get(models.Model, version.model_id)
+    checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+    run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+    artifact = checkpoint_artifact(db, checkpoint)
+    return {
+        **dump(version),
+        "model_name": model.name if model else None,
+        "project_id": model.project_id if model else None,
+        "checkpoint_step": checkpoint.step if checkpoint else None,
+        "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
+        "run_name": run.name if run else None,
+        "artifact": artifact,
+        "filename": artifact["filename"] if artifact else None,
+        "asset_id": artifact["asset_id"] if artifact else None,
+        "storage": artifact["storage"] if artifact else [],
+        "fal_status": version.readiness.get("fal_status") if version.readiness else None,
+        "fal_url": version.readiness.get("fal_url") if version.readiness else None,
+        "readiness_summary": checkpoint_readiness(db, checkpoint, version) if checkpoint else None,
+        "dataset": run_dataset_link(db, run),
+    }
+
+
 @router.post("/model-versions", status_code=status.HTTP_201_CREATED)
 def create_model_version(body: schemas.ModelVersionCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     model = get_or_404(db, models.Model, body.model_id)
@@ -618,6 +813,9 @@ def create_model_version(body: schemas.ModelVersionCreate, db: DB, x_profile_id:
     run = get_or_404(db, models.TrainingRun, checkpoint.run_id)
     if run.project_id != model.project_id:
         raise HTTPException(status_code=400, detail="checkpoint and model must belong to the same project")
+    existing = db.scalar(select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id))
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"checkpoint is already registered as model version {existing.name}")
     version = models.ModelVersion(**body.model_dump())
     version.checkpoint_revision_id = checkpoint.current_revision_id
     db.add(version)
@@ -629,53 +827,22 @@ def create_model_version(body: schemas.ModelVersionCreate, db: DB, x_profile_id:
 
 @router.get("/model-versions")
 def model_versions(db: DB, model_id: str | None = None, project_id: str | None = None, lifecycle_state: str | None = None):
-    query = select(models.ModelVersion).order_by(models.ModelVersion.created_at.desc())
+    query = select(models.ModelVersion).join(models.Model, models.Model.id == models.ModelVersion.model_id).join(
+        models.Project, models.Project.id == models.Model.project_id,
+    ).where(models.Project.workspace_id == current_workspace(db).id).order_by(models.ModelVersion.created_at.desc())
     if model_id:
         query = query.where(models.ModelVersion.model_id == model_id)
     if lifecycle_state:
         query = query.where(models.ModelVersion.lifecycle_state == lifecycle_state)
     if project_id:
-        query = query.join(models.Model, models.Model.id == models.ModelVersion.model_id).where(models.Model.project_id == project_id)
-    rows = []
-    for version in db.scalars(query).all():
-        model = db.get(models.Model, version.model_id)
-        checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
-        artifact = checkpoint_artifact(db, checkpoint)
-        rows.append({
-            **dump(version),
-            "model_name": model.name if model else None,
-            "project_id": model.project_id if model else None,
-            "checkpoint_step": checkpoint.step if checkpoint else None,
-            "checkpoint_run_id": checkpoint.run_id if checkpoint else None,
-            "artifact": artifact,
-            "filename": artifact["filename"] if artifact else None,
-            "asset_id": artifact["asset_id"] if artifact else None,
-            "storage": artifact["storage"] if artifact else [],
-            "fal_status": version.readiness.get("fal_status") if version.readiness else None,
-            "fal_url": version.readiness.get("fal_url") if version.readiness else None,
-        })
-    return rows
+        query = query.where(models.Model.project_id == project_id)
+    return [model_version_projection(db, version) for version in db.scalars(query).all()]
 
 
 @router.get("/model-versions/{version_id}")
 def model_version(version_id: str, db: DB):
     version = get_or_404(db, models.ModelVersion, version_id)
-    model = get_or_404(db, models.Model, version.model_id)
-    checkpoint = get_or_404(db, models.Checkpoint, version.checkpoint_id)
-    artifact = checkpoint_artifact(db, checkpoint)
-    return {
-        **dump(version),
-        "model_name": model.name,
-        "project_id": model.project_id,
-        "checkpoint_step": checkpoint.step,
-        "checkpoint_run_id": checkpoint.run_id,
-        "artifact": artifact,
-        "filename": artifact["filename"] if artifact else None,
-        "asset_id": artifact["asset_id"] if artifact else None,
-        "storage": artifact["storage"] if artifact else [],
-        "fal_status": version.readiness.get("fal_status") if version.readiness else None,
-        "fal_url": version.readiness.get("fal_url") if version.readiness else None,
-    }
+    return model_version_projection(db, version)
 
 
 @router.post("/model-versions/{version_id}/approve")

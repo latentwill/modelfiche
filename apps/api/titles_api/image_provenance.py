@@ -72,6 +72,7 @@ def normalize_fal_image_metadata(raw: dict[str, Any]) -> dict[str, Any]:
         "inferred_model_name": model_name or None,
         "step": step,
         "lora": ({"path": path, "scale": lora.get("scale")} if lora else None),
+        "lora_scale": lora.get("scale") if lora else None,
         "model_attribution": "inferred_from_fal_lora_filename" if model_name else None,
     }
     return {key: value for key, value in normalized.items() if value is not None}

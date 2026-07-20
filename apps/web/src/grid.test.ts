@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { axisValues, compileGridPlan, type GridAxis } from "./grid";
+import { axisValues, compileGridPlan, parseGridAxisValues, type GridAxis, type GridAxisSchema } from "./grid";
 import type { GenerationModel } from "./generation";
 import { GridBoard, GridsScreen } from "./screens-grids";
 
@@ -20,10 +20,12 @@ describe("grid planner", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async request => {
       const url = typeof request === "string" ? request : typeof request === "object" && request !== null && "url" in request ? String(request.url) : String(request);
       const projectId = /[?&]project_id=([^&]+)/.exec(url)?.[1];
-      const body = url.includes("/api/projects") ? [{ id: "project-a", title: "Project A" }, { id: "project-b", title: "Project B" }]
-        : url.includes("/api/model-versions") && projectId === "project-a" ? [modelRow("version-a", "project-a", "Model A")]
-          : url.includes("/api/model-versions") && projectId === "project-b" ? [modelRow("version-b", "project-b", "Model B")]
-            : [];
+      const schema = { grid: { axis_fields: { prompt: { label: "Prompt", type: "string", parser: "string", default_values: [] }, seed: { label: "Seed", type: "integer", parser: "integer", default_values: [1, 2] } }, default_axes: ["prompt", "seed"], fixed_fields: [], fixed_field_schema: {} }, defaults: {}, fields: {}, request_fields: [] };
+      const body = url.includes("/schema") ? schema
+        : url.includes("/api/projects") ? [{ id: "project-a", title: "Project A" }, { id: "project-b", title: "Project B" }]
+          : url.includes("/api/model-versions") && projectId === "project-a" ? [modelRow("version-a", "project-a", "Model A")]
+            : url.includes("/api/model-versions") && projectId === "project-b" ? [modelRow("version-b", "project-b", "Model B")]
+              : [];
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     });
     const view = render(createElement(GridsScreen, { params: new URLSearchParams("project=project-a&model_version=version-a") }));
@@ -37,6 +39,9 @@ describe("grid planner", () => {
     fireEvent.click(screen.getByRole("option", { name: "Project B" }));
     expect(project).toHaveTextContent("Project B");
     expect(fixedModel).toHaveTextContent("Select...");
+    fireEvent.click(fixedModel);
+    fireEvent.click(await screen.findByRole("option", { name: /Model B/ }));
+    await waitFor(() => expect(fixedModel).toHaveTextContent("Model B"));
 
     const xAxis = screen.getAllByRole("button", { name: "Parameter" })[0];
     xAxis.focus();
@@ -44,6 +49,18 @@ describe("grid planner", () => {
     fireEvent.keyDown(xAxis, { key: "ArrowDown" });
     fireEvent.keyDown(xAxis, { key: "Enter" });
     expect(xAxis).toHaveTextContent("Seed");
+  });
+
+  it("parses endpoint-declared axis types, bounds, and options", () => {
+    const integer: GridAxisSchema = { label: "Seed", type: "integer", parser: "integer", min: 1, max: 10, step: 1 };
+    expect(parseGridAxisValues("1\n10", integer).map(entry => entry.value)).toEqual([1, 10]);
+    expect(() => parseGridAxisValues("0", integer)).toThrow(/from 1 to 10/);
+    expect(() => parseGridAxisValues("1.5", integer)).toThrow(/integer/);
+    const toggle: GridAxisSchema = { label: "Expansion", type: "boolean", parser: "boolean" };
+    expect(parseGridAxisValues("true\nfalse", toggle).map(entry => entry.value)).toEqual([true, false]);
+    expect(() => parseGridAxisValues("sometimes", toggle)).toThrow(/true or false/);
+    const preset: GridAxisSchema = { label: "Size", type: "enum", parser: "enum", options: ["square_hd", "portrait_4_3"] };
+    expect(() => parseGridAxisValues("landscape_4_3", preset)).toThrow(/unsupported/);
   });
 
   it("maps four prompts and two seeds to ordered X columns and Y rows with duplicate labels", () => {
@@ -118,5 +135,8 @@ describe("grid planner", () => {
     await waitFor(() => expect(image.getAttribute("src")).toBe("/delivery/full"));
     expect(image.parentElement?.classList.contains("grid-cell")).toBe(true);
     expect(review.container.querySelector(".grid-board-completed")).toBeTruthy();
+    expect(review.getByRole("table", { name: "Generated Grid outputs" })).toBeTruthy();
+    expect(review.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Y ↓ / X →", "portrait"]);
+    expect(review.getByRole("rowheader", { name: "7" })).toBeTruthy();
   });
 });

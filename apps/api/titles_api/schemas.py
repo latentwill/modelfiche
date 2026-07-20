@@ -184,6 +184,7 @@ class CaptionOperationRequest(BaseModel):
     included: bool | None = None
     caption_format: str | None = None
     all: bool = False
+    preview_token: str | None = None
 
     @model_validator(mode="after")
     def validate_parameters(self):
@@ -193,6 +194,10 @@ class CaptionOperationRequest(BaseModel):
             raise ValueError(f"missing parameters: {', '.join(missing)}")
         if not (self.item_ids or self.tag is not None or self.included is not None or self.caption_format is not None or self.all):
             raise ValueError("explicit scope required: item_ids, tag, included, caption_format, or all=true")
+        if self.item_ids is not None and len(set(self.item_ids)) != len(self.item_ids):
+            raise ValueError("item_ids must be unique")
+        if self.item_ids and self.all:
+            raise ValueError("scope must use item_ids or all=true, not both")
         return self
 
 

@@ -15,6 +15,7 @@ from ..integrations.fal.credentials import fal_secret_store
 from ..integrations.fal.validation import validate_fal_connection
 from ..integrations.llm import LLMConfigurationError, LLMResponseError, PromptGenerator, llm_secret_store
 from ..services import active_profile, current_workspace, get_or_404, record_activity
+from ..review_tokens import issue_review_token, verify_review_token
 from ..settings import get_settings
 
 router = APIRouter()
@@ -85,6 +86,7 @@ class TransferCreate(BaseModel):
     eval_run_ids: list[str] = []
     include_files: bool = True
     include_reviews: bool = True
+    review_token: str | None = None
 
 
 class PromptSetGenerateRequest(BaseModel):
@@ -355,12 +357,43 @@ def _transfer_row(job: models.Job) -> dict[str, Any]:
     }
 
 
+def _transfer_scope(body: TransferCreate) -> dict[str, Any]:
+    payload = body.model_dump(exclude={"review_token"})
+    for key in ("asset_ids", "dataset_version_ids", "model_version_ids", "eval_run_ids"):
+        payload[key] = sorted(str(value) for value in payload.get(key, []))
+    return payload
+
+
+@router.post("/transfers/preview")
+def preview_transfer(body: TransferCreate, db: DB):
+    scope = _transfer_scope(body)
+    if not (scope["project_id"] or scope["asset_ids"] or scope["dataset_version_ids"] or scope["model_version_ids"] or scope["eval_run_ids"]):
+        raise HTTPException(status_code=422, detail="an export selection is required")
+    if scope["project_id"]:
+        get_or_404(db, models.Project, scope["project_id"])
+    item_count = sum(len(scope[key]) for key in ("asset_ids", "dataset_version_ids", "model_version_ids", "eval_run_ids"))
+    settings = get_settings()
+    return {
+        "scope": scope,
+        "review_token": issue_review_token("export", scope),
+        "destination": {"root": str(settings.export_root), "kind": "local export package"},
+        "estimated": {"items": item_count, "size_bytes": None},
+        "privacy": {"includes_files": bool(scope["include_files"]), "includes_reviews": bool(scope["include_reviews"]), "warning": "Export may include source files and review metadata."},
+        "consequences": ["Creates a local ZIP package", "Does not publish or contact external providers"],
+    }
+
+
 @router.post("/transfers", status_code=status.HTTP_202_ACCEPTED)
 def create_transfer(body: TransferCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     if not (body.project_id or body.asset_ids or body.dataset_version_ids or body.model_version_ids or body.eval_run_ids):
         raise HTTPException(status_code=422, detail="an export selection is required")
     if body.project_id:
         get_or_404(db, models.Project, body.project_id)
+    if not body.review_token:
+        raise HTTPException(status_code=428, detail="export consequence review_token is required before creating a transfer")
+    valid, reason = verify_review_token(body.review_token, "export", _transfer_scope(body))
+    if not valid:
+        raise HTTPException(status_code=409, detail=reason)
     actor = active_profile(db, x_profile_id)
     job = models.Job(workspace_id=current_workspace(db).id, kind="export.package", profile_id=actor.id, payload=body.model_dump())
     db.add(job)

@@ -74,6 +74,7 @@ class EvalGenerationCompileV1(FalContractModel):
     model_version_id: UUID
     checkpoint_revision_id: UUID
     prompts: list[FalPromptV1] = Field(min_length=1)
+    prompt_set_id: UUID | None = None
     parameters: dict[str, Any]
     client_request_id: UUID
 
@@ -410,17 +411,18 @@ def compile_generation_request(body: GenerationCompileV1, db: DB, x_profile_id: 
     readiness = dict(model_version.readiness or {})
     fal_url = str(readiness.get("fal_url") or readiness.get("fal_path") or "")
     endpoint = str(readiness.get("endpoint_id") or readiness.get("endpoint") or readiness.get("fal_endpoint") or "")
-    requested_endpoint = str(body.parameters.get("endpoint_id") or "")
+    requested_endpoint = str(body.parameters.get("endpoint_id") or endpoint)
     if not fal_url:
         raise HTTPException(status_code=409, detail="selected model version is not registered with FAL")
     if not endpoint:
         raise HTTPException(status_code=409, detail="selected model version has no registered FAL endpoint")
-    if requested_endpoint != endpoint:
-        raise HTTPException(status_code=409, detail="requested endpoint does not match selected model registration")
     try:
-        get_adapter(endpoint)
+        adapter = get_adapter(requested_endpoint)
     except KeyError as exc:
-        raise HTTPException(status_code=422, detail=f"registered FAL endpoint is unavailable: {endpoint}") from exc
+        raise HTTPException(status_code=422, detail=f"requested FAL endpoint is unavailable: {requested_endpoint}") from exc
+    if requested_endpoint != endpoint and not adapter.supports_base_model(model_version.base_model):
+        raise HTTPException(status_code=409, detail=f"requested endpoint is incompatible with base model {model_version.base_model}")
+    endpoint = requested_endpoint
     prompt = apply_generation_prompt_settings(db, body.prompt)
     inline_prompt_id = str(uuid5(NAMESPACE_URL, f"titles-dam:generation:{body.client_request_id}:0"))
     inline_prompts = [{"id": inline_prompt_id, "text": prompt, "position": 0, "metadata": {"workflow": body.workflow, "client_request_id": str(body.client_request_id), "compile_digest": compile_digest}}]
@@ -433,7 +435,7 @@ def compile_generation_request(body: GenerationCompileV1, db: DB, x_profile_id: 
 
 @router.post("/eval-generation-requests/compile", status_code=status.HTTP_200_OK)
 def compile_eval_generation_request(body: EvalGenerationCompileV1, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    """Compile one model slice of an ordered, inline-prompt Eval workflow."""
+    """Compile one model slice of an ordered Eval workflow with an immutable prompt source."""
     if body.provider != "fal":
         raise HTTPException(status_code=422, detail=f"generation provider is not installed: {body.provider}")
     workspace = current_workspace(db)
@@ -448,7 +450,7 @@ def compile_eval_generation_request(body: EvalGenerationCompileV1, db: DB, x_pro
         if not definition or dict((definition.inline_prompts or [{}])[0].get("metadata") or {}).get("compile_digest") != digest:
             raise HTTPException(status_code=409, detail="client_request_id was already used for a different generation request")
         return {"kind": "compiled_generation", "workflow": "eval", "provider": body.provider,
-            "definition_id": definition.id, "admission": _projection(db, existing).model_dump(mode="json")}
+            "definition_id": definition.id, "prompt_set_id": definition.prompt_set_id, "admission": _projection(db, existing).model_dump(mode="json")}
     version = get_or_404(db, models.ModelVersion, str(body.model_version_id))
     model = get_or_404(db, models.Model, version.model_id)
     if model.project_id != str(body.context.project_id):
@@ -468,6 +470,18 @@ def compile_eval_generation_request(body: EvalGenerationCompileV1, db: DB, x_pro
         get_adapter(endpoint)
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=f"registered FAL endpoint is unavailable: {endpoint}") from exc
+    prompt_set = None
+    if body.prompt_set_id:
+        prompt_set = get_or_404(db, models.PromptSet, str(body.prompt_set_id))
+        if prompt_set.project_id != model.project_id:
+            raise HTTPException(status_code=409, detail="prompt set version belongs to another project")
+        saved_prompts = list(db.scalars(select(models.Prompt).where(
+            models.Prompt.prompt_set_id == prompt_set.id
+        ).order_by(models.Prompt.position, models.Prompt.id)))
+        submitted = [(str(prompt.prompt_id), prompt.prompt) for prompt in body.prompts]
+        expected = [(prompt.id, prompt.text) for prompt in saved_prompts]
+        if submitted != expected:
+            raise HTTPException(status_code=409, detail="submitted prompts do not match the selected prompt set version")
     compiled_prompts = [
         FalPromptV1(prompt_id=str(prompt.prompt_id), prompt=apply_generation_prompt_settings(db, prompt.prompt))
         for prompt in body.prompts
@@ -475,8 +489,9 @@ def compile_eval_generation_request(body: EvalGenerationCompileV1, db: DB, x_pro
     inline_prompts = [{"id": prompt.prompt_id, "text": prompt.prompt, "position": index,
         "metadata": {"workflow": "eval", "client_request_id": str(body.client_request_id), "compile_digest": digest}}
         for index, prompt in enumerate(compiled_prompts)]
-    definition = models.EvalDefinition(project_id=model.project_id, name=f"Eval · {model.name} · {len(inline_prompts)} prompts",
-        endpoint=endpoint, model_version_id=version.id, prompt_set_id=None, inline_prompts=inline_prompts,
+    source_name = f" · {prompt_set.name} v{prompt_set.version}" if prompt_set else ""
+    definition = models.EvalDefinition(project_id=model.project_id, name=f"Eval · {model.name}{source_name} · {len(inline_prompts)} prompts",
+        endpoint=endpoint, model_version_id=version.id, prompt_set_id=prompt_set.id if prompt_set else None, inline_prompts=inline_prompts,
         parameters={**body.parameters, "endpoint_id": endpoint})
     db.add(definition); db.flush()
     projection = create_fal_admission(FalEvalCreateV1(kind="eval", mode="single" if len(compiled_prompts) == 1 else "prompt_batch",
@@ -485,7 +500,7 @@ def compile_eval_generation_request(body: EvalGenerationCompileV1, db: DB, x_pro
         parameters={**body.parameters, "endpoint_id": endpoint}, client_request_id=body.client_request_id,
         definition_id=UUID(definition.id)), db, x_profile_id)
     return {"kind": "compiled_generation", "workflow": "eval", "provider": body.provider,
-        "definition_id": definition.id, "admission": projection.admission.model_dump(mode="json")}
+        "definition_id": definition.id, "prompt_set_id": definition.prompt_set_id, "admission": projection.admission.model_dump(mode="json")}
 
 @router.get("/fal-admissions/{admission_id}", response_model=FalAdmissionV1)
 def get_fal_admission(admission_id: str, db: DB):

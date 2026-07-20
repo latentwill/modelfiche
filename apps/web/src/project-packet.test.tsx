@@ -73,6 +73,7 @@ describe("project dataset and editor actions", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
     const view = render(<ProjectScreen id="project-1" editing />);
     const title = await view.findByDisplayValue("Original title");
+    await waitFor(() => expect(title).toHaveFocus());
     fireEvent.change(title, { target: { value: "Updated title" } });
     fireEvent.submit(view.getByRole("button", { name: "Save project" }).closest("form")!);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1", expect.objectContaining({ method: "PATCH" })));

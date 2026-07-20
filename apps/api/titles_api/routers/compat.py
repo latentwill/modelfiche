@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
-from ..integrations.fal.adapters import get_adapter, list_adapters
+from ..integrations.fal.adapters import ValidationError, get_adapter, list_adapters, normalize_parameters
 from ..integrations.fal.credentials import resolve_fal_credential
 from ..services import active_profile, current_workspace, get_or_404, record_activity
 from ..settings import get_settings
@@ -43,6 +43,8 @@ def endpoint_row(adapter) -> dict[str, Any]:
         "fields": adapter.field_schema,
         "grid_axes": sorted(adapter.allowed_axes),
         "request_fields": sorted(adapter.allowed_request_fields),
+        "grid": adapter.grid_contract(),
+        "compatible_base_model_markers": list(adapter.compatible_base_model_markers),
         "configured": resolve_fal_credential() is not None,
     }
 
@@ -97,9 +99,24 @@ def create_grid(body: GridCreate, db: DB, x_profile_id: Annotated[str | None, He
         raise HTTPException(status_code=422, detail="grid axes must be different fields supported by the endpoint")
     if not x_axis["values"] or not y_axis["values"]:
         raise HTTPException(status_code=422, detail="both grid axes require values")
-    definition = db.scalar(select(models.EvalDefinition).where(models.EvalDefinition.project_id == model.project_id, models.EvalDefinition.endpoint == endpoint, models.EvalDefinition.model_version_id == version.id, models.EvalDefinition.prompt_set_id == prompt_set.id, models.EvalDefinition.parameters == body.parameters))
+    try:
+        for axis in (x_axis, y_axis):
+            axis["values"] = [adapter.parse_grid_axis_value(str(axis["parameter"]), value) for value in axis["values"]]
+        parameters = normalize_parameters({"endpoint_id": endpoint, **body.parameters}, grid_cell=True)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for axis in (x_axis, y_axis):
+        if axis["parameter"] not in {"model", "checkpoint_step"}:
+            continue
+        for model_version_id in axis["values"]:
+            axis_version = get_or_404(db, models.ModelVersion, str(model_version_id))
+            axis_model = get_or_404(db, models.Model, axis_version.model_id)
+            axis_endpoint = str((axis_version.readiness or {}).get("endpoint_id") or "")
+            if axis_model.project_id != model.project_id or axis_endpoint != endpoint:
+                raise HTTPException(status_code=422, detail="grid model axes must use project checkpoints registered to the selected endpoint")
+    definition = db.scalar(select(models.EvalDefinition).where(models.EvalDefinition.project_id == model.project_id, models.EvalDefinition.endpoint == endpoint, models.EvalDefinition.model_version_id == version.id, models.EvalDefinition.prompt_set_id == prompt_set.id, models.EvalDefinition.parameters == parameters))
     if definition is None:
-        definition = models.EvalDefinition(project_id=model.project_id, name=f"{model.name} / {prompt_set.name} grid", endpoint=endpoint, model_version_id=version.id, prompt_set_id=prompt_set.id, parameters=body.parameters)
+        definition = models.EvalDefinition(project_id=model.project_id, name=f"{model.name} / {prompt_set.name} grid", endpoint=endpoint, model_version_id=version.id, prompt_set_id=prompt_set.id, parameters=parameters)
         db.add(definition)
         db.flush()
     grid = models.GridDefinition(project_id=model.project_id, name=body.name or f"{model.name} grid", eval_definition_id=definition.id, x_axis=x_axis, y_axis=y_axis)

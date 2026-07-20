@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { AssetGrid, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AssetGrid, GalleryScreen, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
 import assetsSource from "./screens-assets.tsx?raw";
 
 vi.mock("./asset-image", () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("gallery navigation contracts", () => {
   it("preserves filters, pagination, context and exact safe origin", () => {
@@ -32,6 +34,21 @@ describe("gallery navigation contracts", () => {
     expect(screen.getByRole("link")).not.toHaveAttribute("data-origin");
   });
 
+  it("shows LoRA scale and offers exact generation replay for eligible images", () => {
+    render(<AssetGrid assets={[{
+      id: "a1", name: "generated.png", project_id: "p1",
+      metadata: {
+        project_id: "p1", model_id: "m1", model_version_id: "v1", checkpoint_revision_id: "r1",
+        provider: "fal", endpoint: "fal-ai/krea-2/turbo/lora", prompt: "portrait",
+        lora: { path: "https://example.test/model.safetensors", scale: 0.65 },
+      },
+    }]} />);
+    expect(screen.getByText("LoRA scale · 0.65")).toBeInTheDocument();
+    const replay = screen.getByRole("link", { name: /Generate/ });
+    const params = new URLSearchParams(replay.getAttribute("href")?.split("?", 2)[1]);
+    expect(Object.fromEntries(params)).toMatchObject({ workflow: "image", scope: "model", project: "p1", model: "m1", model_version: "v1", prefill_asset: "a1" });
+  });
+
   it("keeps gallery tiles square and responsive at boundary widths", () => {
     for (const [container, preferred, expectedReflow] of [[181, 208, true], [208, 208, false], [320, 208, false]] as const) {
       const geometry = galleryPreviewGeometry(container, preferred);
@@ -52,6 +69,19 @@ describe("gallery navigation contracts", () => {
     const href = galleryOpenHref({ asset_id: "eval-asset", project_id: "project-1", eval_run_id: "run-7", origin_type: "EVAL" });
     const params = new URLSearchParams(href.split("?", 2)[1]);
     expect(Object.fromEntries(params)).toMatchObject({ project: "project-1", eval: "run-7", category: "eval_output", asset: "eval-asset", return: "eval/run-7?model=model-2" });
+  });
+
+  it("constrains dataset review to its project and dataset and returns to the exact version", () => {
+    location.hash = "#/dataset/dataset-9?version=version-3&page=2";
+    const href = galleryOpenHref({ asset_id: "dataset-asset", project_id: "project-9", dataset_id: "dataset-9", origin_type: "DATASET" });
+    const params = new URLSearchParams(href.split("?", 2)[1]);
+    expect(Object.fromEntries(params)).toMatchObject({
+      project: "project-9",
+      dataset: "dataset-9",
+      category: "dataset_image",
+      asset: "dataset-asset",
+      return: "dataset/dataset-9?version=version-3&page=2",
+    });
   });
 
   it("suppresses gallery shortcuts while the operator is typing or choosing a filter", () => {
@@ -77,5 +107,35 @@ describe("gallery navigation contracts", () => {
     expect(assetsSource).toContain('aria-label="Caption model"');
     expect(assetsSource).toContain('aria-label="Caption preset"');
     expect(assetsSource).toContain('<Dropdown aria-label="Project" name="project_id" required defaultValue={projectId}');
+  });
+  it("contains focus and dismisses dataset image review with exact return context", async () => {
+    const asset = { id: "asset-1", asset_id: "asset-1", asset_revision_id: "asset-1", project_id: "project-1", dataset_id: "dataset-1", name: "lighthouse.png", kind: "image", mime_type: "image/png", origin_type: "DATASET" };
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      const body = path.includes("/api/gallery/context")
+        ? { items: [asset], current: asset, previous: null, next: null }
+        : path.includes("/api/assets/asset-1/context")
+          ? { metadata: { caption_format: "json", caption: "{\"description\":\"Orange lighthouse\"}" }, image: { width: 640, height: 480 }, storage: [] }
+          : path.includes("/api/assets/asset-1")
+            ? asset
+            : path.includes("/api/gallery")
+              ? { items: [asset], total: 1 }
+              : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    const params = new URLSearchParams("project=project-1&dataset=dataset-1&category=dataset_image&asset=asset-1&return=dataset/dataset-1%3Fversion%3Dversion-3");
+
+    render(<GalleryScreen projectId="project-1" params={params} />);
+
+    const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
+    await waitFor(() => expect(screen.getByRole("link", { name: "Close image review" })).toHaveFocus());
+    expect(screen.getByRole("heading", { name: "Filters", hidden: true }).closest("section")).toHaveAttribute("aria-hidden", "true");
+    const focusables = Array.from(dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), textarea:not([disabled])"));
+    focusables.at(-1)?.focus();
+    fireEvent.keyDown(focusables.at(-1)!, { key: "Tab" });
+    expect(focusables[0]).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(location.hash).toBe("#/dataset/dataset-1?version=version-3");
   });
 });

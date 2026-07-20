@@ -214,8 +214,48 @@ def test_gallery_model_filter_uses_run_lineage_and_returns_rich_metadata(client:
     assert row["metadata"]["relationships"]["dataset"]["name"] == "Faces"
 
 
+def test_prompt_set_versions_load_with_ordered_metadata(client: TestClient):
+    _profile, headers, project, _asset, _dataset = _seed(client)
+    created = client.post(
+        "/api/prompt-sets",
+        headers=headers,
+        json={
+            "project_id": project["id"],
+            "name": "Identity holdouts",
+            "prompts": [
+                {"prompt": "front portrait", "category": "identity"},
+                {"text": "profile portrait", "category": "angle"},
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    first = client.get(f"/api/prompt-sets/{created.json()['id']}")
+    assert first.status_code == 200, first.text
+    assert [(prompt["position"], prompt["text"]) for prompt in first.json()["prompts"]] == [
+        (0, "front portrait"),
+        (1, "profile portrait"),
+    ]
+    assert first.json()["prompts"][0]["metadata"] == {"category": "identity"}
+
+    version = client.post(
+        f"/api/prompt-sets/{created.json()['id']}/versions",
+        headers=headers,
+        json={"prompts": ["profile portrait", "front portrait"]},
+    )
+    assert version.status_code == 201, version.text
+    assert version.json()["version"] == 2
+    assert [prompt["text"] for prompt in version.json()["prompts"]] == ["profile portrait", "front portrait"]
+
+
 def test_fal_endpoint_schema_is_adapter_driven(client: TestClient):
     endpoints = client.get("/api/eval-endpoints").json()
+    assert {row["endpoint_id"] for row in endpoints} == {
+        "ideogram/v4/lora",
+        "fal-ai/krea-2/turbo/lora",
+        "fal-ai/z-image/turbo/lora",
+        "fal-ai/flux-2/klein/9b/base/lora",
+    }
     ideogram = next(row for row in endpoints if row["endpoint_id"] == "ideogram/v4/lora")
     assert ideogram["name"] == "Ideogram 4 LoRA"
     assert ideogram["fields"]["rendering_speed"]["options"] == ["TURBO", "BALANCED", "QUALITY"]
@@ -224,6 +264,56 @@ def test_fal_endpoint_schema_is_adapter_driven(client: TestClient):
     krea = client.get("/api/eval-endpoints/fal-ai/krea-2/turbo/lora/schema").json()
     assert krea["name"] == "Krea 2 Turbo LoRA"
     assert krea["fields"]["acceleration"]["options"] == ["none", "regular"]
+    assert krea["fields"]["enable_prompt_expansion"]["type"] == "boolean"
+    assert set(krea["grid"]["axis_fields"]) == {
+        "prompt", "seed", "lora_scale", "checkpoint_step", "model",
+        "image_size", "acceleration", "enable_prompt_expansion",
+    }
+    assert "guidance_scale" not in krea["grid"]["axis_fields"]
+    assert "num_inference_steps" not in krea["grid"]["axis_fields"]
+    assert krea["grid"]["axis_fields"]["seed"]["parser"] == "integer"
+    assert krea["grid"]["axis_fields"]["lora_scale"]["min"] == 0
+    assert krea["grid"]["axis_fields"]["prompt"]["max_length"] == 5000
+    assert krea["grid"]["fixed_field_schema"]["image_size"]["custom"]["max"] == 14142
+
+    z_image = next(row for row in endpoints if row["endpoint_id"] == "fal-ai/z-image/turbo/lora")
+    assert z_image["defaults"]["image_size"] == "landscape_4_3"
+    assert z_image["fields"]["num_inference_steps"] == {"type": "integer", "min": 1, "max": 8}
+    assert z_image["fields"]["output_format"]["options"] == ["jpeg", "png", "webp"]
+
+    klein = next(row for row in endpoints if row["endpoint_id"] == "fal-ai/flux-2/klein/9b/base/lora")
+    assert klein["fields"]["guidance_scale"] == {"type": "number", "min": 0, "max": 20, "step": 0.1}
+    assert klein["fields"]["negative_prompt"]["type"] == "string"
+    assert klein["compatible_base_model_markers"] == ["klein"]
+
+
+def test_workspace_header_isolates_projects_models_assets_and_profiles(client: TestClient):
+    primary_profile = client.get("/api/profiles").json()[0]
+    primary_project = client.post("/api/projects", headers={"X-Profile-ID": primary_profile["id"]}, json={"title": "Titles project"}).json()
+    client.post("/api/models", headers={"X-Profile-ID": primary_profile["id"]}, json={"project_id": primary_project["id"], "name": "Titles model"})
+    client.post("/api/assets", headers={"X-Profile-ID": primary_profile["id"]}, json={"project_id": primary_project["id"], "kind": "image", "name": "titles.png"})
+
+    with app_module.SessionLocal.begin() as db:
+        personal = models.Workspace(name="Personal")
+        db.add(personal)
+        db.flush()
+        personal_profile = models.UserProfile(workspace_id=personal.id, display_name="Personal operator", is_active=True)
+        db.add(personal_profile)
+        db.flush()
+        personal_id = personal.id
+        personal_profile_id = personal_profile.id
+
+    personal_headers = {"X-Workspace-ID": personal_id, "X-Profile-ID": personal_profile_id}
+    personal_project = client.post("/api/projects", headers=personal_headers, json={"title": "Hoover"}).json()
+    client.post("/api/models", headers=personal_headers, json={"project_id": personal_project["id"], "name": "Hoover model"})
+    client.post("/api/assets", headers=personal_headers, json={"project_id": personal_project["id"], "kind": "image", "name": "hoover.png"})
+
+    assert [row["title"] for row in client.get("/api/projects", headers=personal_headers).json()] == ["Hoover"]
+    assert [row["name"] for row in client.get("/api/models", headers=personal_headers).json()] == ["Hoover model"]
+    assert [row["name"] for row in client.get("/api/assets", headers=personal_headers).json()] == ["hoover.png"]
+    assert [row["display_name"] for row in client.get("/api/profiles", headers=personal_headers).json()] == ["Personal operator"]
+    assert [row["title"] for row in client.get("/api/projects").json()] == ["Titles project"]
+    assert client.get("/api/projects", headers={"X-Workspace-ID": "missing"}).status_code == 404
 
 
 def test_profile_archive_preserves_active_attribution(client: TestClient):

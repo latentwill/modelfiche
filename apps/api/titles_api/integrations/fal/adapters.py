@@ -11,6 +11,15 @@ class ValidationError(ValueError):
 
 IMAGE_PRESETS = {"square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9"}
 
+GRID_AXIS_BASE_SCHEMA: dict[str, dict[str, Any]] = {
+    "prompt": {"label": "Prompt", "type": "string", "parser": "string", "default_values": []},
+    "seed": {"label": "Seed", "type": "integer", "parser": "integer", "nullable": True, "default_values": [1, 2]},
+    "lora_scale": {"label": "LoRA scale", "type": "number", "parser": "number", "min": 0, "max": 4, "step": 0.1, "default": 1, "default_values": [0.8, 1.0]},
+    "checkpoint_step": {"label": "Model / checkpoint", "type": "model_version", "parser": "model_version", "default_values": []},
+    "model": {"label": "Model / checkpoint", "type": "model_version", "parser": "model_version", "default_values": []},
+}
+GRID_NON_CONFIGURABLE_FIELDS = frozenset({"prompt", "loras", "sync_mode", "num_images"})
+
 
 @dataclass(frozen=True, slots=True)
 class LoraInput:
@@ -26,6 +35,108 @@ class EndpointAdapter:
     allowed_axes: ClassVar[frozenset[str]]
     allowed_request_fields: ClassVar[frozenset[str]]
     image_max: ClassVar[int]
+    compatible_base_model_markers: ClassVar[tuple[str, ...]]
+    prompt_max_length: ClassVar[int] = 64_000
+
+    def grid_contract(self) -> dict[str, Any]:
+        axis_fields: dict[str, dict[str, Any]] = {}
+        for field in sorted(self.allowed_axes):
+            schema = deepcopy(self.field_schema.get(field) or GRID_AXIS_BASE_SCHEMA.get(field) or {})
+            schema.setdefault("label", field.replace("_", " ").title())
+            schema.setdefault("parser", schema.get("type", "string"))
+            if field == "prompt":
+                schema["max_length"] = self.prompt_max_length
+            if field in self.defaults:
+                schema.setdefault("default", deepcopy(self.defaults[field]))
+            if "default_values" not in schema:
+                options = list(schema.get("options") or [])
+                if options:
+                    schema["default_values"] = options[:2]
+                elif "default" in schema and schema["default"] is not None:
+                    schema["default_values"] = [deepcopy(schema["default"])]
+                else:
+                    schema["default_values"] = []
+            axis_fields[field] = schema
+        fixed_fields = sorted(
+            (set(self.allowed_request_fields) - GRID_NON_CONFIGURABLE_FIELDS)
+            | ({"lora_scale"} if "lora_scale" in self.allowed_axes else set())
+        )
+        fixed_schema = {
+            field: deepcopy(
+                self.field_schema.get(field)
+                or GRID_AXIS_BASE_SCHEMA.get(field)
+                or {"label": field.replace("_", " ").title(), "type": "string", "parser": "string"}
+            )
+            for field in fixed_fields
+        }
+        for field, schema in fixed_schema.items():
+            schema.setdefault("label", field.replace("_", " ").title())
+            schema.setdefault("parser", schema.get("type", "string"))
+            if field in self.defaults:
+                schema.setdefault("default", deepcopy(self.defaults[field]))
+        preferred_axes = [field for field in ("prompt", "seed", "lora_scale") if field in axis_fields]
+        default_axes = (preferred_axes + [field for field in axis_fields if field not in preferred_axes])[:3]
+        return {"axis_fields": axis_fields, "default_axes": default_axes, "fixed_fields": fixed_fields, "fixed_field_schema": fixed_schema}
+
+    def parse_grid_axis_value(self, field: str, value: Any) -> Any:
+        schema = self.grid_contract()["axis_fields"].get(field)
+        if schema is None:
+            raise ValidationError(f"{field} is not a supported grid axis for {self.endpoint_id}")
+        parser = str(schema.get("parser") or schema.get("type") or "string")
+        if parser == "model_version":
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(f"{field} requires a model version id")
+            return value.strip()
+        if parser == "string":
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(f"{field} requires a non-empty value")
+            parsed: Any = value.strip()
+            maximum = schema.get("max_length")
+            if maximum is not None and len(parsed) > int(maximum):
+                raise ValidationError(f"{field} must be no longer than {maximum} characters")
+            return parsed
+        if parser == "boolean":
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+                return value.strip().lower() == "true"
+            raise ValidationError(f"{field} must be true or false")
+        if parser in {"integer", "number"}:
+            try:
+                parsed = int(value) if parser == "integer" else float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(f"{field} must be {parser}") from exc
+            if isinstance(value, bool) or (parser == "integer" and isinstance(value, float) and not value.is_integer()):
+                raise ValidationError(f"{field} must be {parser}")
+            minimum, maximum = schema.get("min"), schema.get("max")
+            if minimum is not None and parsed < minimum or maximum is not None and parsed > maximum:
+                raise ValidationError(f"{field} must be from {minimum} to {maximum}")
+            return parsed
+        if parser == "enum":
+            options = list(schema.get("options") or [])
+            if value not in options:
+                raise ValidationError(f"{field} must be one of: {', '.join(map(str, options))}")
+            return value
+        if parser == "image_size":
+            if isinstance(value, str) and value in set(schema.get("options") or []):
+                return value
+            if not isinstance(value, dict) or set(value) != {"width", "height"}:
+                raise ValidationError(f"{field} must be a supported preset or custom width and height")
+            custom = dict(schema.get("custom") or {})
+            for dimension in value.values():
+                if not isinstance(dimension, int) or isinstance(dimension, bool):
+                    raise ValidationError(f"{field} custom dimensions must be integers")
+                if dimension < int(custom.get("min", 1)) or dimension > int(custom.get("max", self.image_max)):
+                    raise ValidationError(f"{field} custom dimensions are outside endpoint bounds")
+                step = int(custom.get("step", 1))
+                if step > 1 and dimension % step:
+                    raise ValidationError(f"{field} custom dimensions must use increments of {step}")
+            return value
+        raise ValidationError(f"{field} uses unsupported parser {parser}")
+
+    def supports_base_model(self, base_model: str | None) -> bool:
+        normalized = (base_model or "").strip().lower().replace("_", "-")
+        return any(marker in normalized for marker in self.compatible_base_model_markers)
 
     def build_request(
         self,
@@ -63,8 +174,8 @@ class EndpointAdapter:
             raise ValidationError("seed must be an integer or null")
         if request.get("sync_mode") is not False:
             raise ValidationError("sync_mode must remain false for durable provider history")
-        if request.get("output_format") not in {"jpeg", "png"}:
-            raise ValidationError("output_format must be jpeg or png")
+        if request.get("output_format") not in {"jpeg", "png", "webp"}:
+            raise ValidationError("output_format must be jpeg, png, or webp")
         for name in ("sync_mode", "enable_safety_checker"):
             if not isinstance(request.get(name), bool):
                 raise ValidationError(f"{name} must be boolean")
@@ -95,6 +206,7 @@ class IdeogramV4LoraAdapter(EndpointAdapter):
     endpoint_id = "ideogram/v4/lora"
     display_name = "Ideogram 4 LoRA"
     image_max = 3840
+    compatible_base_model_markers = ("ideogram",)
     defaults = {
         "expansion_model": "Medium",
         "image_size": "square_hd",
@@ -123,6 +235,7 @@ class IdeogramV4LoraAdapter(EndpointAdapter):
         _enum(request, "expansion_model", {"None", "Medium", "Large"})
         _enum(request, "rendering_speed", {"TURBO", "BALANCED", "QUALITY"})
         _enum(request, "acceleration", {"none", "low", "regular", "high"})
+        _enum(request, "output_format", {"jpeg", "png"})
         custom = request.get("image_size")
         if isinstance(custom, dict):
             for dimension in custom.values():
@@ -134,6 +247,8 @@ class Krea2TurboLoraAdapter(EndpointAdapter):
     endpoint_id = "fal-ai/krea-2/turbo/lora"
     display_name = "Krea 2 Turbo LoRA"
     image_max = 14142
+    compatible_base_model_markers = ("krea",)
+    prompt_max_length = 5000
     defaults = {
         "image_size": "square_hd",
         "num_images": 1,
@@ -160,17 +275,109 @@ class Krea2TurboLoraAdapter(EndpointAdapter):
         if len(request["prompt"]) > 5000:
             raise ValidationError("Krea prompt cannot exceed 5000 characters")
         _enum(request, "acceleration", {"none", "regular"})
+        _enum(request, "output_format", {"jpeg", "png"})
         if not isinstance(request.get("enable_prompt_expansion"), bool):
             raise ValidationError("enable_prompt_expansion must be boolean")
 
+
+
+class ZImageTurboLoraAdapter(EndpointAdapter):
+    endpoint_id = "fal-ai/z-image/turbo/lora"
+    display_name = "Z Image Turbo LoRA"
+    image_max = 14142
+    compatible_base_model_markers = ("z-image", "z image")
+    defaults = {
+        "image_size": "landscape_4_3",
+        "num_images": 1,
+        "acceleration": "regular",
+        "enable_prompt_expansion": False,
+        "num_inference_steps": 8,
+        "sync_mode": False,
+        "enable_safety_checker": True,
+        "output_format": "png",
+    }
+    allowed_axes = frozenset({"prompt", "checkpoint_step", "lora_scale", "seed", "model", "image_size", "acceleration", "enable_prompt_expansion", "num_inference_steps"})
+    allowed_request_fields = frozenset({"prompt", "seed", "image_size", "num_images", "acceleration", "enable_prompt_expansion", "num_inference_steps", "sync_mode", "enable_safety_checker", "output_format", "loras"})
+    field_schema = {
+        "seed": {"type": "integer", "nullable": True},
+        "image_size": {"type": "image_size", "options": sorted(IMAGE_PRESETS), "custom": {"min": 1, "max": 14142, "step": 1}},
+        "num_images": {"type": "integer", "min": 1, "max": 4},
+        "acceleration": {"type": "enum", "options": ["none", "regular", "high"]},
+        "enable_prompt_expansion": {"type": "boolean"},
+        "num_inference_steps": {"type": "integer", "min": 1, "max": 8},
+        "enable_safety_checker": {"type": "boolean"},
+        "output_format": {"type": "enum", "options": ["jpeg", "png", "webp"]},
+    }
+
+    def validate(self, request: dict[str, Any]) -> None:
+        super().validate(request)
+        _enum(request, "acceleration", {"none", "regular", "high"})
+        _integer_range(request, "num_inference_steps", 1, 8)
+        if not isinstance(request.get("enable_prompt_expansion"), bool):
+            raise ValidationError("enable_prompt_expansion must be boolean")
+
+
+class Flux2Klein9BBaseLoraAdapter(EndpointAdapter):
+    endpoint_id = "fal-ai/flux-2/klein/9b/base/lora"
+    display_name = "FLUX.2 Klein 9B Base LoRA"
+    image_max = 14142
+    compatible_base_model_markers = ("klein",)
+    defaults = {
+        "negative_prompt": "",
+        "guidance_scale": 5.0,
+        "num_inference_steps": 28,
+        "image_size": "landscape_4_3",
+        "num_images": 1,
+        "acceleration": "regular",
+        "sync_mode": False,
+        "enable_safety_checker": True,
+        "output_format": "png",
+    }
+    allowed_axes = frozenset({"prompt", "checkpoint_step", "lora_scale", "seed", "model", "negative_prompt", "guidance_scale", "num_inference_steps", "image_size", "acceleration"})
+    allowed_request_fields = frozenset({"prompt", "negative_prompt", "guidance_scale", "seed", "num_inference_steps", "image_size", "num_images", "acceleration", "sync_mode", "enable_safety_checker", "output_format", "loras"})
+    field_schema = {
+        "negative_prompt": {"type": "string"},
+        "guidance_scale": {"type": "number", "min": 0, "max": 20, "step": 0.1},
+        "seed": {"type": "integer", "nullable": True},
+        "num_inference_steps": {"type": "integer", "min": 4, "max": 50},
+        "image_size": {"type": "image_size", "options": sorted(IMAGE_PRESETS), "custom": {"min": 1, "max": 14142, "step": 1}},
+        "num_images": {"type": "integer", "min": 1, "max": 4},
+        "acceleration": {"type": "enum", "options": ["none", "regular", "high"]},
+        "enable_safety_checker": {"type": "boolean"},
+        "output_format": {"type": "enum", "options": ["jpeg", "png", "webp"]},
+    }
+
+    def validate(self, request: dict[str, Any]) -> None:
+        super().validate(request)
+        _enum(request, "acceleration", {"none", "regular", "high"})
+        _integer_range(request, "num_inference_steps", 4, 50)
+        _number_range(request, "guidance_scale", 0, 20)
+        if not isinstance(request.get("negative_prompt"), str):
+            raise ValidationError("negative_prompt must be a string")
 
 def _enum(request: dict[str, Any], field: str, choices: set[str]) -> None:
     if request.get(field) not in choices:
         raise ValidationError(f"{field} must be one of: {', '.join(sorted(choices))}")
 
+def _integer_range(request: dict[str, Any], field: str, minimum: int, maximum: int) -> None:
+    value = request.get(field)
+    if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
+        raise ValidationError(f"{field} must be an integer from {minimum} to {maximum}")
+
+
+def _number_range(request: dict[str, Any], field: str, minimum: float, maximum: float) -> None:
+    value = request.get(field)
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not minimum <= value <= maximum:
+        raise ValidationError(f"{field} must be a number from {minimum} to {maximum}")
+
 
 _ADAPTERS: dict[str, EndpointAdapter] = {
-    adapter.endpoint_id: adapter for adapter in (IdeogramV4LoraAdapter(), Krea2TurboLoraAdapter())
+    adapter.endpoint_id: adapter for adapter in (
+        IdeogramV4LoraAdapter(),
+        Krea2TurboLoraAdapter(),
+        ZImageTurboLoraAdapter(),
+        Flux2Klein9BBaseLoraAdapter(),
+    )
 }
 
 

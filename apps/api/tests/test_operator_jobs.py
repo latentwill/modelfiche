@@ -137,10 +137,6 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         "name": "Training S3", "bucket": "training", "allowed_prefixes": [prefix.split("/", 1)[0] + "/"],
         "credential_env_prefix": "TESTS3",
     }).json()
-    queued = client.post("/api/import-jobs", json={
-        "source_id": source["id"], "project_id": project["id"],
-        "prefix": prefix, "kind": kind, "hydrate_dataset_images": True,
-    }).json()
 
     class FakeClient:
         def list_objects_v2(self, **_kwargs):
@@ -163,6 +159,13 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         "from_settings",
         classmethod(lambda cls, settings: S3Browser(FakeClient(), settings)),
     )
+    preview = client.post(f"/api/import-sources/{source['id']}/detect", json={"prefix": prefix})
+    assert preview.status_code == 200
+    queued = client.post("/api/import-jobs", json={
+        "source_id": source["id"], "project_id": project["id"],
+        "prefix": prefix, "kind": kind, "hydrate_dataset_images": True,
+        "review_token": preview.json()["review_token"],
+    }).json()
     settings = get_settings()
     cache = AssetCache(CacheSettings(root=settings.cache_root))
     runner = JobRunner(app_module.SessionLocal, {"s3.import": S3ImportHandler(app_module.SessionLocal, cache)})
@@ -198,13 +201,25 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
     assert thumbnail.headers["content-type"] == "image/webp"
 
 
-def test_failed_import_synchronizes_state_progress_error_and_allows_retry(client: TestClient):
+def test_failed_import_synchronizes_state_progress_error_and_allows_retry(client: TestClient, monkeypatch):
     _profile, project = _project(client)
     source = client.post("/api/import-sources", json={
         "name": "Failing S3", "bucket": "training", "allowed_prefixes": ["runs/"],
     }).json()
+    class FakeClient:
+        def list_objects_v2(self, **_kwargs):
+            return {"Contents": [], "IsTruncated": False}
+
+    monkeypatch.setattr(
+        S3Browser,
+        "from_settings",
+        classmethod(lambda cls, settings: S3Browser(FakeClient(), settings)),
+    )
+    preview = client.post(f"/api/import-sources/{source['id']}/detect", json={"prefix": "runs/failure/"})
+    assert preview.status_code == 200
     queued = client.post("/api/import-jobs", json={
         "source_id": source["id"], "project_id": project["id"], "prefix": "runs/failure/",
+        "review_token": preview.json()["review_token"],
     }).json()
 
     def fail_after_progress(context, _payload):
@@ -237,7 +252,9 @@ def test_durable_export_history_manifest_and_download(client: TestClient):
         "location": {"provider": "local", "uri": str(local_file), "size": 10, "hydration_state": "hydrated"},
     }).json()
     client.post("/api/reviews", headers={"X-Profile-ID": profile["id"]}, json={"subject_type": "asset", "subject_id": asset["id"], "rating": 5, "decision": "approved"})
-    transfer = client.post("/api/transfers", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "Project handoff"}).json()
+    preview = client.post("/api/transfers/preview", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "Project handoff"})
+    assert preview.status_code == 200
+    transfer = client.post("/api/transfers", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "Project handoff", "review_token": preview.json()["review_token"]}).json()
     assert transfer["state"] == "queued"
     handler = ExportPackageHandler(app_module.SessionLocal, settings.export_root, (settings.asset_root, settings.cache_root))
     assert JobRunner(app_module.SessionLocal, {"export.package": handler}).run_one()
@@ -254,7 +271,9 @@ def test_durable_export_history_manifest_and_download(client: TestClient):
         manifest = archive.read("manifest.json").decode()
         assert '"decision": "approved"' in manifest
 
-    canceled = client.post("/api/transfers", json={"asset_ids": [asset["id"]], "name": "Canceled export"}).json()
+    canceled_preview = client.post("/api/transfers/preview", json={"asset_ids": [asset["id"]], "name": "Canceled export"})
+    assert canceled_preview.status_code == 200
+    canceled = client.post("/api/transfers", json={"asset_ids": [asset["id"]], "name": "Canceled export", "review_token": canceled_preview.json()["review_token"]}).json()
     assert client.post(f"/api/transfers/{canceled['id']}/cancel").status_code == 200
     assert JobRunner(app_module.SessionLocal, {"export.package": handler}).run_one()
     assert client.get(f"/api/transfers/{canceled['id']}").json()["state"] == "canceled"

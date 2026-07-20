@@ -1,3 +1,4 @@
+import json
 import io
 import sqlite3
 
@@ -180,3 +181,28 @@ def test_dataset_refresh_populates_an_existing_empty_version_and_metadata():
         assert items[0].caption == "portrait caption"
         assert asset.metadata_["caption"] == "portrait caption"
         assert asset.metadata_["dataset_version_id"] == version.id
+
+        json_prefix = "datasets/structured/"
+        json_sink = SQLAlchemyImportSink(session)
+        json_asset_id = json_sink.upsert_remote_object(
+            source.id,
+            ObjectInfo(key=json_prefix + "one.png", size=321, etag="json-etag"),
+            category="dataset_image",
+        )
+        json_sink.save_source_snapshot(
+            source.id,
+            json_prefix + "one.txt",
+            b'{"description":"An orange lighthouse","objects":["lighthouse","sea"]}',
+        )
+        json_sink.finalize_import(
+            ImportContext(source.id, project.id, json_prefix),
+            ImportResult(detection, 1, 0, 0, 0, 1, ()),
+        )
+        json_version = session.scalar(select(models.DatasetVersion).where(models.DatasetVersion.source_uri == "s3://bucket/datasets/structured"))
+        json_item = session.scalar(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == json_version.id))
+        json_asset = session.get(models.Asset, json_asset_id)
+
+        assert json_version.caption_format == "json"
+        assert json_item.caption_format == "json"
+        assert json.loads(json_item.caption)["description"] == "An orange lighthouse"
+        assert json_asset.metadata_["caption_format"] == "json"

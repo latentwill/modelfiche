@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardScreen, TransfersScreen } from "./screens-wireframe";
 import { WorkbenchShell } from "./shell";
@@ -8,6 +8,7 @@ vi.mock("./asset-image", () => ({
 }));
 
 const workspace = { id: "workspace-1", name: "Workspace One" };
+const personalWorkspace = { id: "workspace-2", name: "Personal" };
 const projects = [
   { id: "project-1", workspace_id: workspace.id, title: "Project One", state: "active" },
   { id: "project-2", workspace_id: "workspace-2", title: "Other Workspace Project", state: "active" },
@@ -17,13 +18,13 @@ function response(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("workspace navigation", () => {
   it("renders the current workspace hierarchy and keeps nested project routes active", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
-      if (path.includes("/api/workspaces")) return response([workspace]);
+      if (path.includes("/api/workspaces")) return response([workspace, personalWorkspace]);
       if (path.includes("/api/projects")) return response(projects);
       if (path.includes("/api/import-sources")) return response([]);
       if (path.includes("/api/activity")) return response([]);
@@ -36,8 +37,16 @@ describe("workspace navigation", () => {
     render(<WorkbenchShell section="models" id="" params={new URLSearchParams("project=project-1")}><main>Screen</main></WorkbenchShell>);
     await waitFor(() => expect(screen.getByText("Project One")).toBeInTheDocument());
     expect(screen.queryByText("Other Workspace Project")).not.toBeInTheDocument();
+    const workspaceSwitcher = screen.getByRole("button", { name: "Workspace" });
+    expect(workspaceSwitcher).toHaveTextContent("Workspace One");
+    fireEvent.click(workspaceSwitcher);
+    expect(screen.getByRole("option", { name: "Workspace One" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "Personal" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("href", "#/project/project-1");
     expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("aria-current", "page");
+    window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: { ...projects[0], title: "Renamed Project" } }));
+    await waitFor(() => expect(screen.getByRole("link", { name: "Renamed Project" })).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "Project One" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "#/models?project=project-1");
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings");
@@ -114,5 +123,60 @@ describe("workspace navigation", () => {
     await waitFor(() => expect(screen.getByText("Recent Run")).toBeInTheDocument());
     expect(screen.getByTestId("asset-image-revision-run-1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Recent Run/ })).toHaveAttribute("href", "#/run/run-1");
+  });
+
+  it("falls back from eval previews to samples and then dataset images", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/projects?limit=100") return response([{ id: "project-1", title: "Dataset only" }]);
+      if (path.includes("category=eval_output")) return response([]);
+      if (path.includes("category=sample")) return response([]);
+      if (path.includes("category=dataset_image")) return response([{ id: "dataset-image-1" }]);
+      return response([]);
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DashboardScreen />);
+
+    const preview = await screen.findByLabelText("1 latest dataset images");
+    expect(preview).toContainElement(screen.getByTestId("asset-image-dataset-image-1"));
+  });
+
+  it("prefers samples over dataset images when no eval output exists", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/projects?limit=100") return response([{ id: "project-1", title: "Sample project" }]);
+      if (path.includes("category=eval_output")) return response([]);
+      if (path.includes("category=sample")) return response([{ id: "sample-image-1" }]);
+      if (path.includes("category=dataset_image")) return response([{ id: "dataset-image-1" }]);
+      return response([]);
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DashboardScreen />);
+
+    const preview = await screen.findByLabelText("1 latest training samples");
+    expect(preview).toContainElement(screen.getByTestId("asset-image-sample-image-1"));
+    expect(screen.queryByTestId("asset-image-dataset-image-1")).not.toBeInTheDocument();
+  });
+
+  it("contains mobile navigation focus and restores its opener on Escape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/workspaces")) return response([workspace]);
+      if (path.includes("/api/projects")) return response(projects);
+      return response([]);
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    render(<WorkbenchShell section="dashboard" id="" params={new URLSearchParams()}><main><h1>Dashboard</h1></main></WorkbenchShell>);
+    const opener = screen.getAllByRole("button", { name: "Open navigation" }).at(-1)!;
+    opener.focus();
+    fireEvent.click(opener);
+    const drawer = await screen.findByRole("dialog", { name: "Primary navigation" });
+    await waitFor(() => expect(drawer).toContainElement(document.activeElement as HTMLElement));
+    expect(drawer.parentElement?.querySelector(".vela-workspace")).toHaveAttribute("aria-hidden", "true");
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "Primary navigation" })).not.toBeInTheDocument();
   });
 });

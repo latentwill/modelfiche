@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, Maximize2, Minimize2, Star, X } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { previewAssetId } from "./activity";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
-import { DataTable, Dropdown, Field, Form, Notice, Page, Panel } from "./ui";
+import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
@@ -46,9 +46,16 @@ function ProjectSummaryCard({ project }: { project: Row }) {
   const runs = useResource<unknown>(`/api/runs${query({ project_id: projectId })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: projectId })}`);
   const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: projectId })}`);
-  const latestFal = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "eval_output", provider: "fal", limit: 4 })}`);
-  const previewImages = rows(latestFal.data).slice(0, 4);
-  return <a className="vela-project-card" href={`#/project/${projectId}`}><div className="vela-project-card-body vela-project-card-heading"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p></div>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest FAL images`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Evals <strong>{rows(evals.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
+  const evalImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "eval_output", limit: 4 })}`);
+  const sampleImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "sample", limit: 4 })}`);
+  const datasetImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "dataset_image", include_dataset_assets: true, limit: 4 })}`);
+  const previewSource = rows(evalImages.data).length
+    ? { images: rows(evalImages.data), label: "eval outputs" }
+    : rows(sampleImages.data).length
+      ? { images: rows(sampleImages.data), label: "training samples" }
+      : { images: rows(datasetImages.data), label: "dataset images" };
+  const previewImages = previewSource.images.slice(0, 4);
+  return <a className="vela-project-card" href={`#/project/${projectId}`}><div className="vela-project-card-body vela-project-card-heading"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p></div>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest ${previewSource.label}`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Evals <strong>{rows(evals.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
 }
 
 
@@ -125,29 +132,257 @@ export function ImageReviewScreen({ id }: { id: string }) {
   </div>;
 }
 
+const MAX_SAMPLE_COLUMNS = 6;
+const SAMPLE_ROWS_PER_PAGE = 8;
+
+export type SampleComparisonColumn = {
+  id: string;
+  step: number | null;
+  label: string;
+  checkpointId: string;
+  checkpointFilename: string;
+  checkpointState: string;
+  modelVersionId: string;
+  modelVersionName: string;
+  localStatus: string;
+};
+
+export type SampleComparisonRow = {
+  id: string;
+  label: string;
+  ordinal: number | null;
+  cells: Record<string, Row>;
+};
+
+function sampleColumnId(sample: Row) {
+  const checkpointId = str(sample.checkpoint_id, "");
+  if (checkpointId) return checkpointId;
+  return `step:${str(sample.training_step, "unassigned")}:${str(sample.sample_track, "default")}`;
+}
+
+export function sampleComparisonColumns(samples: Row[]): SampleComparisonColumn[] {
+  const unique = new Map<string, SampleComparisonColumn>();
+  samples.forEach(sample => {
+    const id = sampleColumnId(sample);
+    if (unique.has(id)) return;
+    const rawStep = Number(sample.training_step);
+    const step = Number.isFinite(rawStep) ? rawStep : null;
+    const track = str(sample.sample_track, "");
+    const readiness = sample.checkpoint_readiness && typeof sample.checkpoint_readiness === "object" ? sample.checkpoint_readiness as Row : {};
+    const local = readiness.local && typeof readiness.local === "object" ? readiness.local as Row : {};
+    unique.set(id, {
+      id,
+      step,
+      label: `${track ? `${track[0].toUpperCase()}${track.slice(1)} · ` : ""}${step == null ? "Step not recorded" : `Step ${step}`}`,
+      checkpointId: str(sample.checkpoint_id, ""),
+      checkpointFilename: str(sample.checkpoint_filename, ""),
+      checkpointState: str(sample.checkpoint_state, "unknown"),
+      modelVersionId: str(sample.model_version_id, ""),
+      modelVersionName: str(sample.model_version_name, ""),
+      localStatus: str(local.status, "unknown"),
+    });
+  });
+  return [...unique.values()].sort((left, right) => (left.step ?? Number.MAX_SAFE_INTEGER) - (right.step ?? Number.MAX_SAFE_INTEGER) || left.label.localeCompare(right.label));
+}
+
+export function sampleComparisonRows(samples: Row[]): SampleComparisonRow[] {
+  const unique = new Map<string, SampleComparisonRow>();
+  samples.forEach(sample => {
+    const id = str(sample.sample_identity, `sample-record:${idOf(sample)}`);
+    const current = unique.get(id) ?? {
+      id,
+      label: str(sample.sample_label ?? sample.prompt, "Unlabelled sample"),
+      ordinal: Number.isFinite(Number(sample.sample_ordinal)) ? Number(sample.sample_ordinal) : null,
+      cells: {},
+    };
+    current.cells[sampleColumnId(sample)] = sample;
+    unique.set(id, current);
+  });
+  return [...unique.values()].sort((left, right) => (left.ordinal ?? Number.MAX_SAFE_INTEGER) - (right.ordinal ?? Number.MAX_SAFE_INTEGER) || left.label.localeCompare(right.label));
+}
+
+function sampleViewerParams() {
+  if (typeof location === "undefined") return new URLSearchParams();
+  return new URLSearchParams(location.hash.split("?", 2)[1] ?? "");
+}
+
+function safeSampleReturn(value: string | null) {
+  if (!value || value.startsWith("/") || value.startsWith("#") || /^[a-z]+:/i.test(value)) return "";
+  return value;
+}
+
+function updateSampleViewerUrl(runId: string, selected: string[], page: number) {
+  if (typeof history === "undefined" || typeof location === "undefined") return;
+  const params = sampleViewerParams();
+  params.delete("step");
+  if (selected.length) params.set("checkpoints", selected.join(","));
+  else params.delete("checkpoints");
+  if (page > 1) params.set("page", String(page));
+  else params.delete("page");
+  const suffix = params.toString();
+  history.replaceState(null, "", `#/samples/${runId}${suffix ? `?${suffix}` : ""}`);
+}
+
 export function SampleViewerScreen({ runId, initialStep = "" }: { runId: string; initialStep?: string }) {
   const run = useResource<Row>(`/api/runs/${runId}`);
-  const samples = useResource<unknown>(`/api/runs/${runId}/samples`);
+  const samples = useResource<unknown>(`/api/runs/${runId}/samples?limit=1000`);
   const sampleRows = rows(samples.data);
-  const groups = useMemo(() => groupBy(sampleRows, item => str(item.step, "Unassigned")), [samples.data]);
-  const [selectedSteps, setSelectedSteps] = useState<string[]>(() => initialStep ? [initialStep] : []);
-  const [ratings, setRatings] = useState<Record<string, number>>({});
-  const [ratingBusy, setRatingBusy] = useState("");
-  const [ratingError, setRatingError] = useState("");
-  useEffect(() => { if (initialStep && groups[initialStep]) setSelectedSteps([initialStep]); }, [groups, initialStep]);
-  useEffect(() => { const persisted: Record<string, number> = {}; sampleRows.forEach(item => { const assetId = str(item.asset_revision_id ?? item.asset_id ?? item.id); if (item.rating) persisted[assetId] = Number(item.rating); }); setRatings(persisted); }, [samples.data]);
-  const shown = Object.entries(groups).filter(([step]) => !selectedSteps.length || selectedSteps.includes(step)).slice(0, 6);
-  return <div className="comparison-viewer vela-focus-workspace"><header className="viewer-topbar"><a href={`#/run/${runId}`}>{str(run.data?.name, "Training run")}</a><div className="viewer-actions">{Boolean(run.data?.model_id) && <a className="button" href={`#/model/${str(run.data?.model_id)}`}>Back to model</a>}<a className="button" aria-label="Close sample viewer" href={`#/run/${runId}`}><X size={16} /> Close</a></div></header>
-    <div className="comparison-toolbar"><strong>Sample viewer</strong><div className="chiplets">{Object.keys(groups).map(step => <button aria-pressed={selectedSteps.includes(step)} className={selectedSteps.includes(step) ? "active" : ""} key={step} onClick={() => setSelectedSteps(toggleLimited(selectedSteps, step, 6))}>Step {step}</button>)}</div><span>{selectedSteps.length}/6 selected</span>{ratingError && <small role="alert">{ratingError}</small>}</div>
-    <main className="comparison-columns"><Notice error={samples.error} loading={samples.loading} empty={!shown.length} />{shown.map(([step, items]) => <section className="comparison-column" key={step}><header><strong>Step {step}</strong><span>{items.length} samples</span></header><Form submit="Add group comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "training_run", subject_id: runId, body: `[Step ${step}] ${String(form.get("body"))}` })); }}><Field label={`Step ${step} comment`}><textarea name="body" required /></Field></Form>{items.map(item => { const assetId = str(item.asset_revision_id ?? item.asset_id ?? item.id); return <article className="comparison-image" key={idOf(item)}><a href={galleryOpenHref({ ...item, project_id: run.data?.project_id, origin_type: "SAMPLE" })}><AssetImage assetRevisionId={assetId} alt={str(item.name, `Step ${step} sample`)} loading="lazy" /></a><div className="rating-control compact">{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={ratings[assetId] === value} disabled={ratingBusy === assetId} key={value} onClick={async () => { setRatingBusy(assetId); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: assetId, rating: value, decision: "candidate" })); setRatings(current => ({ ...current, [assetId]: value })); } catch (reason) { setRatingError(reason instanceof Error ? reason.message : String(reason)); } finally { setRatingBusy(""); } }}><Star size={14} fill={(ratings[assetId] ?? 0) >= value ? "currentColor" : "none"} /></button>)}</div></article>; })}</section>)}</main>
+  const columns = useMemo(() => sampleComparisonColumns(sampleRows), [samples.data]);
+  const matrixRows = useMemo(() => sampleComparisonRows(sampleRows), [samples.data]);
+  const initialParams = useMemo(() => sampleViewerParams(), [runId]);
+  const requestedColumns = useMemo(() => (initialParams.get("checkpoints") ?? "").split(",").filter(Boolean), [initialParams]);
+  const initialPage = Math.max(1, Number(initialParams.get("page")) || 1);
+  const returnTarget = safeSampleReturn(initialParams.get("return")) || `run/${runId}`;
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [selectionMessage, setSelectionMessage] = useState("");
+  const [page, setPage] = useState(initialPage);
+  const [activeAssetId, setActiveAssetId] = useState("");
+  const [mobilePromptId, setMobilePromptId] = useState("");
+  const [mobileColumnId, setMobileColumnId] = useState("");
+  const initialized = useRef(false);
+  const selected = columns.filter(column => selectedColumns.includes(column.id));
+  const pageCount = Math.max(1, Math.ceil(matrixRows.length / SAMPLE_ROWS_PER_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const visibleRows = matrixRows.slice((safePage - 1) * SAMPLE_ROWS_PER_PAGE, safePage * SAMPLE_ROWS_PER_PAGE);
+  const activeSample = sampleRows.find(sample => str(sample.asset_revision_id ?? sample.asset_id ?? sample.id) === activeAssetId) ?? null;
+  const mobileRow = visibleRows.find(row => row.id === mobilePromptId) ?? visibleRows[0];
+  const mobileColumn = selected.find(column => column.id === mobileColumnId) ?? selected[0];
+  const mobileSample = mobileRow && mobileColumn ? mobileRow.cells[mobileColumn.id] : null;
+
+  useEffect(() => {
+    if (initialized.current || !columns.length) return;
+    const requested = requestedColumns.filter(id => columns.some(column => column.id === id));
+    const legacy = initialStep ? columns.filter(column => String(column.step) === initialStep).map(column => column.id) : [];
+    const defaults = (requested.length ? requested : legacy.length ? legacy : columns.slice(0, MAX_SAMPLE_COLUMNS).map(column => column.id)).slice(0, MAX_SAMPLE_COLUMNS);
+    initialized.current = true;
+    setSelectedColumns(defaults);
+    setMobileColumnId(defaults[0] ?? "");
+    updateSampleViewerUrl(runId, defaults, initialPage);
+  }, [columns, initialPage, initialStep, requestedColumns, runId]);
+
+  useEffect(() => {
+    if (safePage !== page) {
+      setPage(safePage);
+      updateSampleViewerUrl(runId, selectedColumns, safePage);
+    }
+  }, [page, runId, safePage, selectedColumns]);
+
+  useEffect(() => {
+    if (!visibleRows.some(row => row.id === mobilePromptId)) setMobilePromptId(visibleRows[0]?.id ?? "");
+  }, [mobilePromptId, visibleRows]);
+
+  const selectColumn = (columnId: string) => {
+    const next = selectedColumns.includes(columnId)
+      ? selectedColumns.filter(id => id !== columnId)
+      : selectedColumns.length < MAX_SAMPLE_COLUMNS
+        ? [...selectedColumns, columnId]
+        : selectedColumns;
+    if (next === selectedColumns) {
+      setSelectionMessage(`Choose at most ${MAX_SAMPLE_COLUMNS} checkpoint columns. Remove one before adding another.`);
+      return;
+    }
+    setSelectionMessage(`${next.length} of ${MAX_SAMPLE_COLUMNS} checkpoint columns selected.`);
+    setSelectedColumns(next);
+    setMobileColumnId(current => next.includes(current) ? current : next[0] ?? "");
+    setPage(1);
+    updateSampleViewerUrl(runId, next, 1);
+  };
+
+  const changePage = (next: number) => {
+    const bounded = Math.max(1, Math.min(pageCount, next));
+    setPage(bounded);
+    updateSampleViewerUrl(runId, selectedColumns, bounded);
+  };
+
+  const initialLoading = (!run.data && run.loading) || (!samples.data && samples.loading);
+  const fatalError = !run.data ? run.error : !samples.data ? samples.error : "";
+  if (initialLoading || fatalError) {
+    return <div className="comparison-viewer vela-focus-workspace" aria-busy={initialLoading}>
+      <header className="viewer-topbar"><a href={`#/${returnTarget}`}>Return</a><a className="button" aria-label="Close sample viewer" href={`#/${returnTarget}`}><X size={16} /> Close</a></header>
+      <main className="sample-comparison-boundary">
+        <h1>Sample viewer</h1>
+        <Notice loading={initialLoading} error={fatalError} />
+        {fatalError && <div className="actions"><a className="button vela-button" href={`#/${returnTarget}`}>Back to {returnTarget.startsWith("model/") ? "model" : "run"}</a><button onClick={() => void Promise.all([run.reload(), samples.reload()])}>Retry</button></div>}
+      </main>
+    </div>;
+  }
+
+  return <div className="comparison-viewer vela-focus-workspace">
+    <header className="viewer-topbar"><a href={`#/${returnTarget}`}>{str(run.data?.name, "Training run")}</a><div className="viewer-actions">{Boolean(run.data?.model_id) && <a className="button" href={`#/model/${str(run.data?.model_id)}`}>Model</a>}<a className="button" aria-label="Close sample viewer" href={`#/${returnTarget}`}><X size={16} /> Close</a></div></header>
+    <main className="sample-comparison-workspace">
+      <header className="comparison-toolbar">
+        <div><h1>Sample comparison</h1><p>Prompt or sample rows by persisted checkpoint-step columns.</p></div>
+        <span>{selected.length}/{MAX_SAMPLE_COLUMNS} selected</span>
+      </header>
+      <section className="sample-comparison-selector" aria-labelledby="sample-columns-heading">
+        <div><h2 id="sample-columns-heading">Checkpoint columns</h2><p>Select up to {MAX_SAMPLE_COLUMNS}. Selection and page are stored in this URL.</p></div>
+        <div className="chiplets">{columns.map(column => <button aria-pressed={selectedColumns.includes(column.id)} className={selectedColumns.includes(column.id) ? "active" : ""} key={column.id} onClick={() => selectColumn(column.id)}><strong>{column.label}</strong><span>{column.checkpointFilename || "Checkpoint record unavailable"}</span></button>)}</div>
+        <p className="vela-meta" role="status" aria-live="polite">{selectionMessage}</p>
+      </section>
+      <Notice empty={!matrixRows.length} emptyText="No archived sample comparison" emptyHint="This run has no sample artifacts with prompt or checkpoint provenance." />
+      {!!matrixRows.length && !selected.length && <div className="vela-empty"><span>Select a checkpoint column</span><small>Choose at least one real checkpoint step above to compare samples.</small></div>}
+      {!!visibleRows.length && !!selected.length && <SampleComparisonTable columns={selected} rows={visibleRows} activeAssetId={activeAssetId} projectId={str(run.data?.project_id)} onSelect={setActiveAssetId} />}
+      {!!visibleRows.length && !!selected.length && <SampleComparisonMobile columns={selected} rows={visibleRows} selectedColumnId={mobileColumn?.id ?? ""} selectedPromptId={mobileRow?.id ?? ""} sample={mobileSample} activeAssetId={activeAssetId} onColumn={setMobileColumnId} onPrompt={setMobilePromptId} onSelect={setActiveAssetId} />}
+      {matrixRows.length > SAMPLE_ROWS_PER_PAGE && <nav className="sample-comparison-pagination" aria-label="Sample prompt pages"><button disabled={safePage <= 1} onClick={() => changePage(safePage - 1)}><ChevronLeft size={15} />Previous prompts</button><span>Prompts {(safePage - 1) * SAMPLE_ROWS_PER_PAGE + 1}–{Math.min(safePage * SAMPLE_ROWS_PER_PAGE, matrixRows.length)} of {matrixRows.length}</span><button disabled={safePage >= pageCount} onClick={() => changePage(safePage + 1)}>Next prompts<ChevronRight size={15} /></button></nav>}
+      {activeSample && <SampleReviewPanel key={activeAssetId} sample={{ ...activeSample, project_id: activeSample.project_id ?? run.data?.project_id, origin_type: "SAMPLE" }} onSaved={samples.reload} />}
+    </main>
   </div>;
+}
+
+function SampleComparisonTable({ columns, rows: promptRows, activeAssetId, projectId, onSelect }: { columns: SampleComparisonColumn[]; rows: SampleComparisonRow[]; activeAssetId: string; projectId: string; onSelect: (assetId: string) => void }) {
+  return <div className="sample-comparison-table-wrap" role="region" aria-label="Sample comparison matrix" tabIndex={0}>
+    <table className="sample-comparison-table">
+      <thead><tr><th scope="col">Prompt / sample</th>{columns.map(column => <th scope="col" key={column.id}><strong>{column.label}</strong>{column.checkpointId ? <a href={`#/checkpoint/${column.checkpointId}`}>{column.checkpointFilename || "Open checkpoint"}</a> : <span>{column.checkpointFilename || "Checkpoint unresolved"}</span>}<Status value={column.localStatus || column.checkpointState} />{column.modelVersionId ? <a href={`#/model-version/${column.modelVersionId}`}>{column.modelVersionName || "Registered version"}</a> : <span>Not registered as a model version</span>}</th>)}</tr></thead>
+      <tbody>{promptRows.map(row => <tr key={row.id}><th scope="row"><strong>{row.label}</strong>{row.ordinal != null && <span>Sample {row.ordinal + 1}</span>}</th>{columns.map(column => { const sample = row.cells[column.id]; const assetId = sample ? str(sample.asset_revision_id ?? sample.asset_id ?? sample.id) : ""; return <td key={column.id}>{sample ? <SampleCell sample={{ ...sample, project_id: sample.project_id ?? projectId }} active={activeAssetId === assetId} label={`${row.label} at ${column.label}`} onSelect={() => onSelect(assetId)} /> : <span className="sample-comparison-missing">Not archived</span>}</td>; })}</tr>)}</tbody>
+    </table>
+  </div>;
+}
+
+function SampleComparisonMobile({ columns, rows: promptRows, selectedColumnId, selectedPromptId, sample, activeAssetId, onColumn, onPrompt, onSelect }: { columns: SampleComparisonColumn[]; rows: SampleComparisonRow[]; selectedColumnId: string; selectedPromptId: string; sample: Row | null | undefined; activeAssetId: string; onColumn: (id: string) => void; onPrompt: (id: string) => void; onSelect: (id: string) => void }) {
+  const assetId = sample ? str(sample.asset_revision_id ?? sample.asset_id ?? sample.id) : "";
+  return <section className="sample-comparison-mobile" aria-label="Mobile sample detail">
+    <div className="form-grid"><Field label="Prompt or sample"><Dropdown aria-label="Prompt or sample" value={selectedPromptId} onChange={onPrompt} options={promptRows.map(row => ({ value: row.id, label: row.label }))} /></Field><Field label="Checkpoint step"><Dropdown aria-label="Checkpoint step" value={selectedColumnId} onChange={onColumn} options={columns.map(column => ({ value: column.id, label: column.label }))} /></Field></div>
+    {sample ? <SampleCell sample={sample} active={activeAssetId === assetId} label={`${str(sample.sample_label, "Sample")} at step ${str(sample.training_step, "unknown")}`} onSelect={() => onSelect(assetId)} /> : <div className="vela-empty"><span>Sample not archived</span><small>Choose another prompt or checkpoint step.</small></div>}
+  </section>;
+}
+
+function SampleCell({ sample, active, label, onSelect }: { sample: Row; active: boolean; label: string; onSelect: () => void }) {
+  const assetId = str(sample.asset_revision_id ?? sample.asset_id ?? sample.id);
+  return <button type="button" className={`sample-comparison-cell${active ? " active" : ""}`} aria-pressed={active} aria-label={`Review ${label}`} onClick={onSelect}><AssetImage assetRevisionId={assetId} alt="" loading="lazy" /><span><Status value={sample.decision ?? "unreviewed"} />{sample.rating ? <small>{str(sample.rating)} / 5 rating</small> : <small>Not rated</small>}</span></button>;
+}
+
+function SampleReviewPanel({ sample, onSaved }: { sample: Row; onSaved: () => Promise<void> }) {
+  const assetId = str(sample.asset_revision_id ?? sample.asset_id ?? sample.id);
+  const [rating, setRating] = useState(Number(sample.rating ?? 0));
+  const [decision, setDecision] = useState(str(sample.decision, "candidate"));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState<Row | null>(null);
+  const reviewedBy = str(saved?.profile_name ?? sample.reviewed_by, "");
+  const reviewedAt = saved?.created_at ?? sample.reviewed_at;
+  const save = async () => {
+    setBusy(true); setError(""); setSaved(null);
+    try {
+      const review = await api<Row>("/api/reviews", jsonBody({ subject_type: "asset", subject_id: assetId, rating: rating || null, decision }));
+      setSaved(review);
+      await onSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(false); }
+  };
+  return <aside className="sample-review-panel" aria-labelledby="sample-review-heading">
+    <header><div><h2 id="sample-review-heading">Review selected sample</h2><p>{str(sample.sample_label ?? sample.prompt ?? sample.name, "Training sample")} · Step {str(sample.training_step, "not recorded")}</p></div><a className="button vela-button" href={galleryOpenHref(sample)}>Open in Gallery</a></header>
+    <div className="sample-review-layout"><AssetImage assetRevisionId={assetId} alt={str(sample.sample_label ?? sample.name, "Selected training sample")} loading="lazy" /><div className="sample-review-controls">
+      <fieldset><legend>Rating</legend><div className="sample-rating-options">{[1, 2, 3, 4, 5].map(value => <label key={value}><input type="radio" name={`sample-rating-${assetId}`} value={value} checked={rating === value} onChange={() => setRating(value)} /><Star size={15} fill={rating >= value ? "currentColor" : "none"} /><span>{value}</span></label>)}</div></fieldset>
+      <Field label="Production decision" hint="Decision is independent of the quality rating."><Dropdown aria-label="Production decision" value={decision} onChange={setDecision} options={[{ value: "candidate", label: "Candidate" }, { value: "approved", label: "Approved" }, { value: "hold", label: "Hold" }, { value: "reject", label: "Reject" }]} /></Field>
+      <button className="vela-button vela-button-primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving review..." : "Save review"}</button>
+      {(saved || reviewedBy) && <p className="vela-notice" role="status" aria-live="polite"><strong>{saved ? "Review saved" : "Current review"}</strong><span>{decision} by {reviewedBy || "current operator"}{reviewedAt ? ` · ${new Date(String(reviewedAt)).toLocaleString()}` : ""}</span></p>}
+      {error && <p className="vela-notice vela-notice-error" role="alert">{error}</p>}
+    </div></div>
+  </aside>;
 }
 
 function splitList(value: FormDataEntryValue | null) { return String(value ?? "").split(",").map(item => item.trim()).filter(Boolean); }
 function initials(value: string) { return value.split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
 function formatDate(value: unknown) { const date = new Date(String(value ?? "")); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
-function groupBy(items: Row[], key: (item: Row) => string) { return items.reduce<Record<string, Row[]>>((groups, item) => { const value = key(item); (groups[value] ??= []).push(item); return groups; }, {}); }
-function toggleLimited(values: string[], value: string, max: number) { return values.includes(value) ? values.filter(item => item !== value) : values.length < max ? [...values, value] : values; }
 function transferTarget(params: URLSearchParams) {
   const definitions = [
     ["project", "Project", "projects"],

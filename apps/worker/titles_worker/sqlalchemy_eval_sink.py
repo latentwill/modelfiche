@@ -86,6 +86,20 @@ class SQLAlchemyEvalOutputSink:
                 )
                 session.add(asset)
                 session.flush()
+                session.add(models.ActivityEvent(
+                    workspace_id=project.workspace_id,
+                    project_id=project.id,
+                    profile_id=None,
+                    action="asset.generated",
+                    subject_type="asset",
+                    subject_id=asset.id,
+                    details={
+                        "summary": f"Generated {filename}",
+                        "provider": "fal",
+                        "endpoint": definition.endpoint,
+                        "eval_run_id": run.id,
+                    },
+                ))
                 StorageRepository(session, project.workspace_id).attach_verified_local_location(
                     asset_id=asset.id,
                     uri=str(entry.path),

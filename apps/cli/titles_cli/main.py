@@ -1172,6 +1172,79 @@ def s3_tree(
     call(ctx, lambda client: s3_prefix_tree(client, source, prefix, depth, limit))
 
 
+transfer_app = typer.Typer(no_args_is_help=True)
+app.add_typer(transfer_app, name="transfer")
+
+
+def transfer_payload(
+    *,
+    project: str | None,
+    assets: list[str],
+    dataset_versions: list[str],
+    model_versions: list[str],
+    eval_runs: list[str],
+    include_files: bool,
+    include_reviews: bool,
+    review_token: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "project_id": project,
+        "asset_ids": assets,
+        "dataset_version_ids": dataset_versions,
+        "model_version_ids": model_versions,
+        "eval_run_ids": eval_runs,
+        "include_files": include_files,
+        "include_reviews": include_reviews,
+        "review_token": review_token,
+    }
+
+
+@transfer_app.command("preview")
+def transfer_preview(
+    ctx: typer.Context,
+    project: str | None = typer.Option(None),
+    asset: list[str] = typer.Option([], "--asset"),
+    dataset_version: list[str] = typer.Option([], "--dataset-version"),
+    model_version: list[str] = typer.Option([], "--model-version"),
+    eval_run: list[str] = typer.Option([], "--eval-run"),
+    include_files: bool = typer.Option(True, "--include-files/--exclude-files"),
+    include_reviews: bool = typer.Option(True, "--include-reviews/--exclude-reviews"),
+) -> None:
+    payload = transfer_payload(project=project, assets=asset, dataset_versions=dataset_version, model_versions=model_version, eval_runs=eval_run, include_files=include_files, include_reviews=include_reviews)
+    payload.pop("review_token")
+    call(ctx, lambda client: client.post("/api/transfers/preview", payload))
+
+
+@transfer_app.command("create")
+def transfer_create(
+    ctx: typer.Context,
+    review_token: str = typer.Option(..., help="Token returned by `mfiche transfer preview`"),
+    project: str | None = typer.Option(None),
+    asset: list[str] = typer.Option([], "--asset"),
+    dataset_version: list[str] = typer.Option([], "--dataset-version"),
+    model_version: list[str] = typer.Option([], "--model-version"),
+    eval_run: list[str] = typer.Option([], "--eval-run"),
+    include_files: bool = typer.Option(True, "--include-files/--exclude-files"),
+    include_reviews: bool = typer.Option(True, "--include-reviews/--exclude-reviews"),
+) -> None:
+    payload = transfer_payload(project=project, assets=asset, dataset_versions=dataset_version, model_versions=model_version, eval_runs=eval_run, include_files=include_files, include_reviews=include_reviews, review_token=review_token)
+    call(ctx, lambda client: client.post("/api/transfers", payload))
+
+
+@transfer_app.command("list")
+def transfer_list(ctx: typer.Context, state: str | None = typer.Option(None)) -> None:
+    call(ctx, lambda client: client.get("/api/transfers", state=state))
+
+
+@transfer_app.command("show")
+def transfer_show(ctx: typer.Context, transfer: str) -> None:
+    call(ctx, lambda client: client.get(f"/api/transfers/{transfer}"))
+
+
+@transfer_app.command("cancel")
+def transfer_cancel(ctx: typer.Context, transfer: str) -> None:
+    call(ctx, lambda client: client.post(f"/api/transfers/{transfer}/cancel"))
+
 import_app = typer.Typer(no_args_is_help=True)
 app.add_typer(import_app, name="import")
 
@@ -1194,6 +1267,7 @@ def import_create(
     kind: str | None = typer.Option(None),
     hydrate_dataset: bool = typer.Option(True),
     dry_run: bool = typer.Option(False),
+    review_token: str | None = typer.Option(None, help="Token returned by `mfiche import preview`; required for mutation"),
     wait: bool = typer.Option(False),
 ) -> None:
     payload = {
@@ -1203,6 +1277,7 @@ def import_create(
         "kind": kind,
         "hydrate_dataset_images": hydrate_dataset,
         "dry_run": dry_run,
+        "review_token": review_token,
     }
     result = call(ctx, lambda client: client.post("/api/import-jobs", payload))
     if wait and isinstance(result, dict) and result.get("job_id"):

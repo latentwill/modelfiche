@@ -56,10 +56,17 @@ describe("dataset caption generation controls", () => {
     expect(screen.getByDisplayValue("openai")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Caption format" })).toHaveTextContent("Text");
     fireEvent.change(prompt, { target: { value: "Describe the portrait clearly." } });
-    fireEvent.click(screen.getByRole("button", { name: "Generate captions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review caption generation" }));
+    expect(screen.getByRole("region", { name: "Caption generation review" })).toHaveTextContent("2 provider requests");
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).includes("/api/dataset-drafts/draft-1/caption"))).toHaveLength(0);
+    fireEvent.change(prompt, { target: { value: "Describe something else." } });
+    expect(screen.queryByRole("region", { name: "Caption generation review" })).not.toBeInTheDocument();
+    fireEvent.change(prompt, { target: { value: "Describe the portrait clearly." } });
+    fireEvent.click(screen.getByRole("button", { name: "Review caption generation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Generate reviewed captions" }));
     expect(await screen.findByText("1 of 2 complete")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Caption generation progress" })).toHaveAttribute("value", "1");
-    expect(screen.getByRole("button", { name: "Generating 1 / 2" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review caption generation" })).toBeDisabled();
     releaseCaption();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/dataset-drafts/draft-1/caption", expect.objectContaining({ method: "POST" })));
     const calls = fetchMock.mock.calls.filter(([path]) => String(path).includes("/api/dataset-drafts/draft-1/caption"));
@@ -81,5 +88,140 @@ describe("dataset caption generation controls", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/dataset-drafts/draft-1/caption-format", expect.objectContaining({ method: "PATCH" })));
     const formatCall = fetchMock.mock.calls.find(([path, init]) => String(path).includes("/caption-format") && init?.method === "PATCH");
     expect(JSON.parse(String(formatCall?.[1]?.body))).toEqual({ caption_format: "json" });
+  });
+});
+
+describe("dataset pagination and immutable batch previews", () => {
+  it("reaches every item, scopes selection truthfully, invalidates stale input, and renders JSON captions", async () => {
+    const items = Array.from({ length: 54 }, (_, index) => ({
+      id: `item-${index + 1}`,
+      filename: `image-${index + 1}.png`,
+      caption: index === 53
+        ? JSON.stringify({ description: "An orange lighthouse beside a calm sea", objects: ["lighthouse", "sea"] })
+        : `caption ${index + 1}`,
+      caption_format: index === 53 ? "text" : "text",
+      included: true,
+      asset_revision_id: `asset-${index + 1}`,
+    }));
+    const draft = { id: "draft-54", base_version_id: "version-54", items };
+    const appliedBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/api/dataset-drafts/draft-54/operations/preview") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        const targetIds = body.all ? items.map(item => item.id) : body.item_ids;
+        return response({ matched: targetIds.length, changed: targetIds.length, changes: [], target_item_ids: targetIds, preview_token: `token-${body.parameters.word}` });
+      }
+      if (path.endsWith("/api/dataset-drafts/draft-54/operations") && init?.method === "POST") {
+        appliedBodies.push(JSON.parse(String(init.body)));
+        return response({ changed: 4 });
+      }
+      if (path.endsWith("/api/dataset-drafts/draft-54/operations")) return response([]);
+      if (path.includes("/api/datasets/dataset-54/drafts/active")) return response(draft);
+      if (path.endsWith("/api/dataset-drafts/draft-54")) return response(draft);
+      if (path.includes("/api/datasets/dataset-54/versions")) return response([{ id: "version-54", version_number: 1, name: "Imported", item_count: 54, caption_format: "text", status: "published" }]);
+      if (path.includes("/api/datasets/dataset-54")) return response({ id: "dataset-54", project_id: "project-54", project_name: "Studio", name: "All images", current_version_id: "version-54", versions: [{ id: "version-54", version_number: 1, name: "Imported", item_count: 54, caption_format: "text", status: "published" }] });
+      if (path.includes("/api/dataset-versions/version-54/items")) return response(items);
+      if (path.includes("/api/operator-settings")) return response({ captioning: {}, llm: {} });
+      return response({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DatasetScreen id="dataset-54" />);
+    expect(await screen.findByText("Restored the active working draft.")).toBeInTheDocument();
+
+    expect(await screen.findByText("1–50 of 54")).toBeInTheDocument();
+    expect(screen.getAllByRole("article")).toHaveLength(50);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("51–54 of 54")).toBeInTheDocument();
+    expect((screen.getByRole("textbox", { name: "JSON caption for image-54.png" }) as HTMLTextAreaElement).value).toContain("\"description\": \"An orange lighthouse");
+    expect(screen.getByRole("img", { name: "An orange lighthouse beside a calm sea" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Status: JSON")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select visible 4" }));
+    expect(screen.getByText(/4 selected · showing 51–54 of 54/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Batch scope" }));
+    fireEvent.click(screen.getByRole("option", { name: "Selected (4)" }));
+    const word = screen.getByPlaceholderText("Trigger or tag word");
+    fireEvent.change(word, { target: { value: "tok" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview add word" }));
+    expect(await screen.findByRole("status", { name: "Operation preview" })).toBeInTheDocument();
+    const previewCall = fetchMock.mock.calls.find(([path]) => String(path).includes("/operations/preview"));
+    expect(JSON.parse(String(previewCall?.[1]?.body))).toMatchObject({ all: false, item_ids: ["item-51", "item-52", "item-53", "item-54"] });
+
+    fireEvent.change(word, { target: { value: "updated-token" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Apply this preview" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Preview add word" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply this preview" }));
+    await waitFor(() => expect(appliedBodies).toHaveLength(1));
+    expect(appliedBodies[0]).toMatchObject({ all: false, item_ids: ["item-51", "item-52", "item-53", "item-54"], preview_token: "token-updated-token" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all 54" }));
+    expect(screen.getByText(/54 selected · showing 51–54 of 54/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Batch scope" }));
+    expect(screen.getByRole("option", { name: "Selected (54)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Entire draft (54)" })).toBeInTheDocument();
+  });
+});
+
+describe("dataset caption version switching", () => {
+  const versions = [
+    { id: "version-2", version_number: 2, name: "Clean captions", item_count: 1, caption_format: "text", status: "published" },
+    { id: "version-1", version_number: 1, name: "Original captions", item_count: 1, caption_format: "text", status: "published" },
+  ];
+
+  it("switches between published versions while preserving an active working draft", async () => {
+    const draft = { id: "draft-1", base_version_id: "version-1", items: [{ id: "draft-item", filename: "draft.png", caption: "draft caption", included: true }] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/datasets/dataset-1/drafts/active")) return response(draft);
+      if (path.includes("/api/dataset-drafts/draft-1")) return response(draft);
+      if (path.includes("/api/datasets/dataset-1/versions")) return response(versions);
+      if (path.includes("/api/datasets/dataset-1")) return response({ id: "dataset-1", name: "Portraits", current_version_id: "version-2", versions });
+      if (path.includes("/api/dataset-versions/version-2/items")) return response({ items: [{ id: "v2-item", filename: "v2.png", caption: "clean caption", included: true }], total: 1 });
+      if (path.includes("/api/dataset-versions/version-1/items")) return response({ items: [{ id: "v1-item", filename: "v1.png", caption: "original caption", included: true }], total: 1 });
+      if (path.includes("/api/operator-settings")) return response({ captioning: {}, llm: {} });
+      return response([]);
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DatasetScreen id="dataset-1" />);
+    expect(await screen.findByText("Restored the active working draft.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Batch caption operations" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /v2 Clean captions/ }));
+    expect(await screen.findByDisplayValue("clean caption")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Batch caption operations" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Draft Working copy/ })).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: /Draft Working copy/ }));
+    expect(await screen.findByDisplayValue("draft caption")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Batch caption operations" })).toBeInTheDocument();
+  });
+
+  it("clones the selected historical version into a new working draft", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/api/datasets/dataset-1/drafts/active")) return new Response(JSON.stringify({ detail: "no active working draft" }), { status: 404, headers: { "content-type": "application/json" } });
+      if (init?.method === "POST" && path.includes("/api/datasets/dataset-1/drafts")) return response({ id: "draft-from-v1" });
+      if (path.includes("/api/dataset-drafts/draft-from-v1")) return response({ id: "draft-from-v1", base_version_id: "version-1", items: [{ id: "draft-item", caption: "original caption" }] });
+      if (path.includes("/api/datasets/dataset-1/versions")) return response(versions);
+      if (path.includes("/api/datasets/dataset-1")) return response({ id: "dataset-1", name: "Portraits", current_version_id: "version-2", versions });
+      if (path.includes("/api/dataset-versions/")) return response({ items: [{ id: "published-item", filename: "published.png", caption: "published caption" }], total: 1 });
+      if (path.includes("/api/operator-settings")) return response({ captioning: {}, llm: {} });
+      return response([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DatasetScreen id="dataset-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /v1 Original captions/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Clone as new version" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/datasets/dataset-1/drafts", expect.objectContaining({ method: "POST" })));
+    const cloneCall = fetchMock.mock.calls.find(([path, init]) => String(path).includes("/api/datasets/dataset-1/drafts") && init?.method === "POST");
+    expect(JSON.parse(String(cloneCall?.[1]?.body))).toEqual({ base_version_id: "version-1" });
+    expect(await screen.findByDisplayValue("original caption")).toBeInTheDocument();
   });
 });

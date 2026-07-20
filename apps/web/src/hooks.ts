@@ -1,23 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE, api } from "./api";
 
-export function useResource<T = unknown>(path: string | null) {
+type ResourceOptions<T> = {
+  pollInterval?: number;
+  pollWhile?: (data: T | null) => boolean;
+};
+
+export function useResource<T = unknown>(path: string | null, options: ResourceOptions<T> = {}) {
   const [data, setData] = useState<T | null>(null);
   const [loadedPath, setLoadedPath] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [errorPath, setErrorPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
-  const load = useCallback(async () => {
+  const [pollGeneration, setPollGeneration] = useState(0);
+  const latestData = useRef<T | null>(null);
+  latestData.current = loadedPath === path ? data : null;
+  const load = useCallback(async (preserveData = false): Promise<T | null> => {
     const id = ++requestId.current;
     if (!path) {
       setData(null);
       setError("");
+      setErrorPath(null);
       setLoadedPath(null);
       setLoading(false);
-      return;
+      return null;
     }
-    setData(null);
+    if (!preserveData) setData(null);
     setLoading(true);
+    setErrorPath(null);
     setError("");
     try {
       const result = await api<T>(path);
@@ -25,14 +36,52 @@ export function useResource<T = unknown>(path: string | null) {
         setData(result);
         setLoadedPath(path);
       }
+      return result;
     } catch (reason) {
-      if (id === requestId.current) setError(reason instanceof Error ? reason.message : String(reason));
+      if (id === requestId.current) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        setErrorPath(path);
+      }
+      return null;
     } finally {
       if (id === requestId.current) setLoading(false);
     }
   }, [path]);
   useEffect(() => { void load(); }, [load]);
-  return { data: loadedPath === path ? data : null, error, loading, reload: load, setData };
+  useEffect(() => {
+    if (!path || !options.pollInterval || options.pollInterval <= 0) return;
+    let active = true;
+    let timer: number | undefined;
+    const poll = () => {
+      if (!active || (options.pollWhile && !options.pollWhile(latestData.current))) return;
+      timer = window.setTimeout(async () => {
+        const result = await load(true);
+        if (active && (!options.pollWhile || options.pollWhile(result))) poll();
+      }, options.pollInterval);
+    };
+    poll();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [load, options.pollInterval, options.pollWhile, path, pollGeneration]);
+  const currentError = errorPath === path ? error : "";
+  const currentData = loadedPath === path ? data : null;
+  const currentLoading = !path ? false : loadedPath !== path && !currentError ? true : loading && currentData === null;
+  return { data: currentData, error: currentError, loading: currentLoading, reload: async () => { await load(true); setPollGeneration(value => value + 1); }, setData };
+}
+
+const TERMINAL_PROGRESS_STATUSES: Record<string, true> = { completed: true, succeeded: true, failed: true, canceled: true, cancelled: true };
+
+export function pollWhileActive(data: unknown | null) {
+  const record = data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : null;
+  const entries = Array.isArray(data) ? data : record?.items;
+  if (Array.isArray(entries)) return entries.some(item => {
+    const status = item && typeof item === "object" ? String((item as Record<string, unknown>).status ?? "").toLowerCase() : "";
+    return !TERMINAL_PROGRESS_STATUSES[status];
+  });
+  const status = String(record?.status ?? "").toLowerCase();
+  return !TERMINAL_PROGRESS_STATUSES[status];
 }
 
 export type RunLiveProjection = Record<string, unknown> & {
@@ -56,6 +105,8 @@ const TERMINAL_RUN_STATUSES: Record<string, true> = {
   completed: true,
   failed: true,
   interrupted: true,
+  canceled: true,
+  cancelled: true,
 };
 
 export function useRunLive(runId: string) {
@@ -149,10 +200,48 @@ export function useRunLive(runId: string) {
 export function useHashRoute() {
   const read = () => window.location.hash.replace(/^#\/?/, "") || "projects";
   const [route, setRoute] = useState(read);
+  const modeRef = useRef<"initial" | "push" | "pop">("initial");
+  const pendingRestore = useRef<{ scrollY: number; focusId: string } | null>(null);
   useEffect(() => {
-    const update = () => setRoute(read());
-    window.addEventListener("hashchange", update);
-    return () => window.removeEventListener("hashchange", update);
+    const current = history.state?.modelficheRoute;
+    if (!current) history.replaceState({ ...(history.state ?? {}), modelficheRoute: { scrollY: window.scrollY, focusId: document.activeElement instanceof HTMLElement ? document.activeElement.id : "" } }, "", window.location.href);
+    const onClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href^='#/']") : null;
+      if (!target) return;
+      event.preventDefault();
+      history.replaceState({ ...(history.state ?? {}), modelficheRoute: { scrollY: window.scrollY, focusId: document.activeElement instanceof HTMLElement ? document.activeElement.id : "" } }, "", window.location.href);
+      history.pushState({ modelficheRoute: { scrollY: 0, focusId: "" } }, "", target.href);
+      modeRef.current = "push";
+      setRoute(read());
+    };
+    const onPopState = (event: PopStateEvent) => {
+      modeRef.current = "pop";
+      pendingRestore.current = event.state?.modelficheRoute ?? { scrollY: 0, focusId: "" };
+      setRoute(read());
+    };
+    const onHashChange = () => { if (modeRef.current === "initial") { modeRef.current = "push"; setRoute(read()); } };
+    document.addEventListener("click", onClick);
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("hashchange", onHashChange);
+    return () => { document.removeEventListener("click", onClick); window.removeEventListener("popstate", onPopState); window.removeEventListener("hashchange", onHashChange); };
   }, []);
+  useEffect(() => {
+    if (modeRef.current === "initial") return;
+    const mode = modeRef.current;
+    const restore = pendingRestore.current;
+    requestAnimationFrame(() => {
+      if (mode === "pop" && restore) {
+        window.scrollTo({ top: restore.scrollY, behavior: "auto" });
+        if (restore.focusId) document.getElementById(restore.focusId)?.focus();
+      } else {
+        window.scrollTo({ top: 0, behavior: "auto" });
+        const heading = document.querySelector<HTMLElement>("#vela-route-heading, .vela-route-stage h1, main h1");
+        if (heading) { if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1"); heading.focus({ preventScroll: true }); }
+      }
+    });
+    modeRef.current = "initial";
+    pendingRestore.current = null;
+  }, [route]);
   return route;
 }

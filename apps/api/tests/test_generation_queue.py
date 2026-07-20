@@ -3,7 +3,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from titles_api import app as app_module, models
-from titles_api.routers.generation_queue import queue_capability
+from titles_api.routers.generation_queue import claim_next_for_worker, queue_capability
 from titles_worker.runner import JobRunner
 from test_generation_compile import _payload, _registered_checkpoint
 
@@ -54,6 +54,28 @@ def test_claim_and_status_normalization_persist(client):
     assert completed.json()["status"] == "completed"
     reloaded = client.get(f"/api/generation-queue/{claimed['id']}").json()
     assert reloaded["result"]["asset_ids"] == ["asset-1"] and reloaded["provider_job_id"] == "fal-1"
+
+
+def test_worker_claims_the_oldest_job_across_workspaces(client):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Secondary workspace queue"}).json()
+    model, version = _registered_checkpoint(client, project["id"])
+    _, queued = _compile_and_queue(client, project, model, version)
+    with app_module.SessionLocal.begin() as db:
+        workspace = models.Workspace(name="Secondary")
+        db.add(workspace)
+        db.flush()
+        db.get(models.Project, project["id"]).workspace_id = workspace.id
+        item = db.get(models.GenerationQueueItem, queued.json()["id"])
+        item.workspace_id = workspace.id
+        db.get(models.FalAdmission, item.admission_id).workspace_id = workspace.id
+
+    with app_module.SessionLocal() as db:
+        claimed = claim_next_for_worker(db)
+
+    assert claimed["id"] == queued.json()["id"]
+    assert claimed["status"] == "running"
+    assert claimed["job_id"]
 
 
 def test_worker_terminal_sync_and_restart_recovery(client):

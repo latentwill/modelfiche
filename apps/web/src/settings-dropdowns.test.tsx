@@ -63,6 +63,7 @@ describe("settings dropdowns", () => {
     expect(document.querySelector("select")).toBeNull();
     fireEvent.click(provider);
     fireEvent.click(screen.getByRole("option", { name: "OpenRouter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load provider models" }));
 
     expect(screen.getByText(/OpenRouter uses OPENROUTER_API_KEY/)).toBeInTheDocument();
     const filter = await screen.findByRole("searchbox", { name: "Filter models" });
@@ -123,6 +124,7 @@ describe("settings dropdowns", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
     render(<SettingsScreen />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load provider models" }));
     const filter = await screen.findByRole("searchbox", { name: "Filter models" });
     fireEvent.change(filter, { target: { value: "luna" } });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
@@ -149,7 +151,7 @@ describe("settings dropdowns", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
     render(<SettingsScreen />);
-    fireEvent.click(await screen.findByRole("link", { name: "Open Archive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Archive" }));
     const sourcePanel = screen.getByRole("heading", { name: "Edit Archive" }).closest("section")!;
     const panel = within(sourcePanel);
     const addressing = panel.getByRole("button", { name: "Addressing style" });

@@ -17,6 +17,18 @@ DB = Annotated[Session, Depends(get_db)]
 def dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
 
+def prompt_projection(prompt: models.Prompt) -> dict[str, Any]:
+    """Serialize the mapped metadata_ attribute instead of SQLAlchemy's class metadata."""
+    return {
+        "id": prompt.id,
+        "prompt_set_id": prompt.prompt_set_id,
+        "text": prompt.text,
+        "position": prompt.position,
+        "metadata": dict(prompt.metadata_ or {}),
+        "created_at": prompt.created_at,
+        "updated_at": prompt.updated_at,
+    }
+
 
 def attributed(db: Session, row) -> dict[str, Any]:
     profile = db.get(models.UserProfile, row.profile_id) if row.profile_id else None
@@ -44,6 +56,254 @@ def _lineage_preview(db: Session, edge: models.LineageEdge) -> str | None:
         if kind == "asset":
             return identifier
     return None
+
+
+def _entity_reference(db: Session, kind: str, identifier: str) -> dict[str, Any]:
+    if kind == "training_run":
+        row = db.get(models.TrainingRun, identifier)
+        return {"label": row.name if row else identifier, "href": f"#/run/{identifier}" if row else None}
+    if kind == "checkpoint":
+        row = db.get(models.Checkpoint, identifier)
+        return {"label": f"Checkpoint step {row.step}" if row else identifier, "href": f"#/checkpoint/{identifier}" if row else None}
+    if kind == "model":
+        row = db.get(models.Model, identifier)
+        return {"label": row.name if row else identifier, "href": f"#/model/{identifier}" if row else None}
+    if kind == "model_version":
+        row = db.get(models.ModelVersion, identifier)
+        return {"label": row.name if row else identifier, "href": f"#/model-version/{identifier}" if row else None}
+    if kind == "dataset_version":
+        row = db.get(models.DatasetVersion, identifier)
+        dataset = db.get(models.Dataset, row.dataset_id) if row else None
+        return {
+            "label": f"{dataset.name} · {row.name}" if row and dataset else row.name if row else identifier,
+            "href": f"#/dataset/{dataset.id}" if dataset else None,
+        }
+    if kind == "asset":
+        row = db.get(models.Asset, identifier)
+        return {"label": row.name if row else identifier, "href": f"#/gallery?asset={identifier}" if row else None}
+    return {"label": identifier, "href": None}
+
+
+def _derived_edge(
+    db: Session,
+    *,
+    source_type: str,
+    source_id: str,
+    target_type: str,
+    target_id: str,
+    relationship: str,
+    metadata: dict[str, Any] | None = None,
+    created_at: Any = None,
+) -> dict[str, Any]:
+    source = _entity_reference(db, source_type, source_id)
+    target = _entity_reference(db, target_type, target_id)
+    return {
+        "id": f"derived:{source_type}:{source_id}:{relationship}:{target_type}:{target_id}",
+        "source_type": source_type,
+        "source_id": source_id,
+        "source_label": source["label"],
+        "source_href": source["href"],
+        "target_type": target_type,
+        "target_id": target_id,
+        "target_label": target["label"],
+        "target_href": target["href"],
+        "relationship": relationship,
+        "metadata": metadata or {},
+        "created_at": created_at,
+        "derived": True,
+    }
+
+
+def _checkpoint_chain(db: Session, checkpoint: models.Checkpoint) -> list[dict[str, Any]]:
+    run = db.get(models.TrainingRun, checkpoint.run_id)
+    sample_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(models.Sample)
+            .where(models.Sample.checkpoint_id == checkpoint.id)
+        )
+        or 0
+    )
+    result = [
+        _derived_edge(
+            db,
+            source_type="training_run",
+            source_id=checkpoint.run_id,
+            target_type="checkpoint",
+            target_id=checkpoint.id,
+            relationship="produced",
+            metadata={"step": checkpoint.step, "sample_count": sample_count},
+            created_at=checkpoint.created_at,
+        )
+    ]
+    version = db.scalar(select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id))
+    if version:
+        result.append(
+            _derived_edge(
+                db,
+                source_type="checkpoint",
+                source_id=checkpoint.id,
+                target_type="model_version",
+                target_id=version.id,
+                relationship="registered_as",
+                metadata={"lifecycle_state": version.lifecycle_state, "model_id": version.model_id},
+                created_at=version.created_at,
+            )
+        )
+    if run and run.dataset_version_id:
+        result.append(
+            _derived_edge(
+                db,
+                source_type="dataset_version",
+                source_id=run.dataset_version_id,
+                target_type="training_run",
+                target_id=run.id,
+                relationship="trained_with",
+                created_at=run.created_at,
+            )
+        )
+    return result
+
+
+def _merge_component_edges(db: Session, run: models.TrainingRun) -> list[dict[str, Any]]:
+    manifest = run.raw_manifest if isinstance(run.raw_manifest, dict) else {}
+    components = manifest.get("components")
+    if manifest.get("operation") != "checkpoint_merge" or not isinstance(components, dict):
+        return []
+    training_config = (run.normalized_config or {}).get("training_config", {})
+    transformer_weights = training_config.get("transformer_weights", {}) if isinstance(training_config, dict) else {}
+    text_fusion_weights = training_config.get("text_fusion_weights", {}) if isinstance(training_config, dict) else {}
+    result = []
+    for component, raw_step in components.items():
+        try:
+            step = int(raw_step)
+        except (TypeError, ValueError):
+            continue
+        candidates = db.execute(
+            select(models.Checkpoint, models.TrainingRun, models.Asset)
+            .join(models.TrainingRun, models.TrainingRun.id == models.Checkpoint.run_id)
+            .join(models.Asset, models.Asset.id == models.Checkpoint.asset_id)
+            .where(
+                models.TrainingRun.project_id == run.project_id,
+                models.TrainingRun.id != run.id,
+                models.Checkpoint.step == step,
+            )
+        ).all()
+        token = str(component).lower()
+        ranked = sorted(
+            candidates,
+            key=lambda item: (
+                token in str(item[2].name or "").lower(),
+                token in str(item[1].name or "").lower(),
+                item[0].created_at,
+            ),
+            reverse=True,
+        )
+        checkpoint = ranked[0][0] if ranked else None
+        metadata = {
+            "component": component,
+            "step": step,
+            "transformer_weight": transformer_weights.get(component),
+            "text_fusion_weight": text_fusion_weights.get(component),
+            "resolved": checkpoint is not None,
+        }
+        if checkpoint:
+            result.append(
+                _derived_edge(
+                    db,
+                    source_type="checkpoint",
+                    source_id=checkpoint.id,
+                    target_type="training_run",
+                    target_id=run.id,
+                    relationship="merged_into",
+                    metadata=metadata,
+                    created_at=run.created_at,
+                )
+            )
+        else:
+            result.append({
+                "id": f"derived:checkpoint_reference:{component}:{step}:merged_into:training_run:{run.id}",
+                "source_type": "checkpoint_reference",
+                "source_id": f"{component}:{step}",
+                "source_label": f"{component} checkpoint · step {step}",
+                "source_href": None,
+                "target_type": "training_run",
+                "target_id": run.id,
+                "target_label": run.name,
+                "target_href": f"#/run/{run.id}",
+                "relationship": "merged_into",
+                "metadata": metadata,
+                "created_at": run.created_at,
+                "derived": True,
+            })
+    return result
+
+
+def _derived_lineage(db: Session, subject_type: str, subject_id: str) -> list[dict[str, Any]]:
+    if subject_type == "training_run":
+        run = db.get(models.TrainingRun, subject_id)
+        if not run:
+            return []
+        checkpoints = db.scalars(
+            select(models.Checkpoint)
+            .where(models.Checkpoint.run_id == run.id)
+            .order_by(models.Checkpoint.step)
+        ).all()
+        edges = [edge for checkpoint in checkpoints for edge in _checkpoint_chain(db, checkpoint)]
+        if run.dataset_version_id and not checkpoints:
+            edges.append(
+                _derived_edge(
+                    db,
+                    source_type="dataset_version",
+                    source_id=run.dataset_version_id,
+                    target_type="training_run",
+                    target_id=run.id,
+                    relationship="trained_with",
+                    created_at=run.created_at,
+                )
+            )
+        return [*edges, *_merge_component_edges(db, run)]
+    if subject_type == "checkpoint":
+        checkpoint = db.get(models.Checkpoint, subject_id)
+        return _checkpoint_chain(db, checkpoint) if checkpoint else []
+    if subject_type == "model_version":
+        version = db.get(models.ModelVersion, subject_id)
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id) if version else None
+        return _checkpoint_chain(db, checkpoint) if checkpoint else []
+    if subject_type == "model":
+        versions = db.scalars(
+            select(models.ModelVersion)
+            .where(models.ModelVersion.model_id == subject_id)
+            .order_by(models.ModelVersion.created_at.desc())
+        ).all()
+        return [
+            _derived_edge(
+                db,
+                source_type="model",
+                source_id=subject_id,
+                target_type="model_version",
+                target_id=version.id,
+                relationship="has_version",
+                metadata={"lifecycle_state": version.lifecycle_state},
+                created_at=version.created_at,
+            )
+            for version in versions
+        ]
+    return []
+
+
+def _enrich_lineage_edge(db: Session, edge: models.LineageEdge) -> dict[str, Any]:
+    source = _entity_reference(db, edge.source_type, edge.source_id)
+    target = _entity_reference(db, edge.target_type, edge.target_id)
+    return {
+        **dump(edge),
+        "source_label": source["label"],
+        "source_href": source["href"],
+        "target_label": target["label"],
+        "target_href": target["href"],
+        "preview_asset_id": _lineage_preview(db, edge),
+        "derived": False,
+    }
 
 
 @router.post("/reviews", status_code=status.HTTP_201_CREATED)
@@ -134,12 +394,26 @@ def create_lineage(body: schemas.LineageCreate, db: DB, x_profile_id: Annotated[
 
 
 @router.get("/lineage")
-def lineage(db: DB, subject_type: str, subject_id: str):
+def lineage(db: DB, subject_type: str, subject_id: str, depth: int = Query(3, ge=1, le=5)):
+    del depth  # The current typed projection is deliberately bounded to the persisted run/model chain.
     query = select(models.LineageEdge).where(or_(
         (models.LineageEdge.source_type == subject_type) & (models.LineageEdge.source_id == subject_id),
         (models.LineageEdge.target_type == subject_type) & (models.LineageEdge.target_id == subject_id),
     )).order_by(models.LineageEdge.created_at)
-    return [{**dump(row), "preview_asset_id": _lineage_preview(db, row)} for row in db.scalars(query).all()]
+    persisted = [_enrich_lineage_edge(db, row) for row in db.scalars(query).all()]
+    derived = _derived_lineage(db, subject_type, subject_id)
+    seen = {
+        (edge["source_type"], edge["source_id"], edge["relationship"], edge["target_type"], edge["target_id"])
+        for edge in persisted
+    }
+    return [
+        *persisted,
+        *[
+            edge
+            for edge in derived
+            if (edge["source_type"], edge["source_id"], edge["relationship"], edge["target_type"], edge["target_id"]) not in seen
+        ],
+    ]
 
 
 def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[tuple[str, str], dict[str, str | None]]:
@@ -473,7 +747,9 @@ def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[
 
 @router.get("/activity")
 def activity(db: DB, project_id: str | None = None, subject_type: str | None = None, subject_id: str | None = None, profile_id: str | None = None, since: str | None = None, limit: int = Query(100, le=500)):
-    query = select(models.ActivityEvent).order_by(models.ActivityEvent.created_at.desc())
+    query = select(models.ActivityEvent).where(
+        models.ActivityEvent.workspace_id == current_workspace(db).id,
+    ).order_by(models.ActivityEvent.created_at.desc())
     if project_id:
         query = query.where(models.ActivityEvent.project_id == project_id)
     if subject_type:
@@ -592,7 +868,9 @@ def create_prompt_set(body: schemas.PromptSetCreate, db: DB, x_profile_id: Annot
 
 @router.get("/prompt-sets")
 def prompt_sets(db: DB, project_id: str | None = None):
-    query = select(models.PromptSet).order_by(models.PromptSet.updated_at.desc())
+    query = select(models.PromptSet).join(models.Project, models.Project.id == models.PromptSet.project_id).where(
+        models.Project.workspace_id == current_workspace(db).id,
+    ).order_by(models.PromptSet.updated_at.desc())
     if project_id:
         query = query.where(models.PromptSet.project_id == project_id)
     rows = []
@@ -610,7 +888,7 @@ def prompt_sets(db: DB, project_id: str | None = None):
 def prompt_set_detail(prompt_set_id: str, db: DB):
     prompt_set = get_or_404(db, models.PromptSet, prompt_set_id)
     prompts = db.scalars(select(models.Prompt).where(models.Prompt.prompt_set_id == prompt_set.id).order_by(models.Prompt.position)).all()
-    return {**dump(prompt_set), "prompts": [dump(prompt) for prompt in prompts]}
+    return {**dump(prompt_set), "prompts": [prompt_projection(prompt) for prompt in prompts]}
 
 
 @router.put("/prompt-sets/{prompt_set_id}")
@@ -666,7 +944,9 @@ def create_eval_definition(body: schemas.EvalDefinitionCreate, db: DB):
 
 @router.get("/eval-definitions")
 def eval_definitions(db: DB, project_id: str | None = None):
-    query = select(models.EvalDefinition).order_by(models.EvalDefinition.updated_at.desc())
+    query = select(models.EvalDefinition).join(models.Project, models.Project.id == models.EvalDefinition.project_id).where(
+        models.Project.workspace_id == current_workspace(db).id,
+    ).order_by(models.EvalDefinition.updated_at.desc())
     if project_id:
         query = query.where(models.EvalDefinition.project_id == project_id)
     return [dump(row) for row in db.scalars(query).all()]
@@ -754,22 +1034,26 @@ def eval_run(run_id: str, db: DB):
         )
     version = db.get(models.ModelVersion, definition.model_version_id) if definition.model_version_id else None
     model = db.get(models.Model, version.model_id) if version else None
+    prompt_set = db.get(models.PromptSet, definition.prompt_set_id) if definition.prompt_set_id else None
     return {**dump(run), "name": definition.name, "project_id": definition.project_id, "endpoint_adapter": definition.endpoint,
         "model_version_id": definition.model_version_id, "model_version_name": version.name if version else None,
         "model_name": model.name if model else None, "prompt_set_id": definition.prompt_set_id,
+        "prompt_set_name": prompt_set.name if prompt_set else None, "prompt_set_version": prompt_set.version if prompt_set else None,
         "inline_prompts": definition.inline_prompts, "prompt_count": len(definition.inline_prompts or []),
         "parameters": run.parameters_snapshot, "progress": latest_job.progress if latest_job else (1 if run.status == "succeeded" else 0), "job_id": latest_job.id if latest_job else None, "outputs": output_rows}
 
 
 @router.get("/eval-runs")
 def eval_runs(db: DB, definition_id: str | None = None, project_id: str | None = None, run_status: str | None = Query(None, alias="status")):
-    query = select(models.EvalRun).order_by(models.EvalRun.created_at.desc())
+    query = select(models.EvalRun).join(models.EvalDefinition, models.EvalDefinition.id == models.EvalRun.definition_id).join(
+        models.Project, models.Project.id == models.EvalDefinition.project_id,
+    ).where(models.Project.workspace_id == current_workspace(db).id).order_by(models.EvalRun.created_at.desc())
     if definition_id:
         query = query.where(models.EvalRun.definition_id == definition_id)
     if run_status:
         query = query.where(models.EvalRun.status == run_status)
     if project_id:
-        query = query.join(models.EvalDefinition, models.EvalDefinition.id == models.EvalRun.definition_id).where(models.EvalDefinition.project_id == project_id)
+        query = query.where(models.EvalDefinition.project_id == project_id)
     rows = []
     for row in db.scalars(query):
         definition = db.get(models.EvalDefinition, row.definition_id)
@@ -841,7 +1125,9 @@ def create_grid_definition(body: schemas.GridDefinitionCreate, db: DB, x_profile
 
 @router.get("/grid-definitions")
 def grid_definitions(db: DB, project_id: str | None = None):
-    query = select(models.GridDefinition).order_by(models.GridDefinition.created_at.desc())
+    query = select(models.GridDefinition).join(models.Project, models.Project.id == models.GridDefinition.project_id).where(
+        models.Project.workspace_id == current_workspace(db).id,
+    ).order_by(models.GridDefinition.created_at.desc())
     if project_id:
         query = query.where(models.GridDefinition.project_id == project_id)
     return [dump(row) for row in db.scalars(query).all()]

@@ -7,29 +7,21 @@ import {
   ExternalLink,
   Grid3X3,
   LoaderCircle,
-  Play,
   Star,
   X,
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { AssetImage } from "./asset-image";
-import { useResource } from "./hooks";
-import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, SelectRecords, Status } from "./ui";
-import { EndpointFields, GenerationQueue, ModelCheckpointPicker, parametersFromForm } from "./generator";
-import { connectedFalGenerationModels, generationModelFromRow } from "./generation";
+import { useResource, pollWhileActive } from "./hooks";
+import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
+import { EndpointFields, GenerationQueue, LoraScaleField, ModelCheckpointPicker, parametersFromForm } from "./generator";
+import { connectedFalGenerationModels } from "./generation";
 import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
-const evalAxisLabels: Record<string, string> = {
-  prompt: "Prompt",
-  seed: "Seed",
-  guidance: "Guidance",
-  steps: "Steps",
-  lora_scale: "LoRA scale",
-  checkpoint_step: "Model / checkpoint",
-  model: "Model / checkpoint",
-};
+const PROGRESS_POLL = { pollInterval: 1000, pollWhile: pollWhileActive };
+const OUTPUTS_POLL = { pollInterval: 1000 };
 
 export function PromptSetsScreen({ projectId = "", promptSetId = "" }: { projectId?: string; promptSetId?: string }) {
   const resource = useResource<unknown>(`/api/prompt-sets${query({ project_id: projectId })}`);
@@ -78,9 +70,13 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
   const [movingIndex, setMovingIndex] = useState<number | null>(null);
   const [moveStatus, setMoveStatus] = useState("");
   const [moveError, setMoveError] = useState("");
+  const [promptCount, setPromptCount] = useState(6);
+  const [newSetProject, setNewSetProject] = useState(initialProject);
+  const [newSetName, setNewSetName] = useState("");
   const moveLock = useRef(false);
   const prompts = rows(selected.data?.prompts);
   const moving = movingIndex !== null;
+  useEffect(() => { if (initialProject) setNewSetProject(initialProject); }, [initialProject]);
   const reorderPrompt = async (index: number, direction: number) => {
     if (moveLock.current) return;
     moveLock.current = true;
@@ -135,6 +131,7 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
       {selectedId && (
         <div className="prompt-rows">
           <Notice error={selected.error} loading={selected.loading} empty={!selected.loading && !prompts.length} />
+          {selected.error && <button type="button" className="vela-button" onClick={() => void selected.reload()}>Retry saved version</button>}
           {moveError && <div className="vela-notice vela-notice-error" role="alert"><strong>Order not saved</strong><span>{moveError}</span></div>}
           {moveStatus && <div className="vela-notice" role="status"><strong>Prompt order saved</strong><span>{moveStatus}</span></div>}
           {prompts.map((prompt, index) => (
@@ -168,12 +165,14 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
         <>
           <Form
             submit="Generate prompt set"
-            onSubmit={async form => {
+            submitDisabled={!instruction.trim()}
+            onSubmit={async () => {
+              if (!instruction.trim()) throw new Error("Enter a generation instruction.");
               setGenerationStatus("");
               const result = await api<Row>("/api/prompt-sets/generate", jsonBody({
                 instruction,
-                count: Number(form.get("count")),
-                context: { project_id: initialProject || null },
+                count: promptCount,
+                context: { project_id: newSetProject || null },
               }));
               const generated = rows(result.prompts);
               setPromptText(JSON.stringify(generated, null, 2));
@@ -189,18 +188,19 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
                   placeholder="Create identity, angle, wardrobe, and holdout prompts for this model evaluation."
                 />
               </Field>
-              <Field label="Prompt count"><input name="count" type="number" min="1" max="50" defaultValue="6" required /></Field>
+              <Field label="Prompt count"><input name="count" type="number" min="1" max="50" value={promptCount} onChange={event => setPromptCount(Number(event.target.value))} required /></Field>
             </div>
           </Form>
           {generationStatus && <div className="vela-notice" role="status"><strong>Prompts generated</strong><span>{generationStatus}</span></div>}
           <Form
             submit="Save prompt set"
-            onSubmit={async form => {
+            submitDisabled={!newSetProject || !newSetName.trim() || !parsePrompts(promptText).length}
+            onSubmit={async () => {
               const values = parsePrompts(promptText);
               if (!values.length) throw new Error("Add at least one prompt before saving.");
               const created = await api<Row>("/api/prompt-sets", jsonBody({
-                project_id: form.get("project_id"),
-                name: form.get("name"),
+                project_id: newSetProject,
+                name: newSetName,
                 prompts: values,
               }));
               await resource.reload();
@@ -208,8 +208,8 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
             }}
           >
             <div className="form-grid">
-              <Field label="Project"><SelectRecords name="project_id" records={projects} labelKey="title" required value={initialProject || undefined} /></Field>
-              <Field label="Name"><input name="name" required /></Field>
+              <Field label="Project"><Dropdown aria-label="Project" value={newSetProject} options={[{ value: "", label: "Select…" }, ...projects.map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} onChange={setNewSetProject} /></Field>
+              <Field label="Name"><input name="name" value={newSetName} onChange={event => setNewSetName(event.target.value)} required /></Field>
             </div>
             <Field label="Editable prompts" hint="Accepts generated prompt objects, a JSON array, or one prompt per line.">
               <textarea name="prompts" value={promptText} onChange={event => setPromptText(event.target.value)} required />
@@ -226,15 +226,22 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const [scope, setScope] = useState<"project" | "model">(initialParams.get("scope") === "model" ? "model" : "project");
   const [project, setProject] = useState(projectId);
   const [modelId, setModelId] = useState(initialParams.get("model") ?? "");
-  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: project })}`);
+  const [selectedModels, setSelectedModels] = useState<string[]>(initialModelVersionId ? [initialModelVersionId] : []);
+  const [selectedPromptSetId, setSelectedPromptSetId] = useState(initialParams.get("prompt_set") ?? "");
+  const [prompts, setPrompts] = useState(() => [newInlinePrompt(""), newInlinePrompt("")]);
+  const [settingsRevision, setSettingsRevision] = useState(0);
+  const [settingsValid, setSettingsValid] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const [message, setMessage] = useState("");
+  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: project })}`, PROGRESS_POLL);
   const models = useResource<unknown>(project ? `/api/model-versions${query({ project_id: project })}` : null);
   const modelFamilies = useResource<unknown>(project ? `/api/models${query({ project_id: project })}` : null);
   const projects = useResource<unknown>("/api/projects?limit=100");
+  const queue = useResource<unknown>(`/api/generation-queue${query({ project_id: project })}`, PROGRESS_POLL);
   const endpoints = useResource<unknown>("/api/eval-endpoints");
-  const queue = useResource<unknown>(`/api/generation-queue${query({ project_id: project })}`);
-  const [selectedModels, setSelectedModels] = useState<string[]>(initialModelVersionId ? [initialModelVersionId] : []);
-  const [prompts, setPrompts] = useState(() => [newInlinePrompt(""), newInlinePrompt("")]);
-  const [message, setMessage] = useState("");
+  const promptSets = useResource<unknown>(project ? `/api/prompt-sets${query({ project_id: project })}` : null);
+  const promptSet = useResource<Row>(selectedPromptSetId ? `/api/prompt-sets/${selectedPromptSetId}` : null);
+  const savedGrids = useResource<unknown>(project ? `/api/grids${query({ project_id: project })}` : null);
   const generationModels = connectedFalGenerationModels(rows(models.data), project, scope === "model" ? modelId : undefined);
   const evalRunRows = rows(evals.data);
   const latestEval = evalRunRows[0];
@@ -250,21 +257,41 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const sharedEndpointSchema = commonEndpointSchema(selectedEndpointSchemas);
   const eligibleModelIds = new Set(generationModels.map(model => model.modelId));
   const readyPromptCount = prompts.reduce((count, prompt) => count + Number(Boolean(prompt.text.trim())), 0);
-  const evalPreflightError = !project ? "Select a project." : scope === "model" && !modelId ? "Select a model context." : !selectedModels.length ? "Select at least one model checkpoint." : selectedGenerationModels.length !== selectedModels.length ? "Wait for selected checkpoint details to load." : endpoints.loading || selectedEndpointSchemas.length !== selectedEndpointIds.length ? "Loading settings for the selected FAL endpoints." : !readyPromptCount ? "Add at least one prompt." : "";
+  const selectedProject = rows(projects.data).find(item => idOf(item) === project);
+  const evalPreflightError =
+    !project ? "Select a project." :
+      scope === "model" && !modelId ? "Select a model context." :
+        !selectedModels.length ? "Select at least one model checkpoint." :
+          selectedGenerationModels.length !== selectedModels.length ? "Wait for selected checkpoint details to load." :
+            endpoints.loading || selectedEndpointSchemas.length !== selectedEndpointIds.length ? "Loading settings for the selected FAL endpoints." :
+              selectedPromptSetId && promptSet.loading ? "Loading the selected prompt set version." :
+                promptSet.error ? promptSet.error :
+                  selectedPromptSetId && !rows(promptSet.data?.prompts).length ? "The selected prompt set version is empty." :
+                    !readyPromptCount ? "Add at least one prompt." :
+                      !settingsValid ? "Complete the endpoint-defined settings within their allowed bounds." : "";
+
   useEffect(() => setSelectedModels(ids => ids.filter(id => generationModels.some(model => model.id === id))), [models.data, project, scope, modelId]);
+  useEffect(() => {
+    if (!selectedPromptSetId || !promptSet.data) return;
+    setPrompts(rows(promptSet.data.prompts).map(prompt => ({ id: idOf(prompt), text: str(prompt.text) })));
+  }, [selectedPromptSetId, promptSet.data]);
+  useEffect(() => {
+    setSettingsValid(Boolean(settingsRef.current?.closest("form")?.checkValidity()));
+  }, [sharedEndpointSchema, settingsRevision]);
 
   return (
     <Page
       title="Eval generator"
-      subtitle="Compare the same ordered prompts across one or more provider-registered checkpoints."
+      subtitle="Compare the same ordered prompt-set version across one or more provider-registered checkpoints."
       actions={
         <>
-          <a className="vela-button" href={`#/grids?project=${projectId}`}><Grid3X3 size={15} /> Grid generator</a>
+          <a className="vela-button" href={`#/prompt-sets?project=${project}`}>Prompt sets</a>
+          <a className="vela-button" href={`#/grids?project=${project}${selectedPromptSetId ? `&prompt_set=${selectedPromptSetId}` : ""}`}><Grid3X3 size={15} /> Grid generator</a>
           {latestEval && <a className="vela-button" href={`#/eval/${idOf(latestEval)}`}><ExternalLink size={15} /> Latest eval</a>}
         </>
       }
     >
-      <Notice error={models.error || modelFamilies.error || projects.error || endpoints.error} loading={models.loading || modelFamilies.loading || projects.loading || endpoints.loading} />
+      <Notice error={models.error || modelFamilies.error || projects.error || endpoints.error || promptSets.error} loading={models.loading || modelFamilies.loading || projects.loading || endpoints.loading || promptSets.loading} />
       <Panel title="Evaluation context"><div className="form-grid">
         <Field label="Scope">
           <Dropdown
@@ -281,7 +308,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
           <Dropdown
             aria-label="Project"
             value={project}
-            onChange={value => { setProject(value); setModelId(""); setSelectedModels([]); }}
+            onChange={value => { setProject(value); setModelId(""); setSelectedModels([]); setSelectedPromptSetId(""); setPrompts([newInlinePrompt(""), newInlinePrompt("")]); }}
             options={[
               { value: "", label: "Select…" },
               ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) })),
@@ -303,22 +330,24 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
         </Field>}
       </div><ModelCheckpointPicker mode="multiple" models={generationModels} selected={selectedModels} onChange={setSelectedModels} />
       {selectedModels.map(id => { const model = generationModels.find(item => item.id === id); return model && !model.available ? <div className="vela-notice vela-notice-error" role="alert" key={id}>{model.name} / {model.checkpointLabel}: {model.unavailableReason}</div> : null; })}</Panel>
-      <div className={`vela-notice${evalPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>Eval preflight</strong><span>{evalPreflightError || `Ready to compare ${readyPromptCount} prompt${readyPromptCount === 1 ? "" : "s"} across ${selectedGenerationModels.length} checkpoint${selectedGenerationModels.length === 1 ? "" : "s"}.`}</span></div>
-      <Panel title="Ordered manual prompts"><div className="prompt-editor">
-        {prompts.map((prompt, index) => <div className="prompt-editor-row" key={prompt.id}><span>{index + 1}</span><textarea aria-label={`Prompt ${index + 1}`} value={prompt.text} onChange={event => setPrompts(items => items.map(item => item.id === prompt.id ? { ...item, text: event.target.value } : item))} /><button type="button" aria-label={`Move prompt ${index + 1} up`} disabled={!index} onClick={() => setPrompts(moveItem(prompts, index, index - 1))}><ArrowUp size={14} /></button><button type="button" aria-label={`Move prompt ${index + 1} down`} disabled={index === prompts.length - 1} onClick={() => setPrompts(moveItem(prompts, index, index + 1))}><ArrowDown size={14} /></button><button type="button" aria-label={`Remove prompt ${index + 1}`} disabled={prompts.length === 1} onClick={() => setPrompts(items => items.filter(item => item.id !== prompt.id))}><X size={14} /></button></div>)}
-        <button type="button" className="vela-button" onClick={() => setPrompts(items => [...items, newInlinePrompt("")])}>Add prompt</button>
-      </div></Panel>
+      <Panel title={selectedPromptSetId ? "Prompt set version" : "Ordered manual prompts"}>
+        <div className="form-grid"><Field label="Prompt source"><Dropdown aria-label="Prompt set version" value={selectedPromptSetId} disabled={!project} options={[{ value: "", label: "Manual prompts" }, ...rows(promptSets.data).map(item => ({ value: idOf(item), label: `${str(item.name)} · v${str(item.version, "1")} · ${str(item.prompt_count, "0")} prompts` }))]} onChange={value => { setSelectedPromptSetId(value); if (!value) setPrompts([newInlinePrompt(""), newInlinePrompt("")]); }} /></Field></div>
+        <Notice error={promptSet.error} loading={promptSet.loading} />
+        {selectedPromptSetId && promptSet.data && <div className="vela-notice" role="status"><strong>Immutable source selected</strong><span>{str(promptSet.data.name)} · version {str(promptSet.data.version, "1")} supplies {prompts.length} ordered prompts. Use an editable copy to change text without altering the saved version.</span></div>}
+        <div className="prompt-editor">
+          {prompts.map((prompt, index) => <div className="prompt-editor-row" key={prompt.id}><span>{index + 1}</span><textarea aria-label={`Prompt ${index + 1}`} readOnly={Boolean(selectedPromptSetId)} value={prompt.text} onChange={event => setPrompts(items => items.map(item => item.id === prompt.id ? { ...item, text: event.target.value } : item))} /><button type="button" aria-label={`Move prompt ${index + 1} up`} disabled={Boolean(selectedPromptSetId) || !index} onClick={() => setPrompts(moveItem(prompts, index, index - 1))}><ArrowUp size={14} /></button><button type="button" aria-label={`Move prompt ${index + 1} down`} disabled={Boolean(selectedPromptSetId) || index === prompts.length - 1} onClick={() => setPrompts(moveItem(prompts, index, index + 1))}><ArrowDown size={14} /></button><button type="button" aria-label={`Remove prompt ${index + 1}`} disabled={Boolean(selectedPromptSetId) || prompts.length === 1} onClick={() => setPrompts(items => items.filter(item => item.id !== prompt.id))}><X size={14} /></button></div>)}
+          {selectedPromptSetId ? <button type="button" className="vela-button" onClick={() => setSelectedPromptSetId("")}>Use editable copy</button> : <button type="button" className="vela-button" onClick={() => setPrompts(items => [...items, newInlinePrompt("")])}>Add prompt</button>}
+        </div>
+      </Panel>
+      <div className={`vela-notice${evalPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>Eval preflight</strong><span>{evalPreflightError || `${selectedEndpointIds.join(", ")} accepts ${readyPromptCount * selectedGenerationModels.length} requests: ${readyPromptCount} prompts across ${selectedGenerationModels.length} checkpoints.`}</span></div>
       <Panel title="Generation settings">
         <Form
           submit="Generate Eval"
           submitDisabled={Boolean(evalPreflightError)}
           onSubmit={async form => {
-            if (!project) throw new Error("Select a project context.");
+            if (evalPreflightError) throw new Error(evalPreflightError);
             const chosen = selectedModels.map(id => generationModels.find(model => model.id === id)).filter(Boolean);
-            if (!chosen.length) throw new Error("Select at least one available model checkpoint.");
-            if (chosen.some(model => !model?.available)) throw new Error("Remove checkpoints without a usable provider registration.");
             const orderedPrompts = prompts.map(item => ({ prompt_id: item.id, prompt: item.text.trim() })).filter(item => item.prompt);
-            if (!orderedPrompts.length) throw new Error("Add at least one prompt.");
             const loraScale = Number(form.get("lora_scale") ?? 1);
             const compiled = [] as Array<{ model: NonNullable<typeof chosen[number]>; requestId: string; admission: Row; parameters: Row }>;
             for (const model of chosen) {
@@ -327,23 +356,26 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
               if (!schema) throw new Error(`FAL settings for ${model.endpoint} are unavailable.`);
               const parameters = { ...parametersFromForm(form, schema), lora_scale: loraScale };
               const requestId = crypto.randomUUID();
-              const result = await api<Row>("/api/eval-generation-requests/compile", jsonBody({ workflow: "eval", provider: model.provider, context: scope === "model" ? { kind: "model", project_id: project, model_id: modelId } : { kind: "project", project_id: project }, model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId, prompts: orderedPrompts, parameters, client_request_id: requestId }));
+              const result = await api<Row>("/api/eval-generation-requests/compile", jsonBody({ workflow: "eval", provider: model.provider, context: scope === "model" ? { kind: "model", project_id: project, model_id: modelId } : { kind: "project", project_id: project }, model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId, prompt_set_id: selectedPromptSetId || undefined, prompts: orderedPrompts, parameters, client_request_id: requestId }));
               compiled.push({ model, requestId, admission: result.admission as Row, parameters });
             }
             const parentId = crypto.randomUUID();
-            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: scope, project_id: project, model_id: scope === "model" ? modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", context: { kind: scope, projectId: project, modelId }, models: compiled.map(item => item.model), prompts: orderedPrompts, parameters: Object.fromEntries(compiled.map(item => [item.model.id, item.parameters])) }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
+            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: scope, project_id: project, model_id: scope === "model" ? modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", endpoint_ids: selectedEndpointIds, context: { kind: scope, projectId: project, projectTitle: str(selectedProject?.title ?? selectedProject?.name, project), modelId }, models: compiled.map(item => item.model), prompt_set: selectedPromptSetId ? { id: selectedPromptSetId, name: str(promptSet.data?.name), version: promptSet.data?.version } : null, prompts: orderedPrompts, parameters: Object.fromEntries(compiled.map(item => [item.model.id, item.parameters])) }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
             setMessage(`One evaluation job queued as ${idOf(queued)} for ${compiled.length} checkpoint${compiled.length === 1 ? "" : "s"}.`);
             await queue.reload();
           }}
         >
-          <div className="form-grid">
-            <EndpointFields schema={sharedEndpointSchema} omit={["num_images"]} />
-            <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
+          <div ref={settingsRef}>
+            <div className="form-grid">
+              <EndpointFields schema={sharedEndpointSchema} omit={["num_images"]} onChange={() => setSettingsRevision(value => value + 1)} />
+              <LoraScaleField schema={sharedEndpointSchema} onChange={() => setSettingsRevision(value => value + 1)} />
+            </div>
           </div>
         </Form>
         {message && <div className="vela-notice" role="status"><strong>Eval queued</strong><span>{message}</span></div>}
       </Panel>
       <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />
+      <Panel title="Prompt Sets and saved Grids"><div className="eval-saved-index"><section><h3>Prompt sets</h3>{rows(promptSets.data).length ? rows(promptSets.data).map(item => <a key={idOf(item)} href={`#/prompt-sets/${idOf(item)}?project=${project}`}>{str(item.name)} · v{str(item.version, "1")}</a>) : <span className="vela-meta">No saved prompt sets.</span>}</section><section><h3>Saved grids</h3>{rows(savedGrids.data).length ? rows(savedGrids.data).map(item => <a key={idOf(item)} href={`#/grid/${idOf(item)}`}>{str(item.name, "Saved grid")} · {str(item.endpoint_adapter, "Endpoint unavailable")}</a>) : <span className="vela-meta">No saved Grids.</span>}</section></div></Panel>
       <Panel title="Eval Runs">
         <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !evalRunRows.length} />
         {!!recentEvalRuns.length && <EvalRunStrip runs={recentEvalRuns} />}
@@ -360,27 +392,29 @@ function EvalRunStrip({ runs }: { runs: Row[] }) {
 type InlinePrompt = { id: string; text: string };
 function newInlinePrompt(text: string): InlinePrompt { return { id: crypto.randomUUID(), text }; }
 export function moveItem<T>(items: T[], from: number, to: number): T[] { const next = [...items]; const [item] = next.splice(from, 1); next.splice(to, 0, item); return next; }
-function optionalNumber(value: FormDataEntryValue | null) { if (value == null || value === "") return undefined; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
-
 
 
 export function EvalScreen({ id }: { id: string }) {
-  const resource = useResource<Row>(`/api/eval-runs/${id}`);
-  const outputsResource = useResource<unknown>(`/api/eval-runs/${id}/outputs`);
+  const resource = useResource<Row>(`/api/eval-runs/${id}`, PROGRESS_POLL);
+  const status = str(resource.data?.status, "");
+  const terminal = ["succeeded", "failed", "canceled"].includes(status.toLowerCase());
+  const outputsResource = useResource<unknown>(`/api/eval-runs/${id}/outputs`, terminal ? {} : OUTPUTS_POLL);
   const outputs = rows(outputsResource.data).length ? rows(outputsResource.data) : rows(resource.data?.outputs);
   const grouped = useMemo(() => groupBy(outputs, output => str(output.prompt_id, "outputs")), [outputs]);
   const promptIds = useMemo(() => Object.keys(grouped), [grouped]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [outputPages, setOutputPages] = useState<Record<string, number>>({});
+  const [activeReviewId, setActiveReviewId] = useState("");
   const initializedSelection = useRef(false);
   useEffect(() => {
     if (!initializedSelection.current && promptIds.length) {
       initializedSelection.current = true;
-      setSelected(promptIds.slice(0, 6));
+      setSelected(promptIds.slice(0, 4));
     }
   }, [promptIds]);
-  const shown = Object.entries(grouped).filter(([key]) => selected.includes(key)).slice(0, 6);
-  const status = str(resource.data?.status, "unknown");
-  const terminal = ["succeeded", "failed", "canceled"].includes(status.toLowerCase());
+  const shown = Object.entries(grouped).filter(([key]) => selected.includes(key)).slice(0, 4);
+  const projectId = str(resource.data?.project_id, "");
+  const returnHref = `#/evals${projectId ? `?project=${projectId}&scope=project` : ""}`;
   const cancelDisabledReason = resource.loading
     ? "Eval data is still loading"
     : resource.error
@@ -395,12 +429,12 @@ export function EvalScreen({ id }: { id: string }) {
     <div className="comparison-viewer vela-route-stage">
       <header className="viewer-topbar">
         <div>
-          <strong>{str(resource.data?.name, "Eval viewer")}</strong>
-          <span>{resource.data?.prompt_set_name ? str(resource.data.prompt_set_name) : `${str(resource.data?.prompt_count, "0")} inline prompts`} · {str(resource.data?.model_name, "Model")} / {str(resource.data?.model_version_name, "Checkpoint")}</span>
+          <h1>{str(resource.data?.name, "Eval viewer")}</h1>
+          {resource.data && <span>{resource.data.prompt_set_name ? `${str(resource.data.prompt_set_name)} · saved version` : `${str(resource.data.prompt_count, "0")} inline prompts`} · {str(resource.data.model_name, "Model")} / {str(resource.data.model_version_name, "Checkpoint")}</span>}
         </div>
         <div className="viewer-actions">
-          <a className="vela-button" href="#/models"><ArrowLeft size={15} /> Models</a>
-          <a className="vela-button" href={`#/transfers?mode=export&eval=${id}`}>Export</a>
+          <a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Project Evals</a>
+          <a className="vela-button" href={`#/transfers?mode=export&eval=${id}&project=${projectId}`}>Export</a>
           <AsyncAction
             label="Cancel"
             successLabel="Canceled"
@@ -409,347 +443,169 @@ export function EvalScreen({ id }: { id: string }) {
             disabledReason={cancelDisabledReason}
             onRun={async () => { await api(`/api/eval-runs/${id}/cancel`, jsonBody({})); await resource.reload(); }}
           />
-          <a className="vela-button" href="#/dashboard">Close</a>
+          <a className="vela-button" href={returnHref}>Close</a>
         </div>
       </header>
       <main className="vela-main">
-        <Notice error={resource.error || outputsResource.error} loading={resource.loading || outputsResource.loading} empty={!resource.loading && !outputsResource.loading && !outputs.length} />
-        <div className="comparison-toolbar inline">
-          <Status value={resource.data?.status} />
-          <div className="chiplets" aria-label="Prompts shown in comparison">
-            {promptIds.map(key => {
-              const isSelected = selected.includes(key);
-              const label = promptLabel(grouped[key][0], key);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={isSelected ? "active" : ""}
-                  aria-pressed={isSelected}
-                  title={!isSelected && selected.length >= 6 ? "A maximum of six prompts can be compared" : label}
-                  onClick={() => setSelected(toggleLimited(selected, key, 6))}
-                >{truncate(label, 48)}</button>
-              );
+        <Notice error={resource.error || outputsResource.error} loading={resource.loading || outputsResource.loading} empty={!resource.loading && !outputsResource.loading && !outputs.length} emptyText="No Eval outputs yet" emptyHint={terminal ? "This Eval completed without reviewable outputs." : "Outputs appear here as provider work completes."} />
+        {!!outputs.length && <>
+          <div className="comparison-toolbar inline">
+            <Status value={resource.data?.status} />
+            <div className="chiplets" aria-label="Prompts shown in comparison">
+              {promptIds.map(key => {
+                const isSelected = selected.includes(key);
+                const label = promptLabel(grouped[key][0], key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={isSelected ? "active" : ""}
+                    aria-pressed={isSelected}
+                    title={!isSelected && selected.length >= 4 ? "A maximum of four prompt groups can be compared" : label}
+                    onClick={() => setSelected(toggleLimited(selected, key, 4))}
+                  >{truncate(label, 48)}</button>
+                );
+              })}
+            </div>
+            <span>{selected.length} selected · max 4 groups · 6 outputs per group page</span>
+          </div>
+          <div className="comparison-columns embedded eval-review-columns">
+            {shown.map(([promptId, promptOutputs]) => {
+              const pages = Math.max(1, Math.ceil(promptOutputs.length / 6));
+              const page = Math.min(outputPages[promptId] ?? 0, pages - 1);
+              const visibleOutputs = promptOutputs.slice(page * 6, page * 6 + 6);
+              return <section className="comparison-column" key={promptId}>
+                <header><strong>{promptLabel(promptOutputs[0], promptId)}</strong><span>{promptOutputs.length} images · page {page + 1}/{pages}</span></header>
+                <p className="prompt-copy">{promptCopy(promptOutputs[0])}</p>
+                <GroupComment subjectType="eval_run" subjectId={id} prefix={`Prompt ${promptId}`} />
+                {visibleOutputs.map(output => {
+                  const outputId = idOf(output);
+                  const reviewing = activeReviewId === outputId;
+                  return <article className="comparison-image eval-review-output" key={outputId}>
+                    <a href={galleryOpenHref({ ...output, project_id: projectId, origin_type: "EVAL" })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={promptCopy(output) || "Eval output"} /></a>
+                    <div className="eval-output-summary"><small>Seed {str(output.seed, "not recorded")}</small><button type="button" className="vela-button" aria-expanded={reviewing} onClick={() => setActiveReviewId(reviewing ? "" : outputId)}>{reviewing ? "Close review" : "Review output"}</button></div>
+                    {reviewing && <OutputReviewControl output={output} />}
+                  </article>;
+                })}
+                {pages > 1 && <div className="eval-output-pagination"><button type="button" className="vela-button" disabled={page === 0} onClick={() => setOutputPages(current => ({ ...current, [promptId]: page - 1 }))}>Previous 6</button><button type="button" className="vela-button" disabled={page >= pages - 1} onClick={() => setOutputPages(current => ({ ...current, [promptId]: page + 1 }))}>Next 6</button></div>}
+              </section>;
             })}
           </div>
-          <span>{selected.length}/6 selected</span>
-        </div>
-        <div className="comparison-columns embedded">
-          {shown.map(([promptId, promptOutputs]) => (
-            <section className="comparison-column" key={promptId}>
-              <header><strong>{promptLabel(promptOutputs[0], promptId)}</strong><span>{promptOutputs.length} images</span></header>
-              <p className="prompt-copy">{promptCopy(promptOutputs[0])}</p>
-              <GroupComment subjectType="eval_run" subjectId={id} prefix={`Prompt ${promptId}`} />
-              {promptOutputs.map(output => (
-                <article className="comparison-image" key={idOf(output)}>
-                  <a href={galleryOpenHref({ ...output, project_id: resource.data?.project_id, origin_type: "EVAL" })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={promptCopy(output) || "Eval output"} /></a>
-                  <RatingControl output={output} />
-                  <small>Seed {str(output.seed)}</small>
-                </article>
-              ))}
-            </section>
-          ))}
-        </div>
+        </>}
       </main>
     </div>
   );
 }
 
 export function EvalComparisonScreen({ id }: { id: string }) {
-  const resource = useResource<Row>(`/api/generation-queue/${id}/eval-results`);
+  const resource = useResource<Row>(`/api/generation-queue/${id}/eval-results`, PROGRESS_POLL);
   const runs = rows(resource.data?.runs);
   const request = resource.data?.request && typeof resource.data.request === "object" ? resource.data.request as Row : {};
   const orderedPrompts = rows(request.prompts);
   const [queryText, setQueryText] = useState("");
   const [visibleModels, setVisibleModels] = useState<string[]>([]);
+  const [page, setPage] = useState(0);
   useEffect(() => { if (!visibleModels.length && runs.length) setVisibleModels(runs.map(run => str(run.model_version_id))); }, [resource.data]);
+  useEffect(() => { setPage(0); }, [queryText]);
   const shownRuns = runs.filter(run => visibleModels.includes(str(run.model_version_id)));
-  const shownPrompts = orderedPrompts.filter(prompt => !queryText || str(prompt.prompt).toLowerCase().includes(queryText.toLowerCase()));
-  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href="#/evals"><ArrowLeft size={15} /> Eval Runs</a>}>
-    <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !runs.length} />
-    <Panel title="Comparison filters"><div className="form-grid"><Field label="Prompt contains"><input value={queryText} onChange={event => setQueryText(event.target.value)} /></Field><Field label="Model checkpoints"><select multiple value={visibleModels} onChange={event => setVisibleModels(Array.from(event.target.selectedOptions, option => option.value))}>{runs.map(run => <option key={str(run.model_version_id)} value={str(run.model_version_id)}>{str(run.model_name)} · {str(run.model_version_name)}</option>)}</select></Field></div></Panel>
-    <Panel title="Results"><div className="eval-comparison-matrix" style={{ "--eval-model-count": Math.max(1, shownRuns.length) } as CSSProperties}>
-      <div className="eval-comparison-header"><strong>Prompt</strong>{shownRuns.map(run => <strong key={str(run.model_version_id)}>{str(run.model_name)}<small>{str(run.model_version_name)} · step {str(run.checkpoint_step, "—")}</small></strong>)}</div>
-      {shownPrompts.map((prompt, promptIndex) => <div className="eval-comparison-row" key={str(prompt.prompt_id, String(promptIndex))}><p>{str(prompt.prompt)}</p>{shownRuns.map(run => { const output = rows(run.outputs).find(item => str(item.prompt_id) === str(prompt.prompt_id)); return <div key={str(run.model_version_id)}>{output ? <a href={galleryOpenHref({ ...output, project_id: resource.data?.project_id, origin_type: "EVAL", eval_run_id: run.eval_run_id })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt={str(prompt.prompt)} loading="lazy" /></a> : <div className="vela-empty">{str(run.status) === "completed" ? "No output" : str(run.status)}</div>}</div>; })}</div>)}
-    </div></Panel>
+  const filteredPrompts = orderedPrompts.filter(prompt => !queryText || str(prompt.prompt).toLowerCase().includes(queryText.toLowerCase()));
+  const pageCount = Math.max(1, Math.ceil(filteredPrompts.length / 12));
+  const safePage = Math.min(page, pageCount - 1);
+  const shownPrompts = filteredPrompts.slice(safePage * 12, safePage * 12 + 12);
+  const context = request.context && typeof request.context === "object" ? request.context as Row : {};
+  const projectId = str(resource.data?.project_id ?? context.projectId ?? context.project_id, "");
+  const promptSetId = str((request.prompt_set as Row | undefined)?.id, "");
+  const returnParams = new URLSearchParams();
+  if (projectId) returnParams.set("project", projectId);
+  if (promptSetId) returnParams.set("prompt_set", promptSetId);
+  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href={`#/evals${returnParams.size ? `?${returnParams}` : ""}`}><ArrowLeft size={15} /> Project Evals</a>}>
+    <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !runs.length} emptyText="No comparison results yet" emptyHint="This comparison updates while queued checkpoint work completes." />
+    {!!runs.length && <>
+      <Panel title="Comparison filters"><div className="form-grid"><Field label="Prompt contains"><input value={queryText} onChange={event => setQueryText(event.target.value)} /></Field><Field label="Model checkpoints"><select multiple value={visibleModels} onChange={event => setVisibleModels(Array.from(event.target.selectedOptions, option => option.value))}>{runs.map(run => <option key={str(run.model_version_id)} value={str(run.model_version_id)}>{str(run.model_name)} · {str(run.model_version_name)}</option>)}</select></Field></div></Panel>
+      <Panel title="Results"><div className="eval-comparison-range"><span>Showing {filteredPrompts.length ? safePage * 12 + 1 : 0}–{Math.min((safePage + 1) * 12, filteredPrompts.length)} of {filteredPrompts.length} prompts</span><div><button type="button" className="vela-button" disabled={safePage === 0} onClick={() => setPage(value => Math.max(0, value - 1))}>Previous 12</button><button type="button" className="vela-button" disabled={safePage >= pageCount - 1} onClick={() => setPage(value => Math.min(pageCount - 1, value + 1))}>Next 12</button></div></div><div className="eval-comparison-matrix" role="region" aria-label="Eval comparison table. Scroll within this region to inspect checkpoints." tabIndex={0} style={{ "--eval-model-count": Math.max(1, shownRuns.length) } as CSSProperties}>
+        <div className="eval-comparison-header"><strong>Prompt</strong>{shownRuns.map(run => <strong key={str(run.model_version_id)}>{str(run.model_name)}<small>{str(run.model_version_name)} · step {str(run.checkpoint_step, "—")}</small></strong>)}</div>
+        {shownPrompts.map((prompt, promptIndex) => <div className="eval-comparison-row" key={str(prompt.prompt_id, String(promptIndex))}><p>{str(prompt.prompt)}</p>{shownRuns.map(run => { const output = rows(run.outputs).find(item => str(item.prompt_id) === str(prompt.prompt_id)); return <div key={str(run.model_version_id)} data-checkpoint={`${str(run.model_name)} · ${str(run.model_version_name)}`}>{output ? <a href={galleryOpenHref({ ...output, project_id: projectId, origin_type: "EVAL", eval_run_id: run.eval_run_id })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt={str(prompt.prompt)} loading="lazy" /></a> : <div className="vela-empty">{str(run.status) === "completed" ? "No output" : str(run.status)}</div>}</div>; })}</div>)}
+      </div></Panel>
+    </>}
   </Page>;
 }
 
-function RatingControl({ output }: { output: Row }) {
-  const [rating, setRating] = useState(0);
-  const [saving, setSaving] = useState(0);
+export function OutputReviewControl({ output }: { output: Row }) {
+  const [rating, setRating] = useState(Number(output.rating) || 0);
+  const [decision, setDecision] = useState(str(output.decision, ""));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  return (
-    <div className="rating-control compact" aria-label="Rate this eval output">
-      {[1, 2, 3, 4, 5].map(value => (
-        <button
-          key={value}
-          type="button"
-          aria-label={`${value} star${value === 1 ? "" : "s"}`}
-          aria-pressed={rating === value}
-          disabled={Boolean(saving)}
-          onClick={async () => {
-            setSaving(value);
-            setError("");
-            try {
-              await api("/api/reviews", jsonBody({ subject_type: "eval_output", subject_id: idOf(output), rating: value, decision: "candidate" }));
-              setRating(value);
-            } catch (reason) {
-              setError(reason instanceof Error ? reason.message : String(reason));
-            } finally {
-              setSaving(0);
-            }
-          }}
-        >{saving === value ? <LoaderCircle className="vela-spin" size={13} /> : <Star size={13} fill={rating >= value ? "currentColor" : "none"} />}</button>
-      ))}
-      {rating > 0 && <Check size={13} aria-label={`Saved ${rating}-star rating`} />}
-      {error && <small role="alert">{error}</small>}
-    </div>
-  );
+  const save = async (nextRating: number, nextDecision: string) => {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const saved = await api<Row>("/api/reviews", jsonBody({ subject_type: "eval_output", subject_id: idOf(output), rating: nextRating || null, decision: nextDecision || null }));
+      setRating(nextRating);
+      setDecision(nextDecision);
+      setMessage(`Saved${saved.profile_name ? ` by ${str(saved.profile_name)}` : ""}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="eval-output-review" aria-label="Output rating and production decision">
+    <RovingRadioGroup
+      label="Rating"
+      value={rating ? String(rating) : ""}
+      disabled={saving}
+      options={[1, 2, 3, 4, 5].map(value => ({ value: String(value), label: `${value} star${value === 1 ? "" : "s"}`, content: <><Star size={13} fill={rating >= value ? "currentColor" : "none"} /><span>{value}</span></> }))}
+      onChange={value => void save(Number(value), decision)}
+    />
+    <RovingRadioGroup
+      label="Production decision"
+      value={decision}
+      disabled={saving}
+      options={[
+        { value: "candidate", label: "Candidate" },
+        { value: "approved", label: "Approved" },
+        { value: "hold", label: "Hold" },
+        { value: "reject", label: "Reject" },
+      ]}
+      onChange={value => void save(rating, value)}
+    />
+    {saving && <span role="status"><LoaderCircle className="vela-spin" size={13} /> Saving review…</span>}
+    {message && <span role="status"><Check size={13} /> {message}</span>}
+    {error && <small role="alert">{error}</small>}
+  </div>;
 }
 
-export function GridsScreen({ projectId = "", initialModelVersionId = "" }: { projectId?: string; initialModelVersionId?: string }) {
-  const grids = useResource<unknown>(`/api/grids${query({ project_id: projectId })}`);
-  const models = useResource<unknown>(`/api/model-versions${query({ project_id: projectId })}`);
-  const prompts = useResource<unknown>(`/api/prompt-sets${query({ project_id: projectId })}`);
-  const endpoints = useResource<unknown>("/api/eval-endpoints");
-  const endpointRows = rows(endpoints.data);
-  const modelRows = rows(models.data);
-  const [modelVersionId, setModelVersionId] = useState(initialModelVersionId);
-  const generationModels = modelRows.map(generationModelFromRow).filter(model => !projectId || model.projectId === projectId);
-  const generationModel = generationModels.find(model => model.id === modelVersionId);
-  const endpointId = generationModel?.endpoint ?? "";
-  const selectedEndpoint = endpointRows.find(row => idOf(row) === endpointId || row.endpoint_id === endpointId);
-  const endpointSchema = useResource<Row>(endpointId ? `/api/eval-endpoints/${endpointId}/schema` : null);
-  const activeSchema = endpointSchema.data ?? selectedEndpoint;
-  const axes = Array.isArray(activeSchema?.grid_axes) ? activeSchema.grid_axes.map(String) : ["prompt", "checkpoint_step", "lora_scale", "seed", "model"];
-  const [xValues, setXValues] = useState("front, profile");
-  const [yValues, setYValues] = useState("800, 1200, 1600");
-  const [xField, setXField] = useState("prompt");
-  const [yField, setYField] = useState("checkpoint_step");
-  const constrainedValues = (field: string) => axisOptions(field, modelRows, modelVersionId);
-  const changeAxis = (field: string, setField: (value: string) => void, setValues: (value: string) => void) => { setField(field); const options = constrainedValues(field); if (options.length) setValues(options.map(option => option.value).join(", ")); };
-  useEffect(() => {
-    const synchronize = (field: string, value: string, setValue: (next: string) => void) => {
-      if (!["checkpoint_step", "model"].includes(field)) return;
-      const options = axisOptions(field, modelRows, modelVersionId);
-      const allowed = new Set(options.map(option => option.value));
-      const selected = csv(value).filter(item => allowed.has(item));
-      const next = (selected.length ? selected : options.slice(0, 3).map(option => option.value)).join(", ");
-      if (next !== value) setValue(next);
-    };
-    synchronize(xField, xValues, setXValues);
-    synchronize(yField, yValues, setYValues);
-  }, [modelVersionId, models.data, xField, yField]);
-
-  return (
-    <Page title="Grid generator" subtitle="Compose endpoint-aware two-axis checkpoint sweeps from individual generated images." actions={<a className="vela-button" href={`#/evals?project=${projectId}`}>Eval generator</a>}>
-      <Notice error={grids.error || models.error || prompts.error || endpoints.error} loading={models.loading || prompts.loading || endpoints.loading} />
-      <Panel title="Grid definition">
-        <Notice error={endpointSchema.error} loading={endpointSchema.loading} />
-        <Form
-          submit="Save grid"
-          onSubmit={async form => {
-            if (!endpointId) throw new Error("Select an endpoint.");
-            if (xField === yField) throw new Error("Choose two different grid axes.");
-            const xAxisValues = axisValues(xField, xValues);
-            const yAxisValues = axisValues(yField, yValues);
-            if (!xAxisValues.length || !yAxisValues.length) throw new Error("Both grid axes need at least one value.");
-            const parameters = parametersFromForm(form, activeSchema);
-            parameters.lora_scale = Number(form.get("lora_scale") ?? 1);
-            await api("/api/grids", jsonBody({
-              model_version_id: form.get("model_version_id"),
-              prompt_set_id: form.get("prompt_set_id"),
-              endpoint_adapter: endpointId,
-              x_axis: { field: xField, values: xAxisValues },
-              y_axis: { field: yField, values: yAxisValues },
-              parameters,
-            }));
-            await grids.reload();
-          }}
-        >
-          <div className="form-grid">
-            <ModelCheckpointPicker mode="single" models={generationModels} selected={modelVersionId ? [modelVersionId] : []} onChange={ids => setModelVersionId(ids[0] ?? "")} label="Model and checkpoint" />
-            <Field label="Prompt source"><SelectRecords name="prompt_set_id" records={rows(prompts.data)} required /></Field>
-            <Field label="Provider / endpoint"><input readOnly value={endpointId ? `FAL / ${endpointId}` : "Select a provider-registered model"} /></Field>
-            <Field label="LoRA scale"><input name="lora_scale" type="number" min="0" max="4" step="0.1" defaultValue="1" required /></Field>
-            <Field label="Preset">
-              <Dropdown
-                aria-label="Preset"
-                defaultValue="prompt|checkpoint_step"
-                onChange={value => {
-                  const [x, y] = value.split("|");
-                  changeAxis(x, setXField, setXValues);
-                  changeAxis(y, setYField, setYValues);
-                }}
-                options={[
-                  { value: "prompt|checkpoint_step", label: "Prompt × Checkpoint" },
-                  { value: "checkpoint_step|lora_scale", label: "Checkpoint × LoRA scale" },
-                  { value: "checkpoint_step|seed", label: "Checkpoint × Seed" },
-                  { value: "prompt|model", label: "Prompt × Model" },
-                ]}
-              />
-            </Field>
-            <Field label="X axis">
-              <Dropdown
-                aria-label="X axis"
-                value={xField}
-                onChange={value => changeAxis(value, setXField, setXValues)}
-                options={axes.map(axis => ({ value: axis, label: evalAxisLabels[axis] ?? axis }))}
-              />
-            </Field>
-            <AxisValuesField label="X values" field={xField} value={xValues} onChange={setXValues} options={constrainedValues(xField)} />
-            <Field label="Y axis">
-              <Dropdown
-                aria-label="Y axis"
-                value={yField}
-                onChange={value => changeAxis(value, setYField, setYValues)}
-                options={axes.map(axis => ({ value: axis, label: evalAxisLabels[axis] ?? axis }))}
-              />
-            </Field>
-            <AxisValuesField label="Y values" field={yField} value={yValues} onChange={setYValues} options={constrainedValues(yField)} />
-            <EndpointFields key={endpointId} schema={activeSchema} />
-          </div>
-        </Form>
-      </Panel>
-      <GridPreview xLabel={evalAxisLabels[xField] ?? xField} yLabel={evalAxisLabels[yField] ?? yField} xValues={csv(xValues)} yValues={csv(yValues)} />
-      <Panel title="Saved grids">
-        <Notice error={grids.error} loading={grids.loading} empty={!grids.loading && !rows(grids.data).length} />
-        <DataTable rows={rows(grids.data)} columns={[["name", "Name"], ["endpoint_adapter", "Endpoint"], ["x_axis", "X axis"], ["y_axis", "Y axis"], ["status", "Status"]]} onRow={row => { location.hash = `grid/${idOf(row)}`; }} />
-      </Panel>
-    </Page>
-  );
+function RovingRadioGroup({ label, value, options, disabled, onChange }: { label: string; value: string; options: Array<{ value: string; label: string; content?: ReactNode }>; disabled: boolean; onChange: (value: string) => void }) {
+  const activeIndex = Math.max(0, options.findIndex(option => option.value === value));
+  return <div className="eval-roving-group" role="radiogroup" aria-label={label}>{options.map((option, index) => <button
+    key={option.value}
+    type="button"
+    role="radio"
+    aria-checked={option.value === value}
+    aria-label={option.label}
+    tabIndex={index === activeIndex ? 0 : -1}
+    disabled={disabled}
+    onClick={() => onChange(option.value)}
+    onKeyDown={event => {
+      let next = index;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % options.length;
+      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + options.length) % options.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = options.length - 1;
+      else return;
+      event.preventDefault();
+      const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]');
+      buttons?.[next]?.focus();
+      onChange(options[next].value);
+    }}
+  >{option.content ?? option.label}</button>)}</div>;
 }
 
-function AxisValuesField({ label, field, value, onChange, options }: { label: string; field: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
-  if (["checkpoint_step", "model"].includes(field)) return <Field label={label}><select multiple size={Math.min(5, Math.max(2, options.length))} value={csv(value)} disabled={!options.length} onChange={event => onChange(Array.from(event.target.selectedOptions, option => option.value).join(", "))}>{options.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}</select></Field>;
-  return <Field label={label}><input value={value} onChange={event => onChange(event.target.value)} required /></Field>;
-}
 
-function GridPreview({ xLabel, yLabel, xValues, yValues }: { xLabel: string; yLabel: string; xValues: string[]; yValues: string[] }) {
-  const [zoom, setZoom] = useState(82);
-  return (
-    <Panel title="Composed grid preview">
-      <div className="grid-preview-tools"><span>X · {xLabel}</span><span>Y · {yLabel}</span><label>Zoom <input aria-label="Preview cell size" type="range" min="52" max="132" value={zoom} onChange={event => setZoom(Number(event.target.value))} /></label></div>
-      <div className="grid-board" style={{ "--cell": `${zoom}px`, gridTemplateColumns: `80px repeat(${Math.max(1, xValues.length)}, var(--cell))` } as CSSProperties}>
-        <span />
-        {xValues.map(value => <strong key={value}>{value}</strong>)}
-        {yValues.flatMap(y => [
-          <strong key={`${y}-label`}>{y}</strong>,
-          ...xValues.map(x => (
-            <div
-              aria-hidden="true"
-              key={`${x}-${y}`}
-              style={{
-                width: "var(--cell)",
-                height: "var(--cell)",
-                display: "grid",
-                placeItems: "center",
-                overflow: "hidden",
-                padding: 4,
-                border: "1px solid var(--vela-border)",
-                background: "var(--vela-surface-soft)",
-                color: "var(--vela-muted)",
-                fontSize: 10,
-                textAlign: "center",
-              }}
-            ><span>{x}<br />{y}</span></div>
-          )),
-        ])}
-      </div>
-    </Panel>
-  );
-}
 
-export function GridScreen({ id }: { id: string }) {
-  const resource = useResource<Row>(`/api/grids/${id}`);
-  const cells = rows(resource.data?.cells);
-  const jobs = rows(resource.data?.jobs);
-  const latestJob = jobs[0];
-  const [zoom, setZoom] = useState(82);
-  const [selectedCell, setSelectedCell] = useState<Row | null>(null);
-  const [billingAck, setBillingAck] = useState(false);
-  async function admitGrid() {
-    if (!billingAck) throw new Error("A billing acknowledgement is required.");
-    const projectId = str(resource.data?.project_id, "");
-    const modelVersionId = str(resource.data?.model_version_id, "");
-    const checkpointRevisionId = str(resource.data?.checkpoint_revision_id, "");
-    if (!projectId || !modelVersionId || !checkpointRevisionId) throw new Error("Grid has no immutable model checkpoint revision.");
-    const projection = await api<Row>("/api/fal-admissions", jsonBody({
-      kind: "grid",
-      project_id: projectId,
-      model_version_id: modelVersionId,
-      checkpoint_revision_id: checkpointRevisionId,
-      grid_definition_id: id,
-      parameters: resource.data?.parameters ?? {},
-      client_request_id: crypto.randomUUID(),
-    }));
-    if (projection.kind !== "projection" || !projection.admission) throw new Error(str(projection.detail, "FAL admission is not ready."));
-    const admission = projection.admission as Row;
-    if (str(admission.state) !== "ready") throw new Error(`FAL admission is ${str(admission.state)}; review storage and checkpoint readiness.`);
-    await api(`/api/fal-admissions/${str(admission.id)}/admit`, jsonBody({ expected_version: Number(admission.version), billing_acknowledgement: "I understand FAL may bill this run even if checkpoint fetch fails" }));
-    await resource.reload();
-  }
-  const xValues = unique(cells.map(cell => str(cell.x_value, cell.x_index as string)));
-  const yValues = unique(cells.map(cell => str(cell.y_value, cell.y_index as string)));
-  const runDisabledReason = resource.loading
-    ? "Grid definition is still loading"
-    : resource.error
-      ? "Grid definition failed to load"
-      : !resource.data?.id
-        ? "Grid definition is unavailable"
-        : undefined;
 
-  return (
-    <div className="comparison-viewer vela-route-stage">
-      <header className="viewer-topbar">
-        <div><strong>{str(resource.data?.name, "Grid viewer")}</strong><span>{str(resource.data?.endpoint_adapter, "Endpoint")} · {cells.length} composed images</span></div>
-        <div className="viewer-actions">
-          <a className="vela-button" href="#/grids"><ArrowLeft size={15} /> Grid generator</a>
-          <a className="vela-button" href="#/grids">Close</a>
-          <label className="fal-ack"><input type="checkbox" checked={billingAck} onChange={event => setBillingAck(event.target.checked)} /> I understand FAL may bill this run if checkpoint fetch fails</label><AsyncAction label="Run grid" workingLabel="Admitting..." successLabel="Admitted" icon={<Play size={15} />} disabled={Boolean(runDisabledReason)} disabledReason={runDisabledReason} onRun={admitGrid} />
-        </div>
-      </header>
-      <main className="vela-main">
-        <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !cells.length} />
-        <Panel title="Grid review">
-          <div className="grid-preview-tools">
-            <Status value={latestJob?.state ?? (cells.length ? "ready" : "saved")} />
-            <span>Selected {selectedCell ? `${str(selectedCell.x_value)} × ${str(selectedCell.y_value)}` : "none"}</span>
-            <label>Zoom <input aria-label="Grid cell size" type="range" min="52" max="132" value={zoom} onChange={event => setZoom(Number(event.target.value))} /></label>
-          </div>
-          {cells.length > 0 && (
-            <div className="grid-board image-grid" style={{ "--cell": `${zoom}px`, gridTemplateColumns: `80px repeat(${Math.max(1, xValues.length)}, var(--cell))` } as CSSProperties}>
-              <span />
-              {xValues.map(value => <strong key={value}>{value}</strong>)}
-              {yValues.flatMap(y => [
-                <strong key={`${y}-label`}>{y}</strong>,
-                ...xValues.map(x => {
-                  const cell = cells.find(item => str(item.x_value, item.x_index as string) === x && str(item.y_value, item.y_index as string) === y);
-                  const cellAssetId = typeof cell?.asset_revision_id === "string" ? cell.asset_revision_id : typeof cell?.asset_id === "string" ? cell.asset_id : "";
-                  return (
-                    <div className="grid-cell" key={`${x}-${y}`}>
-                      <button
-                        className={idOf(selectedCell ?? {}) === idOf(cell ?? {}) ? "active" : ""}
-                        type="button"
-                        aria-label={`${x}, ${y}${cellAssetId ? "" : ", pending"}`}
-                        aria-pressed={idOf(selectedCell ?? {}) === idOf(cell ?? {})}
-                        disabled={!cell}
-                        onClick={() => cell && setSelectedCell(cell)}
-                      >{cellAssetId ? <AssetImage assetRevisionId={cellAssetId} loading="lazy" alt={`${x}, ${y}`} /> : <span>Pending</span>}</button>
-                      {cellAssetId && <a className="grid-cell-detail" href={galleryOpenHref({ ...(cell ?? {}), asset_id: cellAssetId, project_id: resource.data?.project_id, origin_type: "EVAL" })}>Details</a>}
-                    </div>
-                  );
-                }),
-              ])}
-            </div>
-          )}
-          {Boolean(selectedCell?.asset_revision_id ?? selectedCell?.asset_id) && <a className="vela-button" href={galleryOpenHref({ ...selectedCell, project_id: resource.data?.project_id, origin_type: "EVAL" })}><ExternalLink size={15} /> Open selected image</a>}
-        </Panel>
-      </main>
-    </div>
-  );
-}
 
 export function ReviewsScreen({ subject = "", projectId = "" }: { subject?: string; projectId?: string }) {
   const [selectedSubject, setSelectedSubject] = useState(subject);
@@ -864,21 +720,43 @@ function commonEndpointSchema(schemas: Row[]): Row | undefined {
     if (optionSets.length === definitions.length && optionSets.every(options => options.length)) {
       merged.options = optionSets[0].filter(option => optionSets.every(options => options.includes(option)));
     }
+    if (definitions.every(definition => ["integer", "number"].includes(str(definition.type, "")))) {
+      const minimums = definitions.map(definition => definition.min).filter(value => value !== undefined).map(Number);
+      const maximums = definitions.map(definition => definition.max).filter(value => value !== undefined).map(Number);
+      const steps = definitions.map(definition => definition.step).filter(value => value !== undefined).map(Number);
+      if (minimums.length) merged.min = Math.max(...minimums);
+      if (maximums.length) merged.max = Math.min(...maximums);
+      if (steps.length) merged.step = Math.max(...steps);
+    }
     if (definitions.every(definition => definition.custom && typeof definition.custom === "object")) {
       const custom = definitions.map(definition => definition.custom as Row);
       merged.custom = {
-        min: Math.max(...custom.map(value => Number(value.min ?? 1))),
-        max: Math.min(...custom.map(value => Number(value.max ?? 16_384))),
-        step: Math.max(...custom.map(value => Number(value.step ?? 1))),
+        min: Math.max(...custom.map(value => Number(value.min))),
+        max: Math.min(...custom.map(value => Number(value.max))),
+        step: Math.max(...custom.map(value => Number(value.step))),
       };
     }
     return [[field, merged]];
   }));
+  const loraDefinitions = schemas.flatMap(schema => {
+    const grid = schema.grid && typeof schema.grid === "object" ? schema.grid as Row : {};
+    const axisFields = grid.axis_fields && typeof grid.axis_fields === "object" ? grid.axis_fields as Record<string, Row> : {};
+    return axisFields.lora_scale ? [axisFields.lora_scale] : [];
+  });
+  const loraScale = loraDefinitions.length === schemas.length ? {
+    ...loraDefinitions[0],
+    min: Math.max(...loraDefinitions.map(field => Number(field.min))),
+    max: Math.min(...loraDefinitions.map(field => Number(field.max))),
+    step: Math.max(...loraDefinitions.map(field => Number(field.step))),
+  } : undefined;
+  const firstGrid = first.grid && typeof first.grid === "object" ? first.grid as Row : {};
+  const firstGridAxes = firstGrid.axis_fields && typeof firstGrid.axis_fields === "object" ? firstGrid.axis_fields as Record<string, Row> : {};
   return {
     ...first,
     request_fields: common,
     defaults: Object.fromEntries(common.filter(field => defaults[field] !== undefined).map(field => [field, defaults[field]])),
     fields: sharedFields,
+    grid: { ...firstGrid, axis_fields: { ...firstGridAxes, lora_scale: loraScale } },
   };
 }
 
@@ -891,33 +769,6 @@ function parsePrompts(value: string): unknown[] {
   }
 }
 
-function csv(value: string) { return value.split(",").map(item => item.trim()).filter(Boolean); }
-
-function axisValues(field: string, value: string): Array<string | number | boolean> {
-  return csv(value).map(item => {
-    if (["checkpoint_step", "lora_scale", "seed"].includes(field)) {
-      const numeric = Number(item);
-      if (!Number.isFinite(numeric)) throw new Error(`${field.replaceAll("_", " ")} values must be numbers.`);
-      return numeric;
-    }
-    if (["enable_prompt_expansion", "enable_safety_checker"].includes(field)) {
-      if (!/^(true|false)$/i.test(item)) throw new Error(`${field.replaceAll("_", " ")} values must be true or false.`);
-      return item.toLowerCase() === "true";
-    }
-    return item;
-  });
-}
-
-function axisOptions(field: string, models: Row[], selectedId: string) {
-  if (field === "model") return models.map(model => ({ value: idOf(model), label: `${str(model.model_name ?? model.name, "Model")} · step ${str(model.checkpoint_step)}` })).filter(option => option.value);
-  if (field === "checkpoint_step") {
-    const selected = models.find(model => idOf(model) === selectedId);
-    const runId = str(selected?.checkpoint_run_id, "");
-    const steps = unique(models.filter(model => runId && str(model.checkpoint_run_id, "") === runId).map(model => str(model.checkpoint_step, "")).filter(Boolean));
-    return steps.map(step => ({ value: step, label: `Step ${step}` }));
-  }
-  return [];
-}
 
 function groupBy(items: Row[], key: (item: Row) => string) {
   return items.reduce<Record<string, Row[]>>((result, item) => {

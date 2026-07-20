@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
 import { ApiError, api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
@@ -83,6 +83,22 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   const [projectMessage, setProjectMessage] = useState("");
   const [projectActionError, setProjectActionError] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editing || !project.data) return;
+    let revealFrame = 0;
+    const routeFrame = requestAnimationFrame(() => {
+      revealFrame = requestAnimationFrame(() => {
+        if (!editorRef.current) return;
+        editorRef.current.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        editorRef.current.querySelector<HTMLInputElement>('input[name="title"]')?.focus({ preventScroll: true });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(routeFrame);
+      cancelAnimationFrame(revealFrame);
+    };
+  }, [editing, project.data, id]);
   const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const evalRows = rows(evals.data);
   const archived = project.data?.state === "archived";
   return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${id}&scope=project`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a></>}>
@@ -100,7 +116,7 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
       <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
       <Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel>
     </div>
-    {project.data && editing && <Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { await api(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); setProjectMessage("Project updated."); await project.reload(); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel>}
+    {project.data && editing && <div ref={editorRef} id="project-settings" tabIndex={-1}><Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { const updated = await api<Row>(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); project.setData(updated); window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: updated })); setProjectMessage("Project updated."); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel></div>}
   </Page>;
 }
 
@@ -245,7 +261,13 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
     if (!sourceId || !projectId || !prefix) return;
     setError(""); setBusy("import");
     const detectedKind = str((preview as Row)?.kind, "");
-    try { setJob(await api("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: projectId, prefix, kind: detectedKind === "dataset" || detectedKind === "training_run" ? detectedKind : null }))); }
+    const reviewToken = str((preview as Row)?.review_token, "");
+    if (!reviewToken) {
+      setError("Run Detect structure and review the preview before importing.");
+      setBusy("");
+      return;
+    }
+    try { setJob(await api("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: projectId, prefix, kind: detectedKind === "dataset" || detectedKind === "training_run" ? detectedKind : null, review_token: reviewToken }))); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(""); }
   }
@@ -307,7 +329,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
 
   const canBrowse = Boolean(sourceId && !busy);
   const canInspect = Boolean(sourceId && prefix && !busy);
-  const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
+  const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : !str((preview as Row)?.review_token, "") ? "Detect and review the S3 prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
   return <Page title="Import from S3 storage" subtitle="Browse an S3-compatible source, inspect a prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
     <Panel title="S3 storage source">
@@ -341,7 +363,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
       }} />
       {cursor && <button onClick={() => void browse(cursor)} disabled={Boolean(busy)} title={busy ? "Wait for the current storage operation to finish." : undefined}>Next page</button>}
     </Panel>
-    {preview !== null && <Panel title="Detection preview"><Json value={preview} /><button className="vela-button-primary" onClick={() => void importPrefix()} disabled={Boolean(importDisabledReason)} title={importDisabledReason}><Upload size={15} aria-hidden="true" />{busy === "import" ? "Queuing..." : "Start import"}</button></Panel>}
+    {preview !== null && <Panel title="Detection preview"><div className="vela-notice" role="status"><strong>Review required before import</strong><span>Detected kind: {str((preview as Row)?.kind, "unknown")}. This preview binds the import to the observed S3 prefix; rerun detection if the prefix changes.</span></div><Json value={preview} /><button className="vela-button-primary" onClick={() => void importPrefix()} disabled={Boolean(importDisabledReason)} title={importDisabledReason}><Upload size={15} aria-hidden="true" />{busy === "import" ? "Queuing..." : "Start import"}</button></Panel>}
     {job !== null && <Panel title="Import queued"><div className="vela-notice" role="status"><strong>Worker job created</strong><span>The import will continue in the background.</span></div><Json value={job} />{Boolean((job as Row)?.id) && <a className="button" href={`#/jobs/${String((job as Row).id)}`}>View import job</a>}</Panel>}
   </Page>;
 }
@@ -396,6 +418,7 @@ export function SettingsScreen() {
   const [llmValidation, setLlmValidation] = useState<Row | null>(null);
   const [llmValidationError, setLlmValidationError] = useState("");
   const [providerSaving, setProviderSaving] = useState(false);
+  const [catalogRequested, setCatalogRequested] = useState(false);
   const activeLlmProvider = llmProvider || str(llm.provider, "openai");
   useEffect(() => {
     if (!settings.data) return;
@@ -404,7 +427,7 @@ export function SettingsScreen() {
     setLlmBaseUrl(str(llm.base_url, ""));
   }, [settings.data]);
   const llmCatalog = useResource<Row>(
-    activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim()
+    !catalogRequested || (activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim())
       ? null
       : `/api/operator-settings/llm-models${query({ provider: activeLlmProvider, base_url: llmBaseUrl.trim() || undefined })}`,
   );
@@ -470,7 +493,7 @@ export function SettingsScreen() {
         <div className="integration-heading">
           <Status value={selectedCredentialConfigured ? `${providerLabel} credential · ${credentialSource || "configured"}` : `${providerLabel} credential missing`} />
           <div className="actions">
-            <button type="button" onClick={() => void llmCatalog.reload()} disabled={llmCatalog.loading || (activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim())} title="Reload the selected provider's live model catalog."><RefreshCw size={15} aria-hidden="true" />{llmCatalog.loading ? "Loading models…" : "Reload models"}</button>
+            <button type="button" onClick={() => { setCatalogRequested(true); void llmCatalog.reload(); }} disabled={llmCatalog.loading || (activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim())} title="Explicitly contact the selected provider to load its live model catalog."><RefreshCw size={15} aria-hidden="true" />{llmCatalog.loading ? "Loading models…" : catalogRequested ? "Reload models" : "Load provider models"}</button>
             <button type="button" onClick={() => void test("llm")} disabled={Boolean(testing) || !llmModel} title="Authenticate with the selected provider and verify that the chosen model exists in its live catalog."><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Validating…" : "Validate LLM"}</button>
           </div>
         </div>
@@ -492,6 +515,7 @@ export function SettingsScreen() {
         <div className="actions llm-save-actions">
           <button type="submit" className="primary" disabled={providerSaving || !llmModel}>{providerSaving ? "Saving LLM configuration…" : "Save LLM configuration"}</button>
         </div>
+        {!catalogRequested && <div className="vela-notice" role="status"><strong>No provider contact on page load</strong><span>Load provider models only when you explicitly request a live catalog.</span></div>}
         <Notice error={llmCatalog.error} loading={llmCatalog.loading} empty={!llmCatalog.loading && !llmCatalog.error && modelOptions.length === 0} emptyText={activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim() ? "Enter a base URL to load models." : "The provider returned no models."} />
         {llmValidationError && <div className="vela-notice vela-notice-error" role="alert"><strong>{providerLabel} validation failed</strong><span>{llmValidationError}</span></div>}
         {llmValidation && <div className="vela-notice" role="status"><strong>{providerLabel} validated</strong><span>{str(llmValidation.model, llmModel)} was returned by {providerLabel}; credential source: {str(llmValidation.credential_source, credentialSource || "configured")}.</span></div>}

@@ -62,12 +62,28 @@ def test_project_dataset_draft_and_profile_attribution(client: TestClient):
     asset = client.post("/api/assets", json={"project_id": project["id"], "kind": "image", "name": "one.png"}).json()
     dataset = client.post("/api/datasets", json={"project_id": project["id"], "name": "Source", "items": [{"asset_id": asset["id"], "caption": "portrait"}]}).json()
     version = client.get(f"/api/datasets/{dataset['id']}/versions").json()[0]
+    item_page = client.get(
+        f"/api/dataset-versions/{version['id']}/items",
+        params={"limit": 1, "offset": 0, "paginated": True},
+    ).json()
+    assert item_page["total"] == 1
+    assert len(item_page["items"]) == 1
+    assert item_page["limit"] == 1
+    assert item_page["offset"] == 0
     draft = client.post(f"/api/datasets/{dataset['id']}/drafts", json={"base_version_id": version["id"]}).json()
     preview = client.post(f"/api/dataset-drafts/{draft['id']}/operations/preview", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True}).json()
     assert preview["changed"] == 1
-    applied = client.post(f"/api/dataset-drafts/{draft['id']}/operations", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True}).json()
+    applied = client.post(f"/api/dataset-drafts/{draft['id']}/operations", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True, "preview_token": preview["preview_token"]}).json()
 
     assert applied["changed"] == 1
+    history = client.get(f"/api/dataset-drafts/{draft['id']}/operations").json()
+    assert history[0]["operation"] == "add_word"
+    assert history[0]["can_undo"] is True
+    undone = client.post(f"/api/dataset-drafts/{draft['id']}/operations/{history[0]['id']}/undo")
+    assert undone.status_code == 200
+    assert client.get(f"/api/dataset-drafts/{draft['id']}").json()["items"][0]["caption"] == "portrait"
+    preview = client.post(f"/api/dataset-drafts/{draft['id']}/operations/preview", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True}).json()
+    assert client.post(f"/api/dataset-drafts/{draft['id']}/operations", json={"operation": "add_word", "parameters": {"word": "tok"}, "all": True, "preview_token": preview["preview_token"]}).status_code == 200
     published = client.post(f"/api/dataset-drafts/{draft['id']}/publish", json={"name": "Captioned"}).json()
     assert published["version_number"] == 2
     events = client.get("/api/activity", params={"project_id": project["id"]}).json()
@@ -107,6 +123,9 @@ def test_dataset_draft_caption_generation_updates_only_draft(client: TestClient,
     assert payload["operation_id"]
     assert requests[0]["messages"][0]["content"][0]["text"] == "Describe this image"
     assert requests[0]["model"] == "vision-model"
+    draft_item = client.get(f"/api/dataset-drafts/{draft['id']}").json()["items"][0]
+    assert client.patch(f"/api/dataset-drafts/{draft['id']}/caption-format", headers={"X-Profile-ID": profile["id"]}, json={"caption_format": "json"}).status_code == 422
+    assert client.patch(f"/api/dataset-drafts/{draft['id']}/items/{draft_item['id']}", json={"caption": '{"description":"existing caption"}'}).status_code == 200
     assert client.patch(f"/api/dataset-drafts/{draft['id']}/caption-format", headers={"X-Profile-ID": profile["id"]}, json={"caption_format": "json"}).json()["caption_format"] == "json"
     json_caption = client.post(f"/api/dataset-drafts/{draft['id']}/caption", headers={"X-Profile-ID": profile["id"]}, json={"prompt": "Describe this image", "model": "override-vision-model", "caption_format": "json", "all": True})
     assert json_caption.status_code == 200
@@ -120,6 +139,44 @@ def test_dataset_draft_caption_generation_updates_only_draft(client: TestClient,
     assert client.post(f"/api/dataset-drafts/{draft['id']}/caption", json={"prompt": "Describe"}).status_code == 422
     assert requests[0]["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert client.get(f"/api/dataset-drafts/{draft['id']}").json()["state"] == "active"
+
+
+
+def test_dataset_operation_preview_rejects_any_stale_draft_or_scope(client: TestClient):
+    project = client.post("/api/projects", json={"title": "Preview integrity"}).json()
+    assets = [
+        client.post("/api/assets", json={"project_id": project["id"], "kind": "image", "name": f"{index}.png"}).json()
+        for index in range(2)
+    ]
+    dataset = client.post("/api/datasets", json={
+        "project_id": project["id"],
+        "name": "Source",
+        "items": [{"asset_id": asset["id"], "caption": f"caption {index}", "position": index} for index, asset in enumerate(assets)],
+    }).json()
+    version = client.get(f"/api/datasets/{dataset['id']}/versions").json()[0]
+    draft = client.post(f"/api/datasets/{dataset['id']}/drafts", json={"base_version_id": version["id"]}).json()
+    items = client.get(f"/api/dataset-drafts/{draft['id']}").json()["items"]
+    request = {"operation": "replace", "parameters": {"find": "caption", "replace": "image"}, "item_ids": [items[0]["id"]]}
+    preview = client.post(f"/api/dataset-drafts/{draft['id']}/operations/preview", json=request).json()
+
+    assert preview["target_item_ids"] == [items[0]["id"]]
+    assert client.patch(f"/api/dataset-drafts/{draft['id']}/items/{items[1]['id']}", json={"included": False}).status_code == 200
+    stale = client.post(f"/api/dataset-drafts/{draft['id']}/operations", json={**request, "preview_token": preview["preview_token"]})
+    assert stale.status_code == 409
+    assert "stale" in stale.json()["detail"]
+    missing = client.post(f"/api/dataset-drafts/{draft['id']}/operations", json=request)
+    assert missing.status_code == 409
+    assert "preview required" in missing.json()["detail"]
+    assert client.patch(
+        f"/api/dataset-drafts/{draft['id']}/items/{items[0]['id']}",
+        json={"caption": '{"description":"caption 0"}', "caption_format": "json"},
+    ).status_code == 200
+    invalid_json_edit = client.post(
+        f"/api/dataset-drafts/{draft['id']}/operations/preview",
+        json={"operation": "add_word", "parameters": {"word": "tok"}, "item_ids": [items[0]["id"]]},
+    )
+    assert invalid_json_edit.status_code == 422
+    assert "would make JSON caption invalid" in invalid_json_edit.json()["detail"]
 
 
 def test_dataset_active_draft_restores_working_copy(client: TestClient):

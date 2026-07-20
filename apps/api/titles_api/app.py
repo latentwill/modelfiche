@@ -1,11 +1,11 @@
 from contextlib import asynccontextmanager
 import os
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, text
-
+from sqlalchemy import func, select, text
 from . import __version__, models
 from .database import SessionLocal, bootstrap_empty_local_database, engine, upgrade_installed_database
 from .routers import (
@@ -30,6 +30,7 @@ from .integrations.config import S3Settings
 from .integrations.fal.adapters import list_adapters
 from .integrations.fal.credentials import resolve_fal_credential
 from .security_middleware import LocalLaunchContract, TrustedLocalBoundary
+from .services import WorkspaceContextMiddleware
 
 
 def initialize_database() -> bool:
@@ -114,13 +115,28 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
     app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(TrustedLocalBoundary, contract=launch_contract)
+    app.add_middleware(WorkspaceContextMiddleware)
 
     @app.get("/health")
     @app.get("/api/health")
     def health():
-        with SessionLocal() as db:
-            db.execute(text("SELECT 1"))
-        return {"status": "ok", "version": __version__}
+        checked_at = datetime.now(timezone.utc)
+        components: dict[str, dict[str, object]] = {}
+        try:
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+                latest_job = db.scalar(select(func.max(models.Job.updated_at)))
+                latest_source = db.scalar(select(func.max(models.ImportSource.updated_at)))
+            components["api_db"] = {"status": "ok", "evidence": "SELECT 1", "checked_at": checked_at.isoformat()}
+            components["queue"] = {"status": "ok", "evidence": "job table readable", "freshness": latest_job.isoformat() if latest_job else None}
+            components["worker_heartbeat"] = {"status": "unknown", "evidence": "No dedicated heartbeat table; latest job update is shown", "freshness": latest_job.isoformat() if latest_job else None}
+            components["storage"] = {"status": "ok" if all(path.exists() and path.is_dir() for path in (settings.asset_root, settings.cache_root, settings.export_root)) else "degraded", "evidence": "configured local roots", "checked_at": checked_at.isoformat()}
+            components["source_freshness"] = {"status": "unknown", "evidence": "latest configured import source update", "freshness": latest_source.isoformat() if latest_source else None}
+            components["provider_freshness"] = {"status": "configuration_only", "evidence": "credentials/configuration inspected; no provider network check", "checked_at": checked_at.isoformat()}
+        except Exception as exc:
+            components["api_db"] = {"status": "error", "evidence": str(exc), "checked_at": checked_at.isoformat()}
+        status_value = "ok" if components.get("api_db", {}).get("status") == "ok" else "degraded"
+        return {"status": status_value, "version": __version__, "checked_at": checked_at.isoformat(), "components": components}
 
     @app.get("/api/system/version")
     def version():

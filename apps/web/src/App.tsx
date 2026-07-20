@@ -1,6 +1,7 @@
 import { useHashRoute } from "./hooks";
 import { ImportScreen, JobScreen, ProjectScreen, ProjectsScreen, SettingsScreen } from "./screens-core";
 import { CheckpointScreen, DatasetScreen, DatasetsScreen, GalleryScreen, ModelScreen, ModelsScreen, RunScreen, RunsScreen } from "./screens-assets";
+import { ModelVersionScreen } from "./screens-model-version";
 import { EvalComparisonScreen, EvalScreen, EvalsScreen, PromptSetsScreen, ReviewsScreen } from "./screens-evals";
 import { GridScreen, GridsScreen } from "./screens-grids";
 import { WorkbenchShell, useThemeController } from "./shell";
@@ -46,6 +47,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "generation-queue": return <GenerationQueueScreen />;
     case "models": return <ModelsScreen projectId={projectId} />;
     case "model": return <ModelScreen id={id} />;
+    case "model-version": return <ModelVersionScreen id={id} />;
     case "prompt-sets": return <PromptSetsScreen projectId={projectId} promptSetId={id} />;
     case "evals": return <EvalsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
     case "eval": return <EvalScreen id={id} />;

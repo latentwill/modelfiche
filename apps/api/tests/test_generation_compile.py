@@ -104,7 +104,7 @@ def test_image_compile_requires_matching_registered_endpoint(client: TestClient)
     payload["parameters"]["endpoint_id"] = "ideogram/v4/lora"
     mismatch = client.post("/api/generation-requests/compile", json=payload)
     assert mismatch.status_code == 409
-    assert "does not match" in mismatch.json()["detail"]
+    assert "incompatible with base model" in mismatch.json()["detail"]
 
     with app_module.SessionLocal.begin() as session:
         stored = session.get(models.ModelVersion, version["id"])
@@ -112,6 +112,76 @@ def test_image_compile_requires_matching_registered_endpoint(client: TestClient)
     unavailable = client.post("/api/generation-requests/compile", json=_payload(project["id"], model, version, str(uuid4()), "unavailable"))
     assert unavailable.status_code == 409
     assert "not registered with FAL" in unavailable.json()["detail"]
+
+
+def test_eval_compile_binds_exact_saved_prompt_set_version(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    headers = {"X-Profile-ID": profile["id"]}
+    project = client.post("/api/projects", headers=headers, json={"title": "Saved prompt Eval"}).json()
+    model, version = _registered_checkpoint(client, project["id"])
+    created = client.post(
+        "/api/prompt-sets",
+        headers=headers,
+        json={"project_id": project["id"], "name": "Angles", "prompts": ["front portrait", "profile portrait"]},
+    ).json()
+    prompt_set = client.get(f"/api/prompt-sets/{created['id']}").json()
+    prompts = [{"prompt_id": prompt["id"], "prompt": prompt["text"]} for prompt in prompt_set["prompts"]]
+    payload = {
+        "workflow": "eval",
+        "provider": "fal",
+        "context": {"kind": "project", "project_id": project["id"]},
+        "model_version_id": version["id"],
+        "checkpoint_revision_id": version["checkpoint_revision_id"],
+        "prompt_set_id": created["id"],
+        "prompts": prompts,
+        "parameters": {"lora_scale": 1, "num_images": 1},
+        "client_request_id": str(uuid4()),
+    }
+
+    compiled = client.post("/api/eval-generation-requests/compile", json=payload)
+    assert compiled.status_code == 200, compiled.text
+    assert compiled.json()["prompt_set_id"] == created["id"]
+    with app_module.SessionLocal() as session:
+        definition = session.get(models.EvalDefinition, compiled.json()["definition_id"])
+        assert definition.prompt_set_id == created["id"]
+        assert [item["id"] for item in definition.inline_prompts] == [prompt["prompt_id"] for prompt in prompts]
+
+    changed = {**payload, "client_request_id": str(uuid4()), "prompts": [{**prompts[0], "prompt": "edited"}, prompts[1]]}
+    mismatch = client.post("/api/eval-generation-requests/compile", json=changed)
+    assert mismatch.status_code == 409
+    assert "do not match" in mismatch.json()["detail"]
+
+
+def test_grid_preflight_binds_prompt_set_version_and_rejects_unsupported_krea_axes(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    headers = {"X-Profile-ID": profile["id"]}
+    project = client.post("/api/projects", headers=headers, json={"title": "Schema Grid"}).json()
+    _model, version = _registered_checkpoint(client, project["id"])
+    prompt_set = client.post(
+        "/api/prompt-sets",
+        headers=headers,
+        json={"project_id": project["id"], "name": "Grid prompts", "prompts": ["front portrait", "profile portrait"]},
+    ).json()
+    payload = {
+        "model_version_id": version["id"],
+        "prompt_set_id": prompt_set["id"],
+        "endpoint": "fal-ai/krea-2/turbo/lora",
+        "x_axis": {"field": "prompt", "values": ["front portrait", "profile portrait"]},
+        "y_axis": {"field": "seed", "values": [1, 2]},
+        "parameters": {},
+    }
+
+    created = client.post("/api/grids", headers=headers, json=payload)
+    assert created.status_code == 201, created.text
+    assert created.json()["prompt_set_id"] == prompt_set["id"]
+
+    unsupported = client.post(
+        "/api/grids",
+        headers=headers,
+        json={**payload, "x_axis": {"field": "guidance_scale", "values": [3, 5]}},
+    )
+    assert unsupported.status_code == 422
+    assert "supported by the endpoint" in unsupported.json()["detail"]
 
 
 def test_worker_plan_keeps_legacy_prompt_set_compatibility(client: TestClient):
