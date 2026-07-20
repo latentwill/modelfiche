@@ -1515,6 +1515,26 @@ def caption_add_word(
 @caption_app.command("set")
 def caption_set(ctx: typer.Context, draft: str, item: str, text: str = typer.Option(...)) -> None:
     call(ctx, lambda client: client.patch(f"/api/dataset-drafts/{draft}/items/{item}", {"caption": text}))
+@caption_app.command("generate")
+def caption_generate(
+    ctx: typer.Context,
+    draft: str,
+    prompt: str = typer.Option(..., "--prompt"),
+    model: str | None = typer.Option(None, "--model"),
+    caption_format: str = typer.Option("text", "--caption-format"),
+    item: list[str] = typer.Option([], "--item"),
+    all_items: bool = typer.Option(False, "--all"),
+) -> None:
+    if bool(item) == all_items:
+        raise typer.BadParameter("choose either --item or --all")
+    body = {
+        "prompt": prompt,
+        "model": model,
+        "caption_format": caption_format,
+        "item_ids": item or None,
+        "all": all_items,
+    }
+    call(ctx, lambda client: client.post(f"/api/dataset-drafts/{draft}/caption", body))
 
 
 run_app = typer.Typer(no_args_is_help=True)

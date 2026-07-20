@@ -217,6 +217,7 @@ mfiche caption apply   <draft> replace --find <text> --replace <text> [scope]
 mfiche caption preview <draft> add-word --word <word> [scope]
 mfiche caption apply   <draft> add-word --word <word> [scope]
 mfiche caption set <draft> <item> --text <caption>
+mfiche caption generate <draft> --prompt <prompt> [--model <model>] [--all|--item <id> ...]
 mfiche caption import <draft> --file <jsonl-or-directory>
 mfiche caption export <dataset-version> --format jsonl|txt-pairs --output <path>
 ```
