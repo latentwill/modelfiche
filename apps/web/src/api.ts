@@ -41,12 +41,31 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   const text = await response.text();
   const body = text ? (contentType.includes("json") ? JSON.parse(text) : text) : undefined;
   if (!response.ok) {
-    const message = typeof body === "object" && body && "detail" in body
-      ? String((body as { detail: unknown }).detail)
-      : `${response.status} ${response.statusText}`;
+    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
+    const message = detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`;
     throw new ApiError(message, response.status, body);
   }
   return body as T;
+}
+
+export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string }> {
+  const headers = new Headers({ accept: "application/octet-stream" });
+  const profileId = localStorage.getItem("titles.activeProfileId");
+  if (profileId) headers.set("x-profile-id", profileId);
+  const workspaceId = activeWorkspaceId();
+  if (workspaceId) headers.set("x-workspace-id", workspaceId);
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (!response.ok) {
+    const text = await response.text();
+    let body: unknown = text;
+    try { body = text ? JSON.parse(text) : undefined; } catch { /* Preserve the response text. */ }
+    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
+    const message = detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`;
+    throw new ApiError(message, response.status, body);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? "modelfiche-support.zip";
+  return { blob: await response.blob(), filename };
 }
 
 export function listOf<T>(value: unknown): T[] {

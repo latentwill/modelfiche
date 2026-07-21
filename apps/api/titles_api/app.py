@@ -5,11 +5,12 @@ from pathlib import Path
 import shutil
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from . import __version__, models
-from .database import SessionLocal, bootstrap_empty_local_database, engine, upgrade_installed_database
+from .database import SessionLocal, bootstrap_empty_local_database, engine as engine, upgrade_installed_database
 from .routers import (
     asset_delivery,
     collaboration,
@@ -27,6 +28,7 @@ from .routers import (
     wandb_credentials,
     storage_policy,
 )
+from .support_bundle import create_support_bundle
 from .settings import get_settings
 from .integrations.config import S3Settings
 from .integrations.fal.adapters import list_adapters
@@ -251,6 +253,24 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
             "target": str(source),
             "path_note": f"Add {target.parent} to PATH if your shell does not already include it.",
         }
+
+
+    @app.get("/api/system/support-bundle")
+    def support_bundle():
+        with SessionLocal() as db:
+            payload = create_support_bundle(
+                db,
+                database_url=settings.database_url,
+                asset_root=settings.asset_root,
+                cache_root=settings.cache_root,
+                export_root=settings.export_root,
+            )
+        filename = f"modelfiche-support-{datetime.now(timezone.utc).date().isoformat()}.zip"
+        return Response(
+            content=payload,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
     for api_router in (

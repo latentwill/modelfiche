@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from io import BytesIO
+import json
+import zipfile
 from datetime import datetime, timedelta, timezone
 
 from titles_api import app as app_module
@@ -52,3 +55,26 @@ def test_cli_install_creates_user_scoped_packaged_command(client, tmp_path, monk
     doctor = client.get("/api/system/doctor").json()
     assert doctor["agent_cli"]["configured"] is True
     assert doctor["agent_cli"]["path"] == str(installed)
+
+
+def test_support_bundle_contains_diagnostics_without_credentials_or_home_paths(client, tmp_path, monkeypatch) -> None:
+    log_root = tmp_path / "logs"
+    log_root.mkdir()
+    secret = "super-secret-value"
+    log_root.joinpath("api.log").write_text(f"request failed api_key={secret} path={tmp_path}/private\\n", encoding="utf-8")
+    monkeypatch.setenv("TITLES_LOG_ROOT", str(log_root))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    response = client.get("/api/system/support-bundle")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "attachment;" in response.headers["content-disposition"]
+    with zipfile.ZipFile(BytesIO(response.content)) as bundle:
+        assert set(bundle.namelist()) == {"report.json", "logs/api.log"}
+        report = json.loads(bundle.read("report.json"))
+        log = bundle.read("logs/api.log").decode()
+    assert report["redaction"]["credentials_included"] is False
+    assert secret not in log
+    assert str(tmp_path) not in log
+    assert "[REDACTED]" in log
