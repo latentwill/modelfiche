@@ -823,7 +823,7 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 
 @media (max-width: 820px) {
   .vela-focus-workspace .image-review-stage { grid-template-columns: 1fr; }
-  .vela-focus-workspace .image-review-main > img { height: 62vh; }
+  .vela-focus-workspace .image-review-main > img { width: 100%; max-width: 100%; height: 62vh; object-fit: contain; }
   .vela-focus-workspace .image-review-inspector { border-left: 0; border-top: 1px solid var(--vela-border); }
   .gallery-review-overlay .image-review-stage { min-height: 0; }
   .gallery-review-overlay .image-review-main { min-height: min-content; }
@@ -2944,6 +2944,32 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   .vela-theme .eval-output-card { grid-template-columns: minmax(0, 1fr); }
   .vela-theme .eval-saved-index,
   .vela-theme .grid-axis-layout { grid-template-columns: minmax(0, 1fr); }
+  .vela-theme .eval-comparison-matrix { overflow: visible; }
+  .vela-theme .eval-comparison-header { display: none; }
+  .vela-theme .eval-comparison-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    padding: var(--vela-space-3);
+    border: 1px solid var(--vela-border);
+  }
+  .vela-theme .eval-comparison-row > p {
+    padding: 0 0 var(--vela-space-2);
+    overflow-wrap: anywhere;
+  }
+  .vela-theme .eval-comparison-row > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--vela-space-1);
+    padding-block: var(--vela-space-2);
+    border-top: 1px solid var(--vela-border);
+  }
+  .vela-theme .eval-comparison-row > div::before {
+    content: attr(data-checkpoint);
+    overflow-wrap: anywhere;
+    color: var(--vela-muted);
+    font: .625rem/1.4 var(--vela-font-mono);
+  }
   .vela-theme .grid-board-region { border: 0; overflow: visible; }
   .vela-theme table.grid-board,
   .vela-theme .grid-board :is(tbody, tr, td) { display: grid; width: 100%; }
