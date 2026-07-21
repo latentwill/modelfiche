@@ -308,6 +308,7 @@ class TrainingRun(UUIDMixin, TimestampMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     last_event_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
     exit_code: Mapped[int | None] = mapped_column(Integer)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
 
 
 class TrainingStage(UUIDMixin, TimestampMixin, Base):
@@ -624,6 +625,16 @@ class Job(UUIDMixin, TimestampMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    worker_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    state: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    pid: Mapped[int] = mapped_column(Integer)
+    version: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    heartbeat_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
 
 
 class ActivityEvent(UUIDMixin, Base):

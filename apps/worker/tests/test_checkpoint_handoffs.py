@@ -10,17 +10,24 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from titles_api import models
 from titles_api.database import Base
-from titles_worker.checkpoint_handoffs import CheckpointHandoffReconciler
+from titles_worker.checkpoint_handoffs import CheckpointHandoffReconciler, CheckpointManifestPoller
 
 
 class FakeS3:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str, str], bytes] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.on_get: Any = None
         self.missing: set[tuple[str, str]] = set()
 
     def put(self, bucket: str, key: str, value: bytes, version: str = "v1") -> None:
         self.objects[(bucket, key, version)] = value
+    def list_objects_v2(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("list", kwargs))
+        bucket, prefix = kwargs["Bucket"], kwargs["Prefix"]
+        keys = sorted({key for candidate_bucket, key, _version in self.objects if candidate_bucket == bucket and key.startswith(prefix)})
+        return {"Contents": [{"Key": key} for key in keys], "IsTruncated": False}
+
 
     def head_object(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("head", kwargs))
@@ -37,6 +44,8 @@ class FakeS3:
     def get_object(self, **kwargs: Any) -> dict[str, io.BytesIO]:
         self.calls.append(("get", kwargs))
         bucket, key = kwargs["Bucket"], kwargs["Key"]
+        if self.on_get is not None:
+            self.on_get(key)
         version = kwargs.get("VersionId")
         if version is None:
             versions = [candidate for candidate in self.objects if candidate[:2] == (bucket, key)]
@@ -158,6 +167,50 @@ def test_manifest_last_imports_two_checkpoints_and_uses_manifest_version() -> No
         assert len(list(session.scalars(select(models.CheckpointRevision)))) == 2
         assert len(list(session.scalars(select(models.ModelVersion)))) == 2
         assert len(list(session.scalars(select(models.RunEvent).where(models.RunEvent.run_id == run_id)))) == 2
+
+
+def test_s3_poller_discovers_and_imports_manifest_without_callback() -> None:
+    factory = _factory()
+    handoff_id, run_id, _, s3, _ = _graph(factory)
+    with factory.begin() as session:
+        session.delete(session.get(models.RunArtifactHandoff, handoff_id))
+
+    assert CheckpointManifestPoller(factory, client_factory=lambda _source: s3).run_once() == 1
+    with factory() as session:
+        handoff = session.scalar(select(models.RunArtifactHandoff).where(models.RunArtifactHandoff.run_id == run_id))
+        assert handoff is not None and handoff.state == "observed"
+        observed = session.scalar(
+            select(models.RunEvent).where(
+                models.RunEvent.run_id == run_id,
+                models.RunEvent.type == "run.checkpoint_manifest.observed",
+            )
+        )
+        assert observed is not None and observed.payload["transport"] == "s3_poll"
+
+    assert CheckpointHandoffReconciler(factory, client_factory=lambda _source: s3).run_once() == 1
+    with factory() as session:
+        handoff = session.scalar(select(models.RunArtifactHandoff).where(models.RunArtifactHandoff.run_id == run_id))
+        assert handoff is not None and handoff.state == "imported"
+
+
+def test_remote_reads_do_not_hold_sqlite_writer_lock(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'handoffs.sqlite3'}", connect_args={"timeout": 0.1})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    _, _, _, s3, _ = _graph(factory)
+    write_observed = False
+
+    def write_during_second_checkpoint(key: str) -> None:
+        nonlocal write_observed
+        if write_observed or not key.endswith("step-20.safetensors"):
+            return
+        with engine.begin() as connection:
+            connection.exec_driver_sql("UPDATE training_runs SET name = name")
+        write_observed = True
+
+    s3.on_get = write_during_second_checkpoint
+    assert CheckpointHandoffReconciler(factory, client_factory=lambda _source: s3).run_once() == 1
+    assert write_observed
 
 
 def test_manifest_digest_failure_imports_nothing() -> None:

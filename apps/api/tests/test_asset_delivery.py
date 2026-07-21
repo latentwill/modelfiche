@@ -126,6 +126,43 @@ def test_expired_capability_is_not_resolved():
         )
 
 
+def test_remote_verified_location_without_content_blob_is_selectable():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace = models.Workspace(name="workspace")
+        project = models.Project(workspace_id=workspace.id, title="project")
+        source = models.ImportSource(workspace_id=workspace.id, name="Training", bucket="training")
+        asset = models.Asset(
+            workspace_id=workspace.id,
+            project_id=project.id,
+            kind=models.AssetKind.image,
+            name="sample.png",
+            mime_type="image/png",
+        )
+        session.add_all([workspace, project, source, asset])
+        session.flush()
+        location = models.AssetLocation(
+            asset_id=asset.id,
+            workspace_id=workspace.id,
+            provider="s3",
+            uri="s3://training/samples/sample.png",
+            bucket="training",
+            object_key="samples/sample.png",
+            source_id=source.id,
+            verified_sha256="a" * 64,
+            verification_state="verified",
+            hydration_state="remote",
+        )
+        session.add(location)
+        session.flush()
+
+        selected, alternate = StorageRepository(session, workspace.id).select_delivery_locations(asset.id)
+
+        assert selected is location
+        assert alternate is None
+
+
 def test_local_delivery_rebases_cache_path_after_application_directory_moves(tmp_path: Path, monkeypatch):
     asset_root = tmp_path / "new-app" / "var" / "assets"
     cache_root = tmp_path / "new-app" / "var" / "cache"

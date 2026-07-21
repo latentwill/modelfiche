@@ -12,6 +12,21 @@ export class ApiError extends Error {
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "");
 export const API_BASE = configuredBase ?? "";
+export const WORKSPACE_STORAGE_KEY = "titles.activeWorkspaceId";
+
+export function activeWorkspaceId(): string {
+  try {
+    return localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setActiveWorkspaceId(workspaceId: string) {
+  localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
+  localStorage.removeItem("titles.activeProfileId");
+}
+
 
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -19,17 +34,38 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   headers.set("accept", "application/json");
   const profileId = localStorage.getItem("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
+  const workspaceId = activeWorkspaceId();
+  if (workspaceId) headers.set("x-workspace-id", workspaceId);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();
   const body = text ? (contentType.includes("json") ? JSON.parse(text) : text) : undefined;
   if (!response.ok) {
-    const message = typeof body === "object" && body && "detail" in body
-      ? String((body as { detail: unknown }).detail)
-      : `${response.status} ${response.statusText}`;
+    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
+    const message = detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`;
     throw new ApiError(message, response.status, body);
   }
   return body as T;
+}
+
+export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string }> {
+  const headers = new Headers({ accept: "application/octet-stream" });
+  const profileId = localStorage.getItem("titles.activeProfileId");
+  if (profileId) headers.set("x-profile-id", profileId);
+  const workspaceId = activeWorkspaceId();
+  if (workspaceId) headers.set("x-workspace-id", workspaceId);
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (!response.ok) {
+    const text = await response.text();
+    let body: unknown = text;
+    try { body = text ? JSON.parse(text) : undefined; } catch { /* Preserve the response text. */ }
+    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
+    const message = detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`;
+    throw new ApiError(message, response.status, body);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? "modelfiche-support.zip";
+  return { blob: await response.blob(), filename };
 }
 
 export function listOf<T>(value: unknown): T[] {

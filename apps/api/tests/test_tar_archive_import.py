@@ -51,9 +51,10 @@ def test_fal_lora_filename_normalizes_historical_image_provenance():
     normalized = normalize_fal_image_metadata({
         "provider": "fal",
         "endpoint": "fal-ai/krea-2/turbo/lora",
-        "fal_request_input": {"seed": 42, "loras": [{"path": "https://fal.media/ASuwLIjPEyiNbS0KHwU4R_titlesxyz-kzapata-krea2-v001-fal-2250.safetensors"}]},
+        "fal_request_input": {"seed": 42, "loras": [{"path": "https://fal.media/ASuwLIjPEyiNbS0KHwU4R_titlesxyz-kzapata-krea2-v001-fal-2250.safetensors", "scale": 0.65}]},
     })
     assert normalized["inferred_model_name"] == "titlesxyz-kzapata-krea2-v001"
     assert normalized["base_model"] == "krea/Krea-2-Raw"
     assert normalized["step"] == 2250
     assert normalized["generation_settings"]["seed"] == 42
+    assert normalized["lora_scale"] == 0.65

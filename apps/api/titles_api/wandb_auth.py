@@ -121,7 +121,10 @@ def authenticate_wandb_request(session: Session, authorization: str | None) -> W
     now = models.utcnow()
     if _parse_time(claims.get("issued_at"), "issued_at") > now:
         raise _unauthorized("W&B launch token is not active yet")
-    if _parse_time(claims.get("expires_at"), "expires_at") <= now:
+    if _parse_time(claims.get("expires_at"), "expires_at") <= now and launch.state != "running":
+        # A signed, manifest-pinned token remains scoped and revocable while
+        # its run is active. Expected-duration estimates must not cut off
+        # telemetry from a healthy long-running trainer.
         raise _unauthorized("W&B launch token has expired")
     if launch.state not in _ALLOWED_LAUNCH_STATES:
         raise HTTPException(status_code=409, detail="training launch is not accepting W&B events")

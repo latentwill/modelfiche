@@ -15,6 +15,23 @@ from titles_cli import main
 runner = CliRunner()
 
 
+def test_public_cli_name_is_mfiche_and_legacy_name_is_absent() -> None:
+    result = runner.invoke(main.app, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    assert main.app.info.name == "mfiche"
+    assert "Usage: mfiche " in result.output
+    assert "Usage: titles " not in result.output
+
+
+
+def test_unsupported_guidance_uses_mfiche() -> None:
+    result = runner.invoke(main.app, ["import", "refresh", "asset:asset-1"])
+
+    assert result.exit_code == 5, result.output
+    assert "mfiche run refresh <run>" in result.output
+    assert "titles run refresh <run>" not in result.output
+
 class FakeClient:
     def __init__(self, responses: list[Any] | None = None) -> None:
         self.calls: list[tuple[str, str, dict[str, Any] | None, Any]] = []
@@ -40,6 +57,14 @@ class FakeClient:
     def post(self, path: str, body: Any = None, **params: Any) -> Any:
         self.calls.append(("POST", path, params, body))
         return self._response()
+    def patch(self, path: str, body: Any = None) -> Any:
+        self.calls.append(("PATCH", path, None, body))
+        return self._response()
+
+    def delete(self, path: str) -> Any:
+        self.calls.append(("DELETE", path, None, None))
+        return self._response()
+
 
     def close(self) -> None:
         pass
@@ -164,24 +189,19 @@ def test_import_backfill_metrics_refreshes_one_existing_run(
     assert result.exit_code == 0, result.output
     assert fake_client.calls == [("POST", "/api/runs/run-1/refresh", {}, None)]
 
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        ["checkpoint", "verify", "checkpoint-1"],
-        ["comment", "update", "comment-1", "--text", "revised"],
-        ["lineage", "path", "asset:a", "checkpoint:b"],
-        ["import", "refresh", "dataset:dataset-1"],
-    ],
-)
-def test_unsupported_operations_fail_before_http(
-    fake_client: FakeClient,
-    arguments: list[str],
-) -> None:
-    result = runner.invoke(main.app, ["--json", *arguments])
+def test_unsupported_import_refresh_fails_before_http(fake_client: FakeClient) -> None:
+    result = runner.invoke(main.app, ["--json", "import", "refresh", "dataset:dataset-1"])
 
     assert result.exit_code == 5
     assert json.loads(result.output)["error"]["code"] == "UNSUPPORTED_OPERATION"
     assert fake_client.calls == []
+
+
+def test_removed_comment_update_is_not_advertised() -> None:
+    result = runner.invoke(main.app, ["comment", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "update" not in result.output
 
 
 def test_s3_stat_finds_object_through_browse(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -674,3 +694,156 @@ def test_training_launch_wait_returns_exit_7_for_unsuccessful_terminal_state(
 
     assert result.exit_code == 7
     assert json.loads(result.output)["state"] == state
+
+
+def test_training_prepare_bundles_self_contained_checkpoint_sync(monkeypatch, tmp_path) -> None:
+    packet = {
+        "run_id": "run-1",
+        "manifest": {
+            "dataset": {"download_url": "/api/transfers/export-1/download"},
+            "telemetry": {"token": {"claims": {"launch_id": "launch-1"}}},
+        },
+        "preflight": {"ready_to_start": True},
+        "ai_toolkit": {"logging": {"use_wandb": False}},
+    }
+    fake = FakeClient([packet, 'export MODELFICHE_HANDOFF_TOKEN="<MF1_BASE32_ED25519_SIGNED_TOKEN>"\n', b"dataset-zip"])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+    monkeypatch.setattr(main, "read_private_key", lambda _path: object())
+    monkeypatch.setattr(main, "sign_launch_claims", lambda _claims, _key: "signed-token")
+    key = tmp_path / "signing.key"
+    key.write_text("private", encoding="utf-8")
+    output = tmp_path / "packet"
+
+    result = runner.invoke(
+        main.app,
+        ["--json", "training", "run", "prepare", "launch-1", "--output", str(output), "--private-key-file", str(key)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output / "modelfiche-run-sync.py").read_text(encoding="utf-8") == main.Path(main.__file__).with_name("run_sync.py").read_text(encoding="utf-8")
+    assert (output / "run-sync-command.txt").read_text(encoding="utf-8") == "python3 modelfiche-run-sync.py --manifest manifest.json\n"
+    assert 'MODELFICHE_HANDOFF_TOKEN="signed-token"' in (output / "trainer.env").read_text(encoding="utf-8")
+    assert (output / "training-dataset.zip").read_bytes() == b"dataset-zip"
+    checksums = json.loads((output / "checksums.json").read_text(encoding="utf-8"))["files"]
+    assert set(checksums) >= {"manifest.json", "trainer.env", "modelfiche-run-sync.py", "run-sync-command.txt", "training-dataset.zip"}
+
+
+def test_cli_parity_mutations_use_supported_api_contracts(fake_client: FakeClient) -> None:
+    commands = [
+        (
+            ["caption", "remove-word", "draft-1", "--word", "obsolete", "--all"],
+            ("POST", "/api/dataset-drafts/draft-1/operations", {}, {"operation": "remove_word", "parameters": {"word": "obsolete"}, "item_ids": None, "tag": None, "included": None, "caption_format": None, "all": True}),
+        ),
+        (
+            ["grid", "cancel", "eval-run-1"],
+            ("POST", "/api/eval-runs/eval-run-1/cancel", {}, None),
+        ),
+        (
+            ["asset", "delete", "asset-1", "--delete-content"],
+            ("DELETE", "/api/assets/asset-1?report=true&delete_content=true", None, None),
+        ),
+        (
+            ["workspace", "rename", "workspace-1", "--name", "Studio"],
+            ("PATCH", "/api/workspaces/workspace-1", None, {"name": "Studio"}),
+        ),
+        (
+            ["s3", "source-disconnect", "source-1"],
+            ("DELETE", "/api/import-sources/source-1", None, None),
+        ),
+        (
+            ["caption", "set-included", "draft-1", "--included", "--all"],
+            ("POST", "/api/dataset-drafts/draft-1/operations", {}, {"operation": "set_included", "parameters": {}, "item_ids": None, "tag": None, "included": True, "caption_format": None, "all": True}),
+        ),
+        (
+            ["caption", "format", "draft-1", "--value", "json"],
+            ("PATCH", "/api/dataset-drafts/draft-1/caption-format", None, {"caption_format": "json"}),
+        ),
+        (
+            ["caption", "undo", "draft-1", "operation-1"],
+            ("POST", "/api/dataset-drafts/draft-1/operations/operation-1/undo", {}, None),
+        ),
+        (
+            ["prompt-set", "generate", "--instruction", "Portrait prompts", "--count", "3", "--project", "project-1"],
+            ("POST", "/api/prompt-sets/generate", {}, {"instruction": "Portrait prompts", "count": 3, "context": {"project_id": "project-1"}}),
+        ),
+    ]
+
+    for arguments, expected in commands:
+        result = runner.invoke(main.app, ["--json", *arguments])
+        assert result.exit_code == 0, result.output
+        assert fake_client.calls[-1] == expected
+
+
+def test_local_import_encodes_supported_folder_files(monkeypatch, tmp_path) -> None:
+    folder = tmp_path / "images"
+    folder.mkdir()
+    (folder / "one.png").write_bytes(b"png")
+    (folder / "one.txt").write_text("caption", encoding="utf-8")
+    (folder / "ignored.bin").write_bytes(b"ignored")
+    fake = FakeClient()
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(main.app, ["--json", "import", "local", str(folder), "--project", "project-1", "--name", "Local set"])
+
+    assert result.exit_code == 0, result.output
+    body = fake.calls[0][3]
+    assert fake.calls[0][:3] == ("POST", "/api/local-imports", {})
+    assert body["project_id"] == "project-1"
+    assert body["dataset_name"] == "Local set"
+    assert [item["path"] for item in body["files"]] == ["one.png", "one.txt"]
+    assert base64.b64decode(body["files"][0]["content_base64"]) == b"png"
+
+
+def test_settings_update_accepts_nonsecret_json_patch(monkeypatch, tmp_path) -> None:
+    patch_file = tmp_path / "settings.json"
+    patch_file.write_text(json.dumps({"generation": {"prompt_prepend": "studio"}}), encoding="utf-8")
+    fake = FakeClient()
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(main.app, ["--json", "settings", "update", "--file", str(patch_file)])
+
+    assert result.exit_code == 0, result.output
+    assert fake.calls == [("PATCH", "/api/operator-settings", None, {"generation": {"prompt_prepend": "studio"}})]
+
+
+def test_image_generate_dry_run_compiles_without_admitting(monkeypatch) -> None:
+    fake = FakeClient([
+        {"id": "version-1", "project_id": "project-1", "model_id": "model-1", "checkpoint_revision_id": "revision-1"},
+        {"kind": "compiled_generation", "admission": {"id": "admission-1", "state": "ready", "version": 0}},
+    ])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(main.app, ["--json", "image", "generate", "--model-version", "version-1", "--prompt", "A portrait", "--param", "num_images=1", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert [call[:2] for call in fake.calls] == [
+        ("GET", "/api/model-versions/version-1"),
+        ("POST", "/api/generation-requests/compile"),
+    ]
+    assert fake.calls[1][3]["workflow"] == "image"
+    assert fake.calls[1][3]["prompt"] == "A portrait"
+
+
+def test_checkpoint_verify_reports_persisted_evidence(monkeypatch) -> None:
+    fake = FakeClient([{"artifact": {"asset_id": "asset-1", "checkpoint_revision_id": "revision-1", "sha256": "a" * 64, "storage": [{"provider": "s3", "size": 42, "verification_state": "verified"}]}}])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(main.app, ["--json", "checkpoint", "verify", "checkpoint-1"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["verified"] is True
+    assert fake.calls == [("GET", "/api/checkpoints/checkpoint-1", {}, None)]
+
+
+def test_lineage_path_follows_directed_edges(monkeypatch) -> None:
+    first = {"source_type": "asset", "source_id": "asset-1", "relationship": "input_to", "target_type": "run", "target_id": "run-1"}
+    second = {"source_type": "run", "source_id": "run-1", "relationship": "produced", "target_type": "checkpoint", "target_id": "checkpoint-1"}
+    fake = FakeClient([[first], [second]])
+    monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
+
+    result = runner.invoke(main.app, ["--json", "lineage", "path", "asset:asset-1", "checkpoint:checkpoint-1"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["depth"] == 2
+    assert payload["edges"] == [first, second]

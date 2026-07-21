@@ -6,18 +6,43 @@ release is an operator tool: it has local attributed profiles but no auth.
 
 ## Runtime
 
-- FastAPI and SQLite API on `http://127.0.0.1:8400`
+- Self-contained macOS app serving the API and React UI on `http://127.0.0.1:8400`
 - Durable polling worker for S3 imports, checkpoint hydration, exports, and FAL jobs
-- Bare React operator UI on `http://127.0.0.1:5173`
-- `titles` CLI, designed for both interactive and agentic use
-- Optional W&B 0.28.0 compatibility ingress on `http://127.0.0.1:8401`
+- Embedded `mfiche` CLI for interactive and agentic use
+- W&B 0.28.0 compatibility ingress on `http://127.0.0.1:8401`
 
 ## Install
+
+### macOS
+
+Download `Modelfiche-<version>-macos-<architecture>.dmg`, drag Modelfiche to
+Applications, and open it. The app includes Python, the API, worker, W&B
+ingress, web UI, migrations, and the agent CLI. Runtime data is stored under
+`~/Library/Application Support/Modelfiche`; logs are under
+`~/Library/Logs/Modelfiche`.
+
+The embedded CLI is available at:
+
+```bash
+"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json training doctor
+```
+
+Release builds are reproducible from a development checkout:
+
+```bash
+scripts/build_macos_app.sh
+```
+
+Versioned ZIP, DMG, and SHA-256 files are written to `dist/macos/release/`.
+
+### Development
 
 ```bash
 uv sync --extra dev
 pnpm --dir apps/web install
 uv run alembic upgrade head
+uv tool install --editable .
+
 ```
 
 ## S3 configuration
@@ -36,13 +61,13 @@ The existing Mega source can be injected from 1Password:
 
 ```bash
 cp .env.1password.example .env.1password
-op run --env-file=.env.1password -- uv run titles server start
+op run --env-file=.env.1password -- mfiche start
 ```
 
 Create a connector from the CLI:
 
 ```bash
-uv run titles s3 source-create \
+mfiche s3 source-create \
   --name training-runs \
   --bucket my-training-bucket \
   --region us-east-1 \
@@ -51,7 +76,7 @@ uv run titles s3 source-create \
 ```
 
 Add `--endpoint-url https://s3.example.com --addressing-style path` for a
-custom provider. `titles s3 sources` returns the UUID required by browse and
+custom provider. `mfiche s3 sources` returns the UUID required by browse and
 import commands.
 
 ## Remote image serving
@@ -73,8 +98,8 @@ selected and admitted.
 Start the API, worker, and frontend together:
 
 ```bash
-uv run titles server start
-uv run titles server status
+mfiche start
+mfiche status
 ```
 
 `server start` waits for the API and frontend health checks, then supervises
@@ -85,11 +110,34 @@ services and `server status` reports failure. The frontend runs at
 Stop the complete service stack with:
 
 ```bash
-uv run titles server stop
+mfiche stop
 ```
 
 Logs are written to `var/server.log`, `var/worker.log`, `var/web.log`, and
 `var/supervisor.log`.
+
+## Backup and restore
+
+Packaged upgrades create a verified pre-migration backup automatically and
+abort before changing the database if the backup fails. Manual snapshots
+include the SQLite database, local assets, cache, exports, and settings:
+
+```bash
+mfiche backup create
+mfiche backup list
+mfiche backup verify "/path/to/modelfiche-YYYY-MM-DD-UUID.tar.gz"
+```
+
+Stop Modelfiche before restoring. Restore verifies every file and the SQLite
+integrity check before atomically replacing the application data directory:
+
+```bash
+mfiche stop
+mfiche backup restore "/path/to/backup.tar.gz" \
+  --confirm "RESTORE MODELFICHE BACKUP"
+```
+
+`mfiche backup recover` rolls back an interrupted directory swap.
 
 ## AI Toolkit live logging
 
@@ -98,43 +146,52 @@ It accepts run start/resume, scalar and text metrics, image samples with
 captions, summaries, and completion. The regular API pre-creates the expected
 run and the trainer authenticates with a run-scoped signed token.
 
-Generate a local signing key, register only its public key, create a launch,
-and render the trainer environment:
+Set up the local asymmetric signing identity once, inspect the actionable
+readiness report, then start from a published dataset in the UI:
 
 ```bash
-uv run titles --json wandb key generate \
-  --private-key-output ~/.config/modelfiche/ai-toolkit-signing.key
-uv run titles --json wandb credential register \
-  --alias ai-toolkit --project-id <project-id> --public-key <public-key>
-uv run titles --json training-launch create --input launch.json
-uv run titles --json training-launch agent-environment <launch-id> \
-  --private-key-file ~/.config/modelfiche/ai-toolkit-signing.key \
-  --output /run/secrets/modelfiche-training.env
+"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json training setup
+"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json training doctor
 ```
 
-Use `training-launch inspect`, `training-launch wait`, `run live`, and
-`run metrics` for machine-readable agent monitoring. See
-[docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for deployment,
+After creating the launch in the UI, the launch screen supplies the exact
+`training run prepare` command. It refuses to generate a trainer packet until
+the immutable dataset export, signing identity, and verified training storage
+pass preflight. Public ingress is not required. The resulting checksummed
+packet contains the dataset archive, redacted manifest, AI Toolkit logging
+fragment, signed run-scoped environment, and checkpoint-sync helper.
+
+Run `python3 modelfiche-run-sync.py --manifest manifest.json` from the packet
+beside AI Toolkit on the trainer. It uses outbound S3 access to upload only
+stable checkpoint files, verifies each remote object, and publishes the
+generation manifest last. ModelFiche discovers those manifests through the
+configured storage source; no inbound trainer connection or tunnel is needed.
+See [docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for deployment,
 reverse-proxy routing, launch JSON, key handling, failure recovery, and the
 pinned compatibility-test procedure.
+
+`uv tool install --editable .` installs the project’s `mfiche` entry point on
+your `PATH` for local development. `uv run mfiche ...` remains the portable
+alternative when the entry point is not installed.
 
 ## Agentic CLI
 
 All commands accept `--json`; collection commands also support `--jsonl`.
 Mutations accept explicit IDs, the active local profile is sent for attribution,
 and long operations expose durable jobs that can be polled with
-`titles job wait <job-id>`.
+`mfiche job wait <job-id>`.
 
 ```bash
-uv run titles --json profile list
-uv run titles --json project list
-uv run titles --json s3 sources
-uv run titles --json s3 ls --source <source-uuid> --prefix completed-runs/
-uv run titles --json import create --source <source-uuid> \
+mfiche --json profile list
+mfiche --json project list
+mfiche --json s3 sources
+mfiche --json s3 ls --source <source-uuid> --prefix completed-runs/
+mfiche --json import create --source <source-uuid> \
   --project <project-uuid> --prefix completed-runs/example/ --wait
 ```
 
-Use `uv run titles --help` for the full command tree.
+Use `mfiche --help` for the full command tree. `mfiche start`, `mfiche status`,
+and `mfiche stop` are short forms of their `mfiche server` equivalents.
 
 ## Operator APIs
 

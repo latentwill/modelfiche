@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Archive, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
-import { ApiError, api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { Archive, Clipboard, Download, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
+import { ApiError, api, apiDownload, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -83,6 +83,22 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   const [projectMessage, setProjectMessage] = useState("");
   const [projectActionError, setProjectActionError] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editing || !project.data) return;
+    let revealFrame = 0;
+    const routeFrame = requestAnimationFrame(() => {
+      revealFrame = requestAnimationFrame(() => {
+        if (!editorRef.current) return;
+        editorRef.current.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        editorRef.current.querySelector<HTMLInputElement>('input[name="title"]')?.focus({ preventScroll: true });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(routeFrame);
+      cancelAnimationFrame(revealFrame);
+    };
+  }, [editing, project.data, id]);
   const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const evalRows = rows(evals.data);
   const archived = project.data?.state === "archived";
   return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${id}&scope=project`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a></>}>
@@ -100,7 +116,7 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
       <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
       <Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel>
     </div>
-    {project.data && editing && <Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { await api(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); setProjectMessage("Project updated."); await project.reload(); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel>}
+    {project.data && editing && <div ref={editorRef} id="project-settings" tabIndex={-1}><Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { const updated = await api<Row>(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); project.setData(updated); window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: updated })); setProjectMessage("Project updated."); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel></div>}
   </Page>;
 }
 
@@ -245,7 +261,13 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
     if (!sourceId || !projectId || !prefix) return;
     setError(""); setBusy("import");
     const detectedKind = str((preview as Row)?.kind, "");
-    try { setJob(await api("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: projectId, prefix, kind: detectedKind === "dataset" || detectedKind === "training_run" ? detectedKind : null }))); }
+    const reviewToken = str((preview as Row)?.review_token, "");
+    if (!reviewToken) {
+      setError("Run Detect structure and review the preview before importing.");
+      setBusy("");
+      return;
+    }
+    try { setJob(await api("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: projectId, prefix, kind: detectedKind === "dataset" || detectedKind === "training_run" ? detectedKind : null, review_token: reviewToken }))); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(""); }
   }
@@ -307,7 +329,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
 
   const canBrowse = Boolean(sourceId && !busy);
   const canInspect = Boolean(sourceId && prefix && !busy);
-  const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
+  const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : !str((preview as Row)?.review_token, "") ? "Detect and review the S3 prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
   return <Page title="Import from S3 storage" subtitle="Browse an S3-compatible source, inspect a prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
     <Panel title="S3 storage source">
@@ -341,7 +363,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
       }} />
       {cursor && <button onClick={() => void browse(cursor)} disabled={Boolean(busy)} title={busy ? "Wait for the current storage operation to finish." : undefined}>Next page</button>}
     </Panel>
-    {preview !== null && <Panel title="Detection preview"><Json value={preview} /><button className="vela-button-primary" onClick={() => void importPrefix()} disabled={Boolean(importDisabledReason)} title={importDisabledReason}><Upload size={15} aria-hidden="true" />{busy === "import" ? "Queuing..." : "Start import"}</button></Panel>}
+    {preview !== null && <Panel title="Detection preview"><div className="vela-notice" role="status"><strong>Review required before import</strong><span>Detected kind: {str((preview as Row)?.kind, "unknown")}. This preview binds the import to the observed S3 prefix; rerun detection if the prefix changes.</span></div><Json value={preview} /><button className="vela-button-primary" onClick={() => void importPrefix()} disabled={Boolean(importDisabledReason)} title={importDisabledReason}><Upload size={15} aria-hidden="true" />{busy === "import" ? "Queuing..." : "Start import"}</button></Panel>}
     {job !== null && <Panel title="Import queued"><div className="vela-notice" role="status"><strong>Worker job created</strong><span>The import will continue in the background.</span></div><Json value={job} />{Boolean((job as Row)?.id) && <a className="button" href={`#/jobs/${String((job as Row).id)}`}>View import job</a>}</Panel>}
   </Page>;
 }
@@ -396,6 +418,7 @@ export function SettingsScreen() {
   const [llmValidation, setLlmValidation] = useState<Row | null>(null);
   const [llmValidationError, setLlmValidationError] = useState("");
   const [providerSaving, setProviderSaving] = useState(false);
+  const [llmKeyEditing, setLlmKeyEditing] = useState(false);
   const activeLlmProvider = llmProvider || str(llm.provider, "openai");
   useEffect(() => {
     if (!settings.data) return;
@@ -404,7 +427,7 @@ export function SettingsScreen() {
     setLlmBaseUrl(str(llm.base_url, ""));
   }, [settings.data]);
   const llmCatalog = useResource<Row>(
-    activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim()
+    !settings.data || (activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim())
       ? null
       : `/api/operator-settings/llm-models${query({ provider: activeLlmProvider, base_url: llmBaseUrl.trim() || undefined })}`,
   );
@@ -412,7 +435,6 @@ export function SettingsScreen() {
   const selectedCredentialConfigured = typeof catalogCredential.configured === "boolean"
     ? catalogCredential.configured
     : activeLlmProvider === str(llm.provider) && Boolean(credentials.llm_configured);
-  const credentialSource = str(catalogCredential.source, "");
   const providerLabel = ({
     openai: "OpenAI",
     openrouter: "OpenRouter",
@@ -420,9 +442,6 @@ export function SettingsScreen() {
     gemini: "Gemini",
     "openai-compatible": "OpenAI-compatible",
   } as Record<string, string>)[activeLlmProvider] ?? activeLlmProvider;
-  const llmSelectionDirty = activeLlmProvider !== str(llm.provider, "openai")
-    || llmModel !== str(llm.model, "")
-    || (llmBaseUrl.trim() || null) !== (str(llm.base_url, "") || null);
   const catalogModels = rows(llmCatalog.data);
   const modelOptions = catalogModels.map(model => ({
     value: str(model.id),
@@ -457,52 +476,91 @@ export function SettingsScreen() {
       else setTestError(error);
     } finally { setTesting(""); }
   };
-  return <Page title="Settings" subtitle="Local operator identity, provider defaults, and storage connections." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
+  const requestedSection = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("section") ?? "general";
+  const section = ["general", "storage", "generation", "profiles", "diagnostics"].includes(requestedSection) ? requestedSection : "general";
+  const agentCli = (health.data?.agent_cli ?? {}) as Row;
+  const databaseHealth = health.data?.database;
+  const assetHealth = health.data?.asset_store;
+  const backupHealth = health.data?.backup;
+  const databaseReady = typeof databaseHealth === "object" && databaseHealth !== null && "ok" in databaseHealth && databaseHealth.ok === true;
+  const assetsReady = typeof assetHealth === "object" && assetHealth !== null && "ok" in assetHealth && assetHealth.ok === true;
+  const backupReady = typeof backupHealth === "object" && backupHealth !== null && "configured" in backupHealth && backupHealth.configured === true;
+  const latestBackup = typeof backupHealth === "object" && backupHealth !== null && "latest" in backupHealth ? str(backupHealth.latest, "") : "";
+  const rollbackCommand = latestBackup ? `mfiche backup restore ${JSON.stringify(latestBackup)} --confirm "RESTORE MODELFICHE BACKUP"` : "";
+  async function downloadSupportBundle() {
+    setMessage("");
+    try {
+      const download = await apiDownload("/api/system/support-bundle");
+      const url = URL.createObjectURL(download.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = download.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage("Redacted support bundle downloaded.");
+    } catch (reason) {
+      setTestError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+  return <Page title="Settings" subtitle="One focused setup area at a time." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
     <Notice error={testError || settings.error || health.error || workspaces.error} loading={settings.loading || health.loading || workspaces.loading} />
-    <div className="settings-layout">
+    <nav className="settings-section-nav" aria-label="Settings sections">
+      <a href="#/settings?section=general" aria-current={section === "general" ? "page" : undefined}>General</a>
+      <a href="#/settings?section=storage" aria-current={section === "storage" ? "page" : undefined}>Storage</a>
+      <a href="#/settings?section=generation" aria-current={section === "generation" ? "page" : undefined}>Generation</a>
+      <a href="#/training-new">Training and RunPod</a>
+      <a href="#/settings?section=profiles" aria-current={section === "profiles" ? "page" : undefined}>Profiles</a>
+      <a href="#/settings?section=diagnostics" aria-current={section === "diagnostics" ? "page" : undefined}>Diagnostics</a>
+    </nav>
+    <div className="settings-sections">
+      {section === "general" && <>
       <div className="settings-account">
     <Panel title="Account"><div className="form-grid"><Field label="Active comment profile"><ProfileSelect workspaceName={str(workspace?.name, "Workspace")} /></Field>{workspace && <Form submit="Rename workspace" onSubmit={async form => { const updated = await api<Row>(`/api/workspaces/${idOf(workspace)}`, patchBody({ name: form.get("workspace_name") })); setMessage("Workspace renamed."); workspaces.setData([updated]); window.dispatchEvent(new CustomEvent("titles:workspace-updated", { detail: updated })); }}><Field label="Workspace" hint="Single local workspace in this release."><input name="workspace_name" defaultValue={str(workspace.name)} required /></Field></Form>}</div></Panel>
       </div>
+      <div className="settings-account">
+        <Panel title="Command-line access">
+          <p>{agentCli.configured ? `mfiche is installed at ${str(agentCli.path)}.` : "Install the packaged agent command for this user without administrator access."}</p>
+          <div className="actions">
+            {agentCli.configured !== true && <button type="button" className="primary" disabled={agentCli.install_available !== true} onClick={async () => { await api("/api/system/cli-install", jsonBody({})); setMessage("mfiche installed. Add ~/.local/bin to PATH if Terminal cannot find it."); await health.reload(); }}>Install mfiche</button>}
+            {agentCli.configured === true && <button type="button" onClick={() => void navigator.clipboard.writeText(`${str(agentCli.path)} --help`)}><Clipboard size={14} />Copy test command</button>}
+          </div>
+        </Panel>
+      </div>
+      </>}
+      {section === "generation" && <>
       <div className="settings-provider">
     {settings.data && <Form key={`${str(llm.provider, "openai")}:${str(llm.model, "")}:${str(llm.base_url, "")}`} submit="Save all provider settings" onSubmit={async form => { setProviderSaving(true); setMessage(""); try { await api("/api/operator-settings", patchBody({ llm: { provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null }, fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) }, generation: { prompt_prepend: String(form.get("prompt_prepend") ?? ""), prompt_append: String(form.get("prompt_append") ?? "") } })); setMessage(`${providerLabel} / ${llmModel} saved as the active LLM configuration.`); await settings.reload(); } finally { setProviderSaving(false); } }}>
-      <p className="muted settings-provider-status" role="status">Saved LLM configuration: <strong>{str(llm.provider, "openai")}</strong> / <strong>{str(llm.model, "model not set")}</strong></p>
       <Panel title="LLM">
-        <div className="integration-heading">
-          <Status value={selectedCredentialConfigured ? `${providerLabel} credential · ${credentialSource || "configured"}` : `${providerLabel} credential missing`} />
-          <div className="actions">
-            <button type="button" onClick={() => void llmCatalog.reload()} disabled={llmCatalog.loading || (activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim())} title="Reload the selected provider's live model catalog."><RefreshCw size={15} aria-hidden="true" />{llmCatalog.loading ? "Loading models…" : "Reload models"}</button>
-            <button type="button" onClick={() => void test("llm")} disabled={Boolean(testing) || !llmModel} title="Authenticate with the selected provider and verify that the chosen model exists in its live catalog."><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Validating…" : "Validate LLM"}</button>
-          </div>
-        </div>
-        <div className="form-grid">
-          <Field label="Provider" hint="Changing provider reloads its model catalog.">
-            <Dropdown name="llm_provider" aria-label="Provider" value={activeLlmProvider} options={[{ value: "openai", label: "OpenAI" }, { value: "openrouter", label: "OpenRouter" }, { value: "anthropic", label: "Anthropic" }, { value: "gemini", label: "Gemini" }, { value: "openai-compatible", label: "OpenAI-compatible" }]} onChange={provider => { setLlmProvider(provider); setLlmModel(provider === str(llm.provider) ? str(llm.model, "") : ""); setLlmBaseUrl(provider === str(llm.provider) ? str(llm.base_url, "") : ""); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} />
+        <div className="llm-settings-grid">
+          <Field label="Provider">
+            <Dropdown name="llm_provider" aria-label="Provider" value={activeLlmProvider} options={[{ value: "openai", label: "OpenAI" }, { value: "openrouter", label: "OpenRouter" }, { value: "anthropic", label: "Anthropic" }, { value: "gemini", label: "Gemini" }, { value: "openai-compatible", label: "OpenAI-compatible" }]} onChange={provider => { setLlmProvider(provider); setLlmModel(provider === str(llm.provider) ? str(llm.model, "") : ""); setLlmBaseUrl(provider === str(llm.provider) ? str(llm.base_url, "") : ""); setLlmModelFilter(""); setLlmKey(""); setLlmKeyEditing(false); setLlmValidation(null); setLlmValidationError(""); }} />
           </Field>
-          <Field label="Model" hint={`Pulled from the provider API. ${catalogModels.length ? `${visibleModelOptions.length} of ${catalogModels.length} models shown.` : "Caption-capable models are marked Vision when modality metadata is available."}`}>
-            <div className="model-catalog-picker">
-              <input type="search" aria-label="Filter models" value={llmModelFilter} onChange={event => setLlmModelFilter(event.currentTarget.value)} placeholder={`Filter ${catalogModels.length || "provider"} models…`} />
-              <Dropdown name="llm_model" aria-label="Model" value={llmModel || undefined} placeholder={llmCatalog.loading ? "Loading models…" : normalizedModelFilter && visibleModelOptions.length === 0 ? "No matching models" : "Select a model…"} options={visibleModelOptions} onChange={value => { setLlmModel(value); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} required />
-            </div>
-          </Field>
-          <Field label="API base URL" hint={activeLlmProvider === "openai-compatible" ? "Required. Enter the provider's OpenAI-compatible /v1 endpoint, then reload models." : "Optional override. Leave blank to use the selected provider's standard endpoint."}>
+          <Field label="API base URL">
             <input name="llm_base_url" type="url" value={llmBaseUrl} onChange={event => { setLlmBaseUrl(event.currentTarget.value); setLlmValidation(null); setLlmValidationError(""); }} placeholder={activeLlmProvider === "openai-compatible" ? "https://api.example.com/v1" : "Provider default"} />
           </Field>
+          <Field label="Filter models">
+            <input type="search" aria-label="Filter models" value={llmModelFilter} onChange={event => setLlmModelFilter(event.currentTarget.value)} placeholder="Filter models" />
+          </Field>
+          <Field label="Model">
+            <Dropdown name="llm_model" aria-label="Model" value={llmModel || undefined} placeholder={llmCatalog.loading ? "Loading models…" : normalizedModelFilter && visibleModelOptions.length === 0 ? "No matching models" : "Select a model…"} options={visibleModelOptions} onChange={value => { setLlmModel(value); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} required />
+          </Field>
         </div>
-        {llmSelectionDirty && <div className="vela-notice" role="status"><strong>Unsaved LLM selection</strong><span>{providerLabel} / {llmModel || "select a model"}</span></div>}
-        <div className="actions llm-save-actions">
-          <button type="submit" className="primary" disabled={providerSaving || !llmModel}>{providerSaving ? "Saving LLM configuration…" : "Save LLM configuration"}</button>
+        <div className="llm-credential-grid">
+          <div className="llm-key-field"><Field label={`${providerLabel} API key`}>
+            <input type="password" autoComplete="new-password" aria-label={`${providerLabel} API key`} value={llmKey || (selectedCredentialConfigured && !llmKeyEditing ? "••••••••••••" : "")} onFocus={() => setLlmKeyEditing(true)} onBlur={() => { if (!llmKey) setLlmKeyEditing(false); }} onChange={event => setLlmKey(event.currentTarget.value)} placeholder={selectedCredentialConfigured ? undefined : `Enter ${providerLabel} API key`} />
+          </Field></div>
+          <div className="actions llm-key-actions">
+            <button type="button" className="primary" disabled={!llmKey.trim()} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "PUT", body: JSON.stringify({ key: llmKey }) }); setLlmKey(""); setLlmKeyEditing(false); setMessage(`${providerLabel} key saved.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button>
+            <button type="button" disabled={!selectedCredentialConfigured} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "DELETE" }); setLlmKey(""); setLlmKeyEditing(false); setMessage(`Saved ${providerLabel} key cleared.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button>
+          </div>
+          <div className="actions llm-config-actions">
+            <button type="submit" className="primary" disabled={providerSaving || !llmModel}>{providerSaving ? "Saving LLM configuration…" : "Save LLM configuration"}</button>
+            <button type="button" onClick={() => void test("llm")} disabled={Boolean(testing) || !llmModel}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Validating…" : "Validate LLM"}</button>
+          </div>
         </div>
-        <Notice error={llmCatalog.error} loading={llmCatalog.loading} empty={!llmCatalog.loading && !llmCatalog.error && modelOptions.length === 0} emptyText={activeLlmProvider === "openai-compatible" && !llmBaseUrl.trim() ? "Enter a base URL to load models." : "The provider returned no models."} />
+        <Notice error={llmCatalog.error} loading={llmCatalog.loading} />
         {llmValidationError && <div className="vela-notice vela-notice-error" role="alert"><strong>{providerLabel} validation failed</strong><span>{llmValidationError}</span></div>}
-        {llmValidation && <div className="vela-notice" role="status"><strong>{providerLabel} validated</strong><span>{str(llmValidation.model, llmModel)} was returned by {providerLabel}; credential source: {str(llmValidation.credential_source, credentialSource || "configured")}.</span></div>}
-        <Field label={`${providerLabel} API key`} hint="Write-only. Save the key, reload models, then validate the selected model.">
-          <input type="password" autoComplete="new-password" value={llmKey} onChange={event => setLlmKey(event.currentTarget.value)} placeholder={selectedCredentialConfigured ? `${providerLabel} credential configured — enter a replacement` : `Enter ${providerLabel} API key`} />
-        </Field>
-        <div className="actions">
-          <button type="button" className="primary" disabled={!llmKey.trim()} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "PUT", body: JSON.stringify({ key: llmKey }) }); setLlmKey(""); setMessage(`${providerLabel} key saved. Provider and model selection preserved.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button>
-          <button type="button" disabled={!selectedCredentialConfigured} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "DELETE" }); setLlmKey(""); setMessage(`Saved ${providerLabel} key cleared. Environment credentials, if present, still take precedence.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button>
-        </div>
-        <p className="muted">{activeLlmProvider === "openrouter" ? "OpenRouter uses OPENROUTER_API_KEY (or LLM_API_KEY) when an environment credential is present." : "Environment credentials take precedence over the write-only saved key."}</p>
+        {llmValidation && <div className="vela-notice" role="status"><strong>{providerLabel} validated</strong><span>{str(llmValidation.model, llmModel)} is available from {providerLabel}.</span></div>}
       </Panel>
       <Panel title="FAL worker"><Field label="Maximum parallel jobs"><input name="fal_max_parallel_jobs" type="number" min="1" max="32" defaultValue={str(fal.max_parallel_jobs, "4")} /></Field></Panel>
       <Panel title="Generation prompts"><p className="muted">Applied to every Image, Eval, and Grid prompt at compile time. Leave either field empty to disable that affix.</p><div className="form-grid"><Field label="Prompt prepend" hint="Inserted before every submitted prompt."><textarea name="prompt_prepend" defaultValue={str(generation.prompt_prepend, "")} /></Field><Field label="Prompt append" hint="Inserted after every submitted prompt."><textarea name="prompt_append" defaultValue={str(generation.prompt_append, "")} /></Field></div></Panel>
@@ -511,10 +569,12 @@ export function SettingsScreen() {
       <div className="settings-credential">
     {settings.data && <Panel title="FAL credential"><div className="integration-heading"><Status value={credentials.fal_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("fal")} disabled={Boolean(testing) || !credentials.fal_configured} title="Authenticate against FAL without submitting a generation."><PlugZap size={15} aria-hidden="true" />{testing === "fal" ? "Validating..." : "Validate connection"}</button></div><Field label="FAL API key" hint="Write-only. Saved keys are never returned to this page."><input type="password" autoComplete="new-password" value={falKey} onChange={event => setFalKey(event.currentTarget.value)} placeholder={credentials.fal_configured ? "Configured — enter a replacement" : "Enter FAL key"} /></Field><div className="actions"><button type="button" className="primary" disabled={!falKey.trim()} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "PUT", body: JSON.stringify({ key: falKey }) }); setFalKey(""); setMessage("FAL key saved. Validate the connection to confirm provider access."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button><button type="button" disabled={!credentials.fal_configured} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "DELETE" }); setFalKey(""); setMessage("Saved FAL key cleared. Environment credentials, if present, still take precedence."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button></div><p className="muted">Source: {str((settings.data.fal_connection as Row | undefined)?.source, "not configured")} · validation: {str(((settings.data.fal_connection as Row | undefined)?.last_validation as Row | undefined)?.state, "not run")}</p></Panel>}
       </div>
+      </>}
     {message && <div className="vela-notice" role="status"><strong>Settings</strong><span>{message}</span></div>}
-      <div className="settings-storage">
-    <S3SourcesPanel />
-      </div>
+      {section === "storage" && <div className="settings-storage">
+        <S3SourcesPanel />
+      </div>}
+      {section === "profiles" && <>
       <div className="settings-profiles">
     <Panel title="Local comment profiles"><Notice error={profileError || profilesResource.error} loading={profilesResource.loading} empty={!profilesResource.loading && !profiles.length} />
       <DataTable rows={profiles} columns={[["display_name", "Name"], ["email", "Email"], ["is_active", "Active"]]} onRow={profile => setSelectedProfileId(idOf(profile))} />
@@ -524,6 +584,27 @@ export function SettingsScreen() {
       }}><div className="form-grid"><Field label="Display name"><input name="display_name" required /></Field><Field label="Email"><input name="email" type="email" /></Field></div></Form>
     </Panel>
       </div>
+      </>}
+      {section === "diagnostics" && <div className="settings-diagnostics">
+        <Panel title="Runtime diagnostics">
+          <div className="readiness-card-grid">
+            <div><strong>Database</strong><Status value={databaseReady ? "ready" : "attention"} /></div>
+            <div><strong>Assets</strong><Status value={assetsReady ? "ready" : "attention"} /></div>
+            <div><strong>Backup</strong><Status value={backupReady ? "ready" : "attention"} /></div>
+            <div><strong>Agent CLI</strong><Status value={agentCli.configured ? "ready" : "attention"} /></div>
+          </div>
+          <div className="actions"><button type="button" className="primary" onClick={() => void downloadSupportBundle()}><Download size={14} />Download redacted support bundle</button><a className="button vela-button" href="#/readiness">Open readiness checks</a></div>
+        </Panel>
+        <Panel title="Update and rollback">
+          <p>Current version: <strong>{str(health.data?.version, "Unavailable")}</strong></p>
+          {latestBackup ? <>
+            <p>The latest verified pre-upgrade backup is <code>{latestBackup}</code>.</p>
+            <ol><li>Quit Modelfiche.</li><li>Reinstall the previous signed DMG.</li><li>Run the restore command below. Restore verifies the archive and rolls back automatically if the directory swap fails.</li></ol>
+            <pre>{rollbackCommand}</pre>
+            <div className="actions"><button type="button" onClick={() => void navigator.clipboard.writeText(rollbackCommand).then(() => setMessage("Rollback command copied."))}><Clipboard size={14} />Copy rollback command</button></div>
+          </> : <div className="vela-notice vela-notice-error" role="alert"><strong>No rollback snapshot</strong><span>Create and verify a backup before installing an update.</span></div>}
+        </Panel>
+      </div>}
     </div>
   </Page>;
 }

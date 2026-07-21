@@ -3,8 +3,33 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from typer.testing import CliRunner
 from titles_cli import main
 
+
+
+runner = CliRunner()
+
+
+def test_root_lifecycle_aliases_delegate_to_server_commands(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def record(command: str):
+        def handler(_ctx) -> None:
+            calls.append(command)
+
+        return handler
+
+    monkeypatch.setattr(main, "server_start", record("start"))
+    monkeypatch.setattr(main, "server_status", record("status"))
+    monkeypatch.setattr(main, "server_stop", record("stop"))
+
+    for command in ("start", "status", "stop"):
+        result = runner.invoke(main.app, [command])
+
+        assert result.exit_code == 0, result.output
+
+    assert calls == ["start", "status", "stop"]
 
 def _write_pid(path: Path, pid: int | None = None) -> None:
     path.write_text(str(pid or os.getpid()), encoding="utf-8")

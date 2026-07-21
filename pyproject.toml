@@ -24,10 +24,11 @@ dev = ["pytest>=8"]
 compat-wandb = ["wandb==0.28.0"]
 
 [project.scripts]
-titles = "titles_cli.main:app"
+mfiche = "titles_cli.main:app"
 titles-api = "titles_api.__main__:main"
 titles-wandb-ingress = "titles_api.wandb_ingress_main:main"
 titles-worker = "titles_worker.main:main"
+modelfiche-run-sync = "titles_cli.run_sync:main"
 
 [build-system]
 requires = ["hatchling"]

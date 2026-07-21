@@ -626,8 +626,9 @@ class StorageRepository:
     def select_delivery_locations(self, asset_id: str) -> tuple[models.AssetLocation | None, models.AssetLocation | None]:
         asset = self.get_asset_revision(asset_id)
         if asset.content_blob_id is None:
-            # Browser-folder imports predate content-blob publication. Keep their
-            # verified local copies deliverable while they are upgraded in place.
+            # Browser-folder imports predate content-blob publication. Keep
+            # verified local copies deliverable while remote W&B locations
+            # remain addressable through their source-backed object keys.
             locations = list(
                 self.session.scalars(
                     select(models.AssetLocation).where(
@@ -636,9 +637,11 @@ class StorageRepository:
                             models.AssetLocation.workspace_id == self.workspace_id,
                             (models.AssetLocation.provider == "local") & models.AssetLocation.workspace_id.is_(None),
                         ),
-                        models.AssetLocation.provider == "local",
-                        models.AssetLocation.hydration_state == "hydrated",
                         models.AssetLocation.verification_state.in_(("verified", "available")),
+                        or_(
+                            models.AssetLocation.provider == "s3",
+                            (models.AssetLocation.provider == "local") & (models.AssetLocation.hydration_state == "hydrated"),
+                        ),
                     )
                 )
             )

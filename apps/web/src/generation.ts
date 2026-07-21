@@ -28,6 +28,7 @@ export type GenerationModel = {
   checkpointId?: string;
   checkpointRevisionId?: string;
   name: string;
+  baseModel?: string;
   checkpointLabel: string;
   provider?: GenerationProviderId;
   endpoint?: string;
@@ -138,6 +139,7 @@ export const falAdapter: GenerationProviderAdapter = {
       id: str(row.id, ""), modelId: str(row.model_id, ""), projectId,
       checkpointId: str(row.checkpoint_id, "") || undefined,
       checkpointRevisionId: revision || undefined,
+      baseModel: str(row.base_model, "") || undefined,
       name: str(row.name ?? row.version, "Model version"),
       checkpointLabel: [str(row.filename, ""), row.checkpoint_step != null ? `step ${row.checkpoint_step}` : ""].filter(Boolean).join(" · ") || "Checkpoint",
       provider: providerModelUrl ? "fal" : undefined, endpoint: endpoint || undefined,
@@ -215,7 +217,7 @@ export function connectedFalGenerationModels(rows: Record<string, unknown>[], pr
 }
 
 export function generatorHref(workflow: GenerationWorkflow, context: GenerationContext, prefillAssetId?: string) {
-  const params = new URLSearchParams({ workflow, scope: context.kind, project: context.projectId });
+  const params = new URLSearchParams({ workflow, project: context.projectId });
   if (context.kind === "model") {
     params.set("model", context.modelId);
     if (context.modelVersionId) params.set("model_version", context.modelVersionId);
@@ -224,8 +226,21 @@ export function generatorHref(workflow: GenerationWorkflow, context: GenerationC
   return `#/generate?${params}`;
 }
 
-export function normalizedParametersFromMetadata(metadata: Record<string, unknown>): Partial<NormalizedGenerationParameters> {
+export function loraScaleFromMetadata(metadata: Record<string, unknown>): number | undefined {
   const request = record(metadata.fal_request_input ?? metadata.provider_request_input);
+  const parameters = record(metadata.parameters);
+  const settings = record(metadata.generation_settings);
+  const lora = record(metadata.lora);
+  const requestLora = Array.isArray(request.loras) ? record(request.loras[0]) : {};
+  const settingsLora = Array.isArray(settings.loras) ? record(settings.loras[0]) : {};
+  return numberOrUndefined(
+    metadata.lora_scale ?? lora.scale ?? parameters.lora_scale ?? request.lora_scale ??
+    requestLora.scale ?? settings.lora_scale ?? settingsLora.scale,
+  );
+}
+
+export function normalizedParametersFromMetadata(metadata: Record<string, unknown>): Partial<NormalizedGenerationParameters> {
+  const request = record(metadata.fal_request_input ?? metadata.provider_request_input ?? metadata.generation_settings);
   const parameters = record(metadata.parameters);
   const size = record(request.image_size ?? parameters.image_size);
   return {
@@ -236,7 +251,7 @@ export function normalizedParametersFromMetadata(metadata: Record<string, unknow
     steps: numberOrUndefined(metadata.steps ?? metadata.num_inference_steps ?? request.num_inference_steps),
 
     sampler: str(metadata.sampler ?? request.sampler, "") || undefined, scheduler: str(metadata.scheduler ?? request.scheduler, "") || undefined,
-    loraScale: numberOrUndefined(metadata.lora_scale ?? parameters.lora_scale), numImages: 1,
+    loraScale: loraScaleFromMetadata(metadata), numImages: 1,
   };
 }
 export type GenerationReplay = {

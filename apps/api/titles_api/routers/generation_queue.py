@@ -151,42 +151,77 @@ def grid_queue_results(item_id: str, db: DB):
             "asset_revision_id": output.asset_id if output else None, "generated_at": output.generated_at if output else None})
     return {**projection(item), "cells": cells}
 
-@router.post("/generation-queue/claim")
-def claim_next(db: DB):
-    """Atomically claim and admit exactly one DAM-owned FIFO item; provider contact remains worker-owned."""
-    workspace = current_workspace(db)
-    item = db.scalar(select(models.GenerationQueueItem).where(models.GenerationQueueItem.workspace_id == workspace.id,
-        models.GenerationQueueItem.queue_owner == "dam", models.GenerationQueueItem.state == "queued")
-        .order_by(models.GenerationQueueItem.created_at.asc(), models.GenerationQueueItem.id.asc()).limit(1))
-    if item is None: return None
-    claimed = db.execute(update(models.GenerationQueueItem).where(models.GenerationQueueItem.id == item.id,
-        models.GenerationQueueItem.state == "queued", models.GenerationQueueItem.queue_owner == "dam").values(state="running"))
+def _claim_item(db: Session, item: models.GenerationQueueItem) -> dict[str, Any] | None:
+    claimed = db.execute(update(models.GenerationQueueItem).where(
+        models.GenerationQueueItem.id == item.id,
+        models.GenerationQueueItem.state == "queued",
+        models.GenerationQueueItem.queue_owner == "dam",
+    ).values(state="running"))
     if claimed.rowcount != 1:
-        db.rollback(); return None
-    child = db.scalar(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == item.id,
-        models.GenerationQueueChild.state == "queued").order_by(models.GenerationQueueChild.ordinal).limit(1))
+        db.rollback()
+        return None
+    child = db.scalar(select(models.GenerationQueueChild).where(
+        models.GenerationQueueChild.queue_item_id == item.id,
+        models.GenerationQueueChild.state == "queued",
+    ).order_by(models.GenerationQueueChild.ordinal).limit(1))
     # Legacy rows created before ordered children remain runnable.
     admission_id = child.admission_id if child else item.admission_id
     # Full binding validation prevents a compiled admission being attached to another context/model.
     admission = get_or_404(db, models.FalAdmission, admission_id)
-    subject = db.scalar(select(models.FalSubject).where(models.FalSubject.admission_id == admission.id).order_by(models.FalSubject.ordinal))
+    subject = db.scalar(select(models.FalSubject).where(
+        models.FalSubject.admission_id == admission.id,
+    ).order_by(models.FalSubject.ordinal))
     definition = dict(subject.definition or {}) if subject else {}
-    if (admission.workspace_id != workspace.id or definition.get("project_id") != item.project_id
+    if (admission.workspace_id != item.workspace_id or definition.get("project_id") != item.project_id
         or definition.get("model_version_id") not in item.model_version_ids
         or (child and definition.get("model_version_id") != child.model_version_id)
         or str(definition.get("admission_input_digest") or "") == ""):
-        item.state = "failed"; item.error = "compiled admission does not match queued context/models"
-        if child: child.state = "failed"; child.error = item.error
-        db.commit(); return projection(item)
+        item.state = "failed"
+        item.error = "compiled admission does not match queued context/models"
+        if child:
+            child.state = "failed"
+            child.error = item.error
+        db.commit()
+        return projection(item)
     db.flush()
-    accepted = admit_fal_admission(admission.id, FalAdmitRequestV1(expected_version=admission.version,
-        billing_acknowledgement=BILLING_ACKNOWLEDGEMENT), db)
-    job = db.scalar(select(models.Job).where(models.Job.payload["admission_id"].as_string() == admission.id).order_by(models.Job.created_at.desc()))
-    db.refresh(item); item.job_id = job.id if job else None; item.provider_job_id = admission.eval_run_id
+    accepted = admit_fal_admission(admission.id, FalAdmitRequestV1(
+        expected_version=admission.version,
+        billing_acknowledgement=BILLING_ACKNOWLEDGEMENT,
+    ), db)
+    job = db.scalar(select(models.Job).where(
+        models.Job.payload["admission_id"].as_string() == admission.id,
+    ).order_by(models.Job.created_at.desc()))
+    db.refresh(item)
+    item.job_id = job.id if job else None
+    item.provider_job_id = admission.eval_run_id
     if child:
-        child.job_id = job.id if job else None; child.provider_job_id = admission.eval_run_id; child.state = "running"
-    db.commit(); db.refresh(item)
+        child.job_id = job.id if job else None
+        child.provider_job_id = admission.eval_run_id
+        child.state = "running"
+    db.commit()
+    db.refresh(item)
     return projection(item)
+
+
+def claim_next_for_worker(db: Session) -> dict[str, Any] | None:
+    """Claim the oldest DAM-owned item across all workspaces."""
+    item = db.scalar(select(models.GenerationQueueItem).where(
+        models.GenerationQueueItem.queue_owner == "dam",
+        models.GenerationQueueItem.state == "queued",
+    ).order_by(models.GenerationQueueItem.created_at.asc(), models.GenerationQueueItem.id.asc()).limit(1))
+    return _claim_item(db, item) if item else None
+
+
+@router.post("/generation-queue/claim")
+def claim_next(db: DB):
+    """Atomically claim one DAM-owned FIFO item in the request workspace."""
+    workspace = current_workspace(db)
+    item = db.scalar(select(models.GenerationQueueItem).where(
+        models.GenerationQueueItem.workspace_id == workspace.id,
+        models.GenerationQueueItem.queue_owner == "dam",
+        models.GenerationQueueItem.state == "queued",
+    ).order_by(models.GenerationQueueItem.created_at.asc(), models.GenerationQueueItem.id.asc()).limit(1))
+    return _claim_item(db, item) if item else None
 
 @router.patch("/generation-queue/{item_id}")
 def update_queue_item(item_id: str, body: QueueStateUpdate, db: DB):
@@ -198,6 +233,53 @@ def update_queue_item(item_id: str, body: QueueStateUpdate, db: DB):
     if body.provider_job_id is not None: item.provider_job_id = body.provider_job_id
     db.commit(); db.refresh(item)
     return projection(item)
+
+@router.post("/generation-queue/{item_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def retry_queue_item(item_id: str, db: DB):
+    item = owned_queue_item(db, item_id)
+    if item.state != "failed":
+        raise HTTPException(status_code=409, detail="only failed generation work can be retried")
+    children = list(db.scalars(select(models.GenerationQueueChild).where(
+        models.GenerationQueueChild.queue_item_id == item.id,
+    ).order_by(models.GenerationQueueChild.ordinal)))
+    failed_children = [child for child in children if child.state == "failed"]
+    retry_targets = failed_children or ([None] if not children else [])
+    if not retry_targets:
+        raise HTTPException(status_code=409, detail="no failed generation attempt is available to retry")
+    replacement_jobs = []
+    for child in retry_targets:
+        prior_job_id = child.job_id if child else item.job_id
+        prior = db.get(models.Job, prior_job_id) if prior_job_id else None
+        if prior is None:
+            raise HTTPException(status_code=409, detail="the failed attempt has no recoverable job payload")
+        replacement = models.Job(
+            workspace_id=prior.workspace_id,
+            kind=prior.kind,
+            state=models.JobState.queued,
+            profile_id=prior.profile_id,
+            payload=dict(prior.payload or {}),
+            progress=0,
+            result={},
+        )
+        db.add(replacement)
+        db.flush()
+        replacement_jobs.append(replacement.id)
+        if child:
+            child.job_id = replacement.id
+            child.state = "queued"
+            child.error = None
+            child.progress = {**dict(child.progress or {}), "fraction": 0}
+        else:
+            item.job_id = replacement.id
+    if children:
+        item.job_id = replacement_jobs[0]
+    item.state = "queued"
+    item.error = None
+    item.provider_job_id = None
+    db.commit()
+    db.refresh(item)
+    return {**projection(item), "retry_job_ids": replacement_jobs}
+
 
 @router.post("/generation-queue", status_code=status.HTTP_202_ACCEPTED)
 def enqueue(body: QueueCreate, db: DB):

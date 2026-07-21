@@ -1,10 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, LoaderCircle, UserRound } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
 
 export function Page(props: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
-  return <main className="vela-main"><header className="vela-page-header"><div><h1>{props.title}</h1>{props.subtitle && <p>{props.subtitle}</p>}</div>{props.actions && <div className="vela-page-actions">{props.actions}</div>}<img className="mf-observation-plate mf-observation-plate-light" src="/assets/microfiche-header-ornament.webp" alt="" aria-hidden="true" /><img className="mf-observation-plate mf-observation-plate-dark" src="/assets/dark-astronomy-header-ornament.webp" alt="" aria-hidden="true" /></header>{props.children}</main>;
+  return <main className="vela-main"><header className="vela-page-header"><div><h1 id="vela-route-heading">{props.title}</h1>{props.subtitle && <p>{props.subtitle}</p>}</div>{props.actions && <div className="vela-page-actions">{props.actions}</div>}<img className="mf-observation-plate mf-observation-plate-light" src="/assets/microfiche-header-ornament.webp" alt="" aria-hidden="true" /><img className="mf-observation-plate mf-observation-plate-dark" src="/assets/dark-astronomy-header-ornament.webp" alt="" aria-hidden="true" /></header>{props.children}</main>;
 }
 
 export function Panel(props: { title?: string; children: ReactNode; className?: string }) {
@@ -13,9 +13,102 @@ export function Panel(props: { title?: string; children: ReactNode; className?: 
 
 export function Notice({ error, loading, empty, emptyText, emptyHint }: { error?: string; loading?: boolean; empty?: boolean; emptyText?: string; emptyHint?: string }) {
   if (error) return <div role="alert" className="vela-notice vela-notice-error"><strong>Unable to load</strong><span>{error}</span></div>;
-  if (loading) return <div className="vela-skeleton" aria-label="Loading"><span /><span /><span /></div>;
-  if (empty) return <div className="vela-empty"><span>{emptyText ?? "No records yet"}</span><small>{emptyHint ?? "This area will update when matching work is available."}</small></div>;
+  if (loading) return <div className="vela-skeleton" role="status" aria-live="polite" aria-busy="true" aria-label="Loading"><span /><span /><span /></div>;
+  if (empty) return <div className="vela-empty" role="status" aria-live="polite"><span>{emptyText ?? "No records yet"}</span><small>{emptyHint ?? "This area will update when matching work is available."}</small></div>;
   return null;
+}
+
+export type FocusWorkspaceOptions = {
+  active: boolean;
+  onDismiss: () => void;
+  containerRef: RefObject<HTMLElement | null>;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  restoreFocusRef?: RefObject<HTMLElement | null>;
+};
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])",
+  "textarea:not([disabled])", "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+export function useFocusWorkspace(options: FocusWorkspaceOptions): void {
+  const dismissRef = useRef(options.onDismiss);
+  dismissRef.current = options.onDismiss;
+  const closing = useRef(false);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const container = options.containerRef.current;
+    if (!options.active || !container) return;
+    closing.current = false;
+    const isRendered = (element: HTMLElement) => {
+      if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
+      let current: HTMLElement | null = element;
+      while (current && current !== container.parentElement) {
+        const style = window.getComputedStyle(current);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        current = current.parentElement;
+      }
+      return true;
+    };
+    const focusables = () => Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isRendered);
+    const restoreTarget = options.restoreFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    previousFocus.current = restoreTarget;
+    const parent = container.parentElement;
+    const siblings = parent ? Array.from(parent.children).filter(node => node !== container) as HTMLElement[] : [];
+    const prior = siblings.map(element => ({ element, inert: Boolean((element as HTMLElement & { inert?: boolean }).inert), hidden: element.getAttribute("aria-hidden") }));
+    for (const element of siblings) {
+      (element as HTMLElement & { inert?: boolean }).inert = true;
+      element.setAttribute("aria-hidden", "true");
+    }
+    const initial = options.initialFocusRef?.current;
+    const focusTarget = initial && isRendered(initial) ? initial : focusables()[0] ?? container;
+    if (!focusTarget.hasAttribute("tabindex") && focusTarget === container) container.setAttribute("tabindex", "-1");
+    focusTarget.focus({ preventScroll: true });
+    const onFocusIn = (event: FocusEvent) => {
+      if (closing.current || container.contains(event.target as Node)) return;
+      const first = focusables()[0] ?? container;
+      event.stopPropagation();
+      first.focus({ preventScroll: true });
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closing.current = true;
+        dismissRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const available = focusables();
+      if (!available.length) {
+        event.preventDefault();
+        container.focus({ preventScroll: true });
+        return;
+      }
+      const first = available[0];
+      const last = available[available.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    container.addEventListener("keydown", onKeyDown);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      container.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
+      for (const { element, inert, hidden } of prior) {
+        (element as HTMLElement & { inert?: boolean }).inert = inert;
+        if (hidden === null) element.removeAttribute("aria-hidden");
+        else element.setAttribute("aria-hidden", hidden);
+      }
+      if (restoreTarget && restoreTarget.isConnected) restoreTarget.focus({ preventScroll: true });
+      previousFocus.current = null;
+      closing.current = false;
+    };
+  }, [options.active, options.containerRef, options.initialFocusRef, options.restoreFocusRef]);
 }
 
 export type DropdownOption = {
@@ -299,10 +392,10 @@ export function Field(props: { label: string; children: ReactNode; hint?: string
   return <label className="vela-field field"><span>{props.label}</span>{props.children}{props.hint && <small>{props.hint}</small>}</label>;
 }
 
-export function Form(props: { onSubmit: (form: FormData) => void | Promise<void>; children: ReactNode; submit?: string; submitDisabled?: boolean }) {
+export function Form(props: { onSubmit: (form: FormData) => void | Promise<void>; children: ReactNode; submit?: string; submitDisabled?: boolean; repeatable?: boolean }) {
   const [error, setError] = useState(""); const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setError(""); setSaved(false); setSaving(true); try { await props.onSubmit(new FormData(event.currentTarget)); setSaved(true); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setSaving(false); } };
-  return <form className="vela-form" onSubmit={event => void submit(event)}>{props.children}{error && <div role="alert" className="vela-notice vela-notice-error">{error}</div>}<button className="vela-button vela-button-primary" type="submit" disabled={saving || props.submitDisabled}>{saving ? <><LoaderCircle className="vela-spin" size={15} /> Working...</> : saved ? <><Check size={15} /> Saved</> : props.submit ?? "Save"}</button></form>;
+  return <form className="vela-form" onSubmit={event => void submit(event)}>{props.children}{error && <div role="alert" className="vela-notice vela-notice-error">{error}</div>}<button className="vela-button vela-button-primary" type="submit" disabled={saving || props.submitDisabled}>{saving ? <><LoaderCircle className="vela-spin" size={15} /> Working...</> : saved && !props.repeatable ? <><Check size={15} /> Saved</> : props.submit ?? "Save"}</button></form>;
 }
 
 export function Json({ value }: { value: unknown }) { return <pre className="vela-code">{JSON.stringify(value, null, 2)}</pre>; }
@@ -321,7 +414,10 @@ export function Pagination({ page, pageSize, total, onPage, onPageSize }: { page
 }
 
 export function DataTable(props: { rows: Record<string, unknown>[]; columns: Array<[string, string]>; onRow?: (row: Record<string, unknown>) => void }) {
-  return <div className="vela-table-wrap table-wrap" role="region" aria-label="Scrollable data table" tabIndex={0}><p className="vela-table-scroll-hint">Scroll horizontally for all columns</p><table className="vela-table"><thead><tr>{props.columns.map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={String(row.id ?? index)} role={props.onRow ? "link" : undefined} aria-label={props.onRow ? `Open ${str(row[props.columns[0]?.[0]], "record")}` : undefined} onClick={() => props.onRow?.(row)} onKeyDown={event => { if (props.onRow && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); props.onRow(row); } }} tabIndex={props.onRow ? 0 : undefined} className={props.onRow ? "is-clickable" : ""}>{props.columns.map(([key]) => <td key={key}>{renderCell(row[key])}</td>)}</tr>)}</tbody></table></div>;
+  return <div className="vela-table-wrap table-wrap" role="region" aria-label="Scrollable data table" tabIndex={0}><p className="vela-table-scroll-hint">Scroll horizontally for all columns</p><table className="vela-table"><thead><tr>{props.columns.map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => {
+    const label = `Open ${str(row[props.columns[0]?.[0]], "record")}`;
+    return <tr key={String(row.id ?? index)}>{props.columns.map(([key], columnIndex) => <td key={key}>{columnIndex === 0 && props.onRow ? <button type="button" className="vela-table-row-action" onClick={() => props.onRow?.(row)}>{renderCell(row[key])}</button> : renderCell(row[key])}</td>)}</tr>;
+  })}</tbody></table></div>;
 }
 
 function renderCell(value: unknown): ReactNode { if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.map(String).join(", "); if (value && typeof value === "object") return JSON.stringify(value); if (typeof value === "string" && /^https?:\/\//.test(value)) return <a href={value} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Open</a>; return str(value); }

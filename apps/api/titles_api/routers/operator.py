@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
+from ..services import current_workspace
 
 router = APIRouter()
 DB = Annotated[Session, Depends(get_db)]
@@ -30,18 +31,20 @@ def _preview_asset_id(db: Session, result_type: str, row) -> str | None:
 
 @router.get("/dashboard")
 def dashboard(db: DB, project_id: str | None = None):
-    project_filter = (models.Project.id == project_id,) if project_id else ()
-    asset_filter = (models.Asset.project_id == project_id,) if project_id else ()
-    run_filter = (models.TrainingRun.project_id == project_id,) if project_id else ()
-    dataset_filter = (models.Dataset.project_id == project_id,) if project_id else ()
-    model_filter = (models.Model.project_id == project_id,) if project_id else ()
+    workspace_id = current_workspace(db).id
+    workspace_projects = select(models.Project.id).where(models.Project.workspace_id == workspace_id)
+    project_filter = (models.Project.id == project_id,) if project_id else (models.Project.workspace_id == workspace_id,)
+    asset_filter = (models.Asset.project_id == project_id,) if project_id else (models.Asset.workspace_id == workspace_id,)
+    run_filter = (models.TrainingRun.project_id == project_id,) if project_id else (models.TrainingRun.project_id.in_(workspace_projects),)
+    dataset_filter = (models.Dataset.project_id == project_id,) if project_id else (models.Dataset.project_id.in_(workspace_projects),)
+    model_filter = (models.Model.project_id == project_id,) if project_id else (models.Model.project_id.in_(workspace_projects),)
 
     recent_runs = db.scalars(
         select(models.TrainingRun).where(*run_filter).order_by(models.TrainingRun.updated_at.desc()).limit(8)
     ).all()
     recent_activity = db.scalars(
         select(models.ActivityEvent)
-        .where(*(models.ActivityEvent.project_id == project_id,) if project_id else ())
+        .where(models.ActivityEvent.workspace_id == workspace_id, *(models.ActivityEvent.project_id == project_id,) if project_id else ())
         .order_by(models.ActivityEvent.created_at.desc())
         .limit(20)
     ).all()
@@ -58,7 +61,7 @@ def dashboard(db: DB, project_id: str | None = None):
             "datasets": _count(db, models.Dataset, *dataset_filter),
             "runs": _count(db, models.TrainingRun, *run_filter),
             "models": _count(db, models.Model, *model_filter),
-            "queued_jobs": _count(db, models.Job, models.Job.state.in_([models.JobState.queued, models.JobState.running])),
+            "queued_jobs": _count(db, models.Job, models.Job.workspace_id == workspace_id, models.Job.state.in_([models.JobState.queued, models.JobState.running])),
         },
         "recent_runs": [
             {
@@ -96,9 +99,11 @@ def dashboard(db: DB, project_id: str | None = None):
 def global_search(db: DB, q: str = Query(min_length=1), project_id: str | None = None, limit: int = Query(30, ge=1, le=100)):
     needle = f"%{q.strip()}%"
     per_type = max(1, min(20, limit // 5 or 1))
+    workspace_id = current_workspace(db).id
+    workspace_projects = select(models.Project.id).where(models.Project.workspace_id == workspace_id)
     results: list[dict[str, Any]] = []
 
-    project_query = select(models.Project).where(or_(models.Project.title.ilike(needle), models.Project.description.ilike(needle)))
+    project_query = select(models.Project).where(models.Project.workspace_id == workspace_id, or_(models.Project.title.ilike(needle), models.Project.description.ilike(needle)))
     if project_id:
         project_query = project_query.where(models.Project.id == project_id)
     results.extend({"type": "project", "id": row.id, "project_id": row.id, "title": row.title, "subtitle": row.description, "preview_asset_id": _preview_asset_id(db, "project", row)} for row in db.scalars(project_query.limit(per_type)))
@@ -111,7 +116,7 @@ def global_search(db: DB, q: str = Query(min_length=1), project_id: str | None =
         ("prompt_set", models.PromptSet, models.PromptSet.name, models.PromptSet.project_id),
     )
     for result_type, model, title_column, project_column in searches:
-        query = select(model).where(title_column.ilike(needle))
+        query = select(model).where(title_column.ilike(needle), project_column.in_(workspace_projects))
         if project_id:
             query = query.where(project_column == project_id)
         for row in db.scalars(query.order_by(model.updated_at.desc()).limit(per_type)):

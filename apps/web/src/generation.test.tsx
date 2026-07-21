@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { connectedFalGenerationModels, falAdapter, generationModelFromRow, generationModelUnavailableReason, generationReplayFromMetadata, generatorHref, normalizedParametersFromMetadata, pickerModeMultiple } from "./generation";
-import { EndpointFields, GenerationQueue, ImageGeneratorScreen, ModelCheckpointPicker, parametersFromForm } from "./generator";
+import { EndpointFields, GenerationQueue, ImageGeneratorScreen, ModelCheckpointPicker, formatQueueTimestamp, generationActivityTransition, parametersFromForm } from "./generator";
+import { Form } from "./ui";
 import * as apiModule from "./api";
 
 vi.mock("./api", async importOriginal => {
@@ -9,11 +10,13 @@ vi.mock("./api", async importOriginal => {
   return { ...original, api: vi.fn(() => { throw new Error("network must not be called"); }) };
 });
 
+afterEach(() => cleanup());
+
 describe("shared generation contracts", () => {
-  it("round-trips scoped model launch context in the generator href", () => {
+  it("round-trips model launch context without a scope parameter", () => {
     const href = generatorHref("image", { kind: "model", projectId: "project-a", modelId: "model-a", modelVersionId: "version-a" }, "asset-a");
     const params = new URLSearchParams(href.split("?", 2)[1]);
-    expect(Object.fromEntries(params)).toEqual({ workflow: "image", scope: "model", project: "project-a", model: "model-a", model_version: "version-a", prefill_asset: "asset-a" });
+    expect(Object.fromEntries(params)).toEqual({ workflow: "image", project: "project-a", model: "model-a", model_version: "version-a", prefill_asset: "asset-a" });
   });
 
   it("derives FAL provider and endpoint exclusively from registration metadata", () => {
@@ -37,8 +40,8 @@ describe("shared generation contracts", () => {
   });
 
   it("prefills supported normalized settings without submitting", () => {
-    const result = normalizedParametersFromMetadata({ prompt: "portrait", negative_prompt: "blur", seed: 7, fal_request_input: { image_size: { width: 768, height: 1024 }, guidance_scale: 4.5, num_inference_steps: 28, scheduler: "normal" } });
-    expect(result).toEqual(expect.objectContaining({ prompt: "portrait", negativePrompt: "blur", seed: 7, width: 768, height: 1024, guidance: 4.5, steps: 28, scheduler: "normal", numImages: 1 }));
+    const result = normalizedParametersFromMetadata({ prompt: "portrait", negative_prompt: "blur", seed: 7, generation_settings: { image_size: { width: 768, height: 1024 }, guidance_scale: 4.5, num_inference_steps: 28, scheduler: "normal", loras: [{ path: "https://example.test/model.safetensors", scale: 0.65 }] } });
+    expect(result).toEqual(expect.objectContaining({ prompt: "portrait", negativePrompt: "blur", seed: 7, width: 768, height: 1024, guidance: 4.5, steps: 28, scheduler: "normal", loraScale: 0.65, numImages: 1 }));
   });
 
   it("renders and serializes only the selected FAL endpoint fields", () => {
@@ -101,15 +104,79 @@ describe("shared generation contracts", () => {
 
   it("does not submit an admission when the Image Generator opens", () => {
     vi.mocked(apiModule.api).mockClear();
-    render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&scope=project&prefill_asset=a1")} />);
+    render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&prefill_asset=a1")} />);
     expect(vi.mocked(apiModule.api).mock.calls.some(([path]) => /generation-requests\/compile|fal-admissions/.test(String(path)))).toBe(false);
+  });
+
+  it("loads endpoint-specific controls for the selected checkpoint", async () => {
+    vi.mocked(apiModule.api).mockImplementation(async path => {
+      if (path === "/api/projects?limit=100") return [{ id: "p1", title: "Project" }];
+      if (path === "/api/models?project_id=p1") return [{ id: "m1", name: "Model" }];
+      if (path === "/api/model-versions?project_id=p1") return [{
+        id: "v1", model_id: "m1", project_id: "p1", checkpoint_revision_id: "r1", base_model: "krea/Krea-2-Raw",
+        readiness: { fal_url: "https://example.test/model.safetensors", endpoint_id: "fal-ai/krea-2/turbo/lora" },
+      }];
+      if (path === "/api/eval-endpoints") return [{ endpoint_id: "fal-ai/krea-2/turbo/lora", name: "Krea 2 Turbo LoRA", compatible_base_model_markers: ["krea"] }];
+      if (path === "/api/eval-endpoints/fal-ai/krea-2/turbo/lora/schema") return {
+        defaults: { image_size: "square_hd", acceleration: "none", enable_prompt_expansion: false, output_format: "png" },
+        request_fields: ["prompt", "image_size", "acceleration", "enable_prompt_expansion", "output_format", "loras", "sync_mode"],
+        fields: {
+          image_size: { type: "image_size", options: ["square_hd", "portrait_4_3"], custom: { min: 1, max: 14142, step: 1 } },
+          acceleration: { type: "enum", options: ["none", "regular"] },
+          enable_prompt_expansion: { type: "boolean" },
+          output_format: { type: "enum", options: ["jpeg", "png"] },
+        },
+      };
+      if (path === "/api/generation-queue") return [];
+      throw new Error(`unexpected request: ${path}`);
+    });
+    const view = render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&model_version=v1")} />);
+    await waitFor(() => {
+      expect(view.container.querySelector('[aria-label="FAL endpoint"]')).toHaveTextContent("Krea 2 Turbo LoRA");
+      expect(view.container.querySelector('[aria-label="Aspect ratio / resolution"]')).toHaveTextContent("Square HD");
+      expect(view.container.querySelector('[aria-label="acceleration"]')).toHaveTextContent("none");
+      expect(view.container.querySelector('[aria-label="enable prompt expansion"]')).toHaveTextContent("Disabled");
+      expect(view.container.querySelector('[aria-label="output format"]')).toHaveTextContent("png");
+    });
+    const prompt = screen.getByRole("textbox", { name: "Prompt" });
+    fireEvent.input(prompt, { target: { value: "A usable image prompt" } });
+    expect(prompt).toHaveValue("A usable image prompt");
+    const review = await screen.findByRole("region", { name: "Generation consequence review" });
+    expect(review).toHaveTextContent("exact charge is determined by FAL");
+    expect(view.container.querySelector('button[type="submit"]')).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I reviewed the provider and billing consequence." }));
+    expect(view.container.querySelector('button[type="submit"]')).toBeEnabled();
+    view.unmount();
+    vi.mocked(apiModule.api).mockImplementation(() => { throw new Error("network must not be called"); });
+  });
+
+  it("keeps a repeatable generation form editable after each submission", async () => {
+    const prompts: string[] = [];
+    const view = render(<Form repeatable submit="Generate image" onSubmit={form => { prompts.push(String(form.get("prompt"))); }}><textarea aria-label="Prompt" name="prompt" defaultValue="first" /></Form>);
+    fireEvent.click(view.container.querySelector('button[type="submit"]')!);
+    await waitFor(() => expect(prompts).toEqual(["first"]));
+    expect(view.container.querySelector('button[type="submit"]')).toBeEnabled();
+    fireEvent.change(view.container.querySelector('textarea[name="prompt"]')!, { target: { value: "second" } });
+    fireEvent.click(view.container.querySelector('button[type="submit"]')!);
+    await waitFor(() => expect(prompts).toEqual(["first", "second"]));
+  });
+
+  it("detects a generated image completion exactly once for activity refresh", () => {
+    expect(generationActivityTransition({}, [{ id: "q1", status: "completed" }]).changed).toBe(false);
+    const completed = generationActivityTransition({ q1: "running" }, [{ id: "q1", status: "completed" }]);
+    expect(completed).toEqual({ statuses: { q1: "completed" }, changed: true });
+    expect(generationActivityTransition(completed.statuses, [{ id: "q1", status: "completed" }]).changed).toBe(false);
+    expect(generationActivityTransition({ q2: "running" }, [{ id: "q2", status: "failed" }]).changed).toBe(false);
   });
 
   it("explains incomplete image prerequisites and blocks generation", () => {
     const { container } = render(<ImageGeneratorScreen params={new URLSearchParams()} />);
     expect(screen.getByText("Select a project.")).toBeTruthy();
+    expect(screen.queryByLabelText("Scope")).toBeNull();
     expect(container.querySelector('button[type="submit"]')).toBeDisabled();
+    expect(screen.queryByRole("region", { name: /consequence review/i })).toBeNull();
   });
+
 
   it("renders useful queue context and checkpoint labels from the persisted request", () => {
     render(<GenerationQueue items={[{ id: "q1", workflow: "image", project_id: "project-id", model_id: "model-id",
@@ -119,4 +186,32 @@ describe("shared generation contracts", () => {
     expect(screen.getByText("model.safetensors · step 1200")).toBeTruthy();
     expect(screen.queryByText("project-id / model-id")).toBeNull();
   });
+  it("shows the newest queued work first", () => {
+    render(<GenerationQueue items={[
+      { id: "older", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "completed", progress: { completed: 1, total: 1 }, created_at: "2026-07-20T01:02:03Z" },
+      { id: "newest", workflow: "image", project_id: "project", model_version_ids: ["v2"], status: "queued", progress: { completed: 0, total: 1 }, created_at: "2026-07-21T01:02:03Z" },
+    ]} />);
+    const rows = screen.getAllByRole("row");
+    expect(rows[1]).toHaveTextContent("2026-07-21 01:02:03 UTC");
+    expect(rows[2]).toHaveTextContent("2026-07-20 01:02:03 UTC");
+    expect(screen.getAllByText("Project unavailable")).toHaveLength(2);
+    expect(screen.queryByText("project")).not.toBeInTheDocument();
+    expect(formatQueueTimestamp("2026-07-21T01:02:03Z")).toBe("2026-07-21 01:02:03 UTC");
+  });
+  it("retries failed queue work only after an explicit billing warning", async () => {
+    const reload = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(apiModule.api).mockResolvedValueOnce({});
+    render(<GenerationQueue onRetry={reload} items={[{ id: "failed-1", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "failed", error: "provider timeout" }]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed work" }));
+
+    await waitFor(() => expect(apiModule.api).toHaveBeenCalledWith("/api/generation-queue/failed-1/retry", expect.objectContaining({ method: "POST" })));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("billable provider request"));
+    expect(reload).toHaveBeenCalled();
+    confirm.mockRestore();
+    vi.mocked(apiModule.api).mockImplementation(() => { throw new Error("network must not be called"); });
+  });
+
+
 });

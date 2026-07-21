@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import timedelta
 import json
 from collections.abc import Callable
 from pathlib import PurePosixPath
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from titles_api import models
@@ -79,9 +80,9 @@ def _read_stream(body: Any, *, limit: int, collect: bool = False) -> tuple[bytes
     return (b"".join(chunks) if collect else b""), size, digest.hexdigest()
 
 
-def _head(client: Any, source: models.ImportSource, key: str, *, version_id: str | None = None) -> dict[str, Any]:
+def _head(client: Any, bucket: str, key: str, *, version_id: str | None = None) -> dict[str, Any]:
     try:
-        response = client.head_object(**_request_args(source.bucket, key, version_id))
+        response = client.head_object(**_request_args(bucket, key, version_id))
     except Exception as exc:
         if _is_missing_object(exc):
             raise TransientHandoffError("source object is unavailable") from exc
@@ -91,9 +92,9 @@ def _head(client: Any, source: models.ImportSource, key: str, *, version_id: str
     return response
 
 
-def _get(client: Any, source: models.ImportSource, key: str, *, version_id: str | None = None) -> dict[str, Any]:
+def _get(client: Any, bucket: str, key: str, *, version_id: str | None = None) -> dict[str, Any]:
     try:
-        response = client.get_object(**_request_args(source.bucket, key, version_id))
+        response = client.get_object(**_request_args(bucket, key, version_id))
     except Exception as exc:
         if _is_missing_object(exc):
             raise TransientHandoffError("source object is unavailable") from exc
@@ -124,9 +125,10 @@ def _etag(value: Any) -> str | None:
 def _validate_manifest(
     raw: bytes,
     *,
-    handoff: models.RunArtifactHandoff,
-    run: models.TrainingRun,
-    launch: models.TrainingLaunch,
+    run_id: str,
+    generation: int,
+    checkpoint_count: int,
+    checkpoint_prefix: str,
 ) -> list[dict[str, Any]]:
     try:
         manifest = json.loads(raw)
@@ -138,15 +140,15 @@ def _validate_manifest(
         raise DeterministicHandoffError("checkpoint manifest contains unknown fields")
     if manifest.get("schema_version") != CHECKPOINT_MANIFEST_VERSION:
         raise DeterministicHandoffError("unsupported checkpoint manifest schema version")
-    if manifest.get("run_id") != run.id:
+    if manifest.get("run_id") != run_id:
         raise DeterministicHandoffError("checkpoint manifest run identity does not match launch")
-    generation = manifest.get("generation")
-    if isinstance(generation, bool) or not isinstance(generation, int) or generation != handoff.generation or generation < 1:
+    manifest_generation = manifest.get("generation")
+    if isinstance(manifest_generation, bool) or not isinstance(manifest_generation, int) or manifest_generation != generation or manifest_generation < 1:
         raise DeterministicHandoffError("checkpoint manifest generation does not match handoff")
     checkpoints = manifest.get("checkpoints")
-    if not isinstance(checkpoints, list) or len(checkpoints) != handoff.checkpoint_count:
+    if not isinstance(checkpoints, list) or len(checkpoints) != checkpoint_count:
         raise DeterministicHandoffError("checkpoint manifest count does not match handoff")
-    expected_prefix = f"{launch.run_prefix}checkpoints/"
+    expected_prefix = checkpoint_prefix
     seen_keys: set[str] = set()
     seen_steps: set[int] = set()
     validated: list[dict[str, Any]] = []
@@ -332,6 +334,172 @@ def _reconcile_model(session: Session, run: models.TrainingRun, launch: models.T
         version.checkpoint_revision_id = checkpoint.current_revision_id
 
 
+@dataclass(frozen=True, slots=True)
+class _VerifiedCheckpoint:
+    descriptor: dict[str, Any]
+    head: dict[str, Any]
+    digest: str
+    size: int
+
+
+class CheckpointManifestPoller:
+    """Discover immutable checkpoint manifests without requiring live ingress."""
+
+    def __init__(self, session_factory: sessionmaker[Session], *, client_factory: ClientFactory = _client_for_source) -> None:
+        self.session_factory = session_factory
+        self.client_factory = client_factory
+
+    def run_once(self, *, limit: int = 25) -> int:
+        with self.session_factory() as session:
+            launch_ids = list(
+                session.scalars(
+                    select(models.TrainingLaunch.id)
+                    .where(
+                        models.TrainingLaunch.source_id.is_not(None),
+                        models.TrainingLaunch.state != "canceled",
+                        or_(
+                            models.TrainingLaunch.state.in_(("pending", "running", "interrupted")),
+                            models.TrainingLaunch.backup_status.is_(None),
+                            models.TrainingLaunch.backup_status != "completed",
+                        ),
+                    )
+                    .order_by(models.TrainingLaunch.updated_at.desc(), models.TrainingLaunch.id)
+                    .limit(limit)
+                )
+            )
+        discovered = 0
+        for launch_id in launch_ids:
+            discovered += self._discover_launch(launch_id, limit=max(0, limit - discovered))
+            if discovered >= limit:
+                break
+        return discovered
+
+    def _discover_launch(self, launch_id: str, *, limit: int) -> int:
+        if limit < 1:
+            return 0
+        with self.session_factory() as session:
+            launch = session.get(models.TrainingLaunch, launch_id)
+            run = session.get(models.TrainingRun, launch.run_id) if launch else None
+            source = session.get(models.ImportSource, launch.source_id) if launch and launch.source_id else None
+            if launch is None or run is None or source is None or not source.is_active:
+                return 0
+            client = self.client_factory(source)
+            bucket = source.bucket
+            source_id = source.id
+            run_id = run.id
+            run_prefix = launch.run_prefix
+        manifest_prefix = f"{run_prefix}manifests/checkpoints/"
+        keys: dict[int, str] = {}
+        continuation: str | None = None
+        while True:
+            request: dict[str, Any] = {"Bucket": bucket, "Prefix": manifest_prefix, "MaxKeys": 1000}
+            if continuation:
+                request["ContinuationToken"] = continuation
+            try:
+                page = client.list_objects_v2(**request)
+            except Exception as exc:
+                raise TransientHandoffError("checkpoint manifest listing failed") from exc
+            for item in page.get("Contents", []):
+                key = item.get("Key") if isinstance(item, dict) else None
+                if not isinstance(key, str) or not key.startswith(manifest_prefix) or not key.endswith(".json"):
+                    continue
+                generation_text = key[len(manifest_prefix) : -5]
+                if generation_text.isdigit() and int(generation_text) > 0 and "/" not in generation_text:
+                    keys[int(generation_text)] = key
+            continuation_value = page.get("NextContinuationToken")
+            if not page.get("IsTruncated") or not isinstance(continuation_value, str) or not continuation_value:
+                break
+            continuation = continuation_value
+        if not keys:
+            return 0
+        with self.session_factory() as session:
+            existing = set(
+                session.scalars(
+                    select(models.RunArtifactHandoff.generation).where(
+                        models.RunArtifactHandoff.run_id == run_id,
+                        models.RunArtifactHandoff.generation.in_(keys),
+                    )
+                )
+            )
+        discovered = 0
+        for generation, manifest_key in sorted(keys.items()):
+            if generation in existing or discovered >= limit:
+                continue
+            manifest_head = _head(client, bucket, manifest_key)
+            _check_head_size(manifest_head, limit=MAX_MANIFEST_BYTES, label="checkpoint manifest")
+            manifest_version = manifest_head.get("VersionId")
+            if manifest_version is not None and (not isinstance(manifest_version, str) or not manifest_version):
+                raise DeterministicHandoffError("checkpoint manifest version is invalid")
+            response = _get(client, bucket, manifest_key, version_id=manifest_version)
+            raw, manifest_size, manifest_digest = _read_stream(response["Body"], limit=MAX_MANIFEST_BYTES, collect=True)
+            if manifest_size != manifest_head.get("ContentLength", manifest_size):
+                raise DeterministicHandoffError("checkpoint manifest size changed")
+            try:
+                payload = json.loads(raw)
+            except (TypeError, ValueError) as exc:
+                raise DeterministicHandoffError("checkpoint manifest is not valid JSON") from exc
+            checkpoints = payload.get("checkpoints") if isinstance(payload, dict) else None
+            checkpoint_count = len(checkpoints) if isinstance(checkpoints, list) else -1
+            _validate_manifest(
+                raw,
+                run_id=run_id,
+                generation=generation,
+                checkpoint_count=checkpoint_count,
+                checkpoint_prefix=f"{run_prefix}checkpoints/",
+            )
+            manifest_etag = _etag(manifest_head.get("ETag"))
+            if manifest_etag is None and manifest_version is None:
+                raise DeterministicHandoffError("checkpoint manifest has no immutable source revision")
+            source_value = f"{source_id}\0{manifest_key}\0{manifest_version or manifest_etag or ''}\0{manifest_digest}"
+            now = models.utcnow()
+            with self.session_factory.begin() as session:
+                duplicate = session.scalar(
+                    select(models.RunArtifactHandoff.id).where(
+                        models.RunArtifactHandoff.run_id == run_id,
+                        models.RunArtifactHandoff.generation == generation,
+                    )
+                )
+                if duplicate is not None:
+                    continue
+                launch = session.get(models.TrainingLaunch, launch_id)
+                run = session.get(models.TrainingRun, run_id)
+                if launch is None or run is None or launch.source_id != source_id or launch.run_prefix != run_prefix:
+                    raise TransientHandoffError("launch source changed during checkpoint discovery")
+                handoff = models.RunArtifactHandoff(
+                    run_id=run_id,
+                    generation=generation,
+                    manifest_key=manifest_key,
+                    manifest_etag=manifest_etag,
+                    manifest_version_id=manifest_version,
+                    manifest_digest=manifest_digest,
+                    state="observed",
+                    source_fingerprint=hashlib.sha256(source_value.encode("utf-8")).hexdigest(),
+                    checkpoint_count=checkpoint_count,
+                    observed_at=now,
+                )
+                session.add(handoff)
+                launch.backup_status = "reconciling"
+                launch.checkpoint_handoff_status = "observed"
+                launch.next_reconcile_at = now
+                append_run_event(
+                    session,
+                    run,
+                    type="run.checkpoint_manifest.observed",
+                    idempotency_key=f"checkpoint-manifest:{run_id}:{generation}:{manifest_digest}",
+                    payload={
+                        "handoff_id": handoff.id,
+                        "generation": generation,
+                        "manifest_key": manifest_key,
+                        "checkpoint_count": checkpoint_count,
+                        "transport": "s3_poll",
+                    },
+                    step=run.current_step,
+                    occurred_at=now,
+                )
+            discovered += 1
+        return discovered
+
+
 class CheckpointHandoffReconciler:
     def __init__(self, session_factory: sessionmaker[Session], *, client_factory: ClientFactory = _client_for_source) -> None:
         self.session_factory = session_factory
@@ -371,6 +539,8 @@ class CheckpointHandoffReconciler:
         return completed
 
     def _reconcile(self, handoff_id: str) -> None:
+        # Claim the handoff in a short transaction. Remote checkpoint reads can
+        # take minutes and must not hold SQLite's single-writer lock.
         with self.session_factory.begin() as session:
             handoff = session.get(models.RunArtifactHandoff, handoff_id, with_for_update=True)
             if handoff is None or handoff.state not in {"observed", "reconciling", "verifying", "partial"}:
@@ -383,68 +553,107 @@ class CheckpointHandoffReconciler:
             handoff.state = "verifying"
             launch.checkpoint_handoff_status = "verifying"
             client = self.client_factory(source)
-            expected_manifest_key = f"{launch.run_prefix}manifests/checkpoints/{handoff.generation}.json"
-            if handoff.manifest_key != expected_manifest_key:
-                raise DeterministicHandoffError("checkpoint manifest key does not match launch generation")
-            manifest_head = _head(client, source, handoff.manifest_key, version_id=handoff.manifest_version_id)
-            _check_head_size(manifest_head, limit=MAX_MANIFEST_BYTES, label="checkpoint manifest")
-            if handoff.manifest_version_id and manifest_head.get("VersionId") not in {None, handoff.manifest_version_id}:
-                raise DeterministicHandoffError("checkpoint manifest version does not match handoff")
-            actual_etag = _etag(manifest_head.get("ETag"))
-            if handoff.manifest_etag and actual_etag and actual_etag != _etag(handoff.manifest_etag):
-                raise DeterministicHandoffError("checkpoint manifest ETag does not match handoff")
-            manifest_version = handoff.manifest_version_id or manifest_head.get("VersionId")
-            response = _get(client, source, handoff.manifest_key, version_id=manifest_version)
+            bucket = source.bucket
+            run_id = run.id
+            generation = handoff.generation
+            checkpoint_count = handoff.checkpoint_count
+            manifest_key = handoff.manifest_key
+            manifest_etag = handoff.manifest_etag
+            manifest_version_id = handoff.manifest_version_id
+            manifest_digest_expected = handoff.manifest_digest
+            run_prefix = launch.run_prefix
+
+        expected_manifest_key = f"{run_prefix}manifests/checkpoints/{generation}.json"
+        if manifest_key != expected_manifest_key:
+            raise DeterministicHandoffError("checkpoint manifest key does not match launch generation")
+        manifest_head = _head(client, bucket, manifest_key, version_id=manifest_version_id)
+        _check_head_size(manifest_head, limit=MAX_MANIFEST_BYTES, label="checkpoint manifest")
+        if manifest_version_id and manifest_head.get("VersionId") not in {None, manifest_version_id}:
+            raise DeterministicHandoffError("checkpoint manifest version does not match handoff")
+        actual_etag = _etag(manifest_head.get("ETag"))
+        if manifest_etag and actual_etag and actual_etag != _etag(manifest_etag):
+            raise DeterministicHandoffError("checkpoint manifest ETag does not match handoff")
+        manifest_version = manifest_version_id or manifest_head.get("VersionId")
+        response = _get(client, bucket, manifest_key, version_id=manifest_version)
+        if (
+            manifest_version is not None
+            and response.get("VersionId") is not None
+            and response.get("VersionId") != manifest_version
+        ):
+            raise DeterministicHandoffError("checkpoint manifest response version changed")
+        raw, manifest_size, manifest_digest = _read_stream(response["Body"], limit=MAX_MANIFEST_BYTES, collect=True)
+        if manifest_size != manifest_head.get("ContentLength", manifest_size):
+            raise DeterministicHandoffError("checkpoint manifest size changed")
+        if manifest_digest != manifest_digest_expected:
+            raise DeterministicHandoffError("checkpoint manifest digest does not match handoff")
+        descriptors = _validate_manifest(
+            raw,
+            run_id=run_id,
+            generation=generation,
+            checkpoint_count=checkpoint_count,
+            checkpoint_prefix=f"{run_prefix}checkpoints/",
+        )
+        verified: list[_VerifiedCheckpoint] = []
+        for descriptor in descriptors:
+            object_head = _head(client, bucket, descriptor["object_key"])
+            _check_head_size(object_head, limit=MAX_CHECKPOINT_BYTES, label="checkpoint object")
+            head_size = object_head.get("ContentLength")
+            if head_size is not None and head_size != descriptor["size"]:
+                raise DeterministicHandoffError("checkpoint object size does not match manifest")
+            object_version = object_head.get("VersionId")
+            if object_version is not None and (not isinstance(object_version, str) or not object_version):
+                raise DeterministicHandoffError("checkpoint source version is invalid")
+            response = _get(client, bucket, descriptor["object_key"], version_id=object_version)
             if (
-                manifest_version is not None
+                object_version is not None
                 and response.get("VersionId") is not None
-                and response.get("VersionId") != manifest_version
+                and response.get("VersionId") != object_version
             ):
-                raise DeterministicHandoffError("checkpoint manifest response version changed")
-            raw, manifest_size, manifest_digest = _read_stream(response["Body"], limit=MAX_MANIFEST_BYTES, collect=True)
-            if manifest_size != manifest_head.get("ContentLength", manifest_size):
-                raise DeterministicHandoffError("checkpoint manifest size changed")
-            if manifest_digest != handoff.manifest_digest:
-                raise DeterministicHandoffError("checkpoint manifest digest does not match handoff")
-            descriptors = _validate_manifest(raw, handoff=handoff, run=run, launch=launch)
-            handoff.verified_count = 0
+                raise DeterministicHandoffError("checkpoint object response version changed")
+            _, size, digest = _read_stream(response["Body"], limit=MAX_CHECKPOINT_BYTES)
+            if size != descriptor["size"] or digest != descriptor["sha256"]:
+                raise DeterministicHandoffError("checkpoint object digest or size does not match manifest")
+            verified.append(_VerifiedCheckpoint(descriptor=descriptor, head=object_head, digest=digest, size=size))
+
+        # Materialize only after all remote bytes have been verified. A failed
+        # read therefore leaves no partial checkpoint graph.
+        with self.session_factory.begin() as session:
+            handoff = session.get(models.RunArtifactHandoff, handoff_id, with_for_update=True)
+            if handoff is None or handoff.state not in {"observed", "reconciling", "verifying", "partial"}:
+                return
+            run = session.get(models.TrainingRun, handoff.run_id)
+            launch = session.scalar(select(models.TrainingLaunch).where(models.TrainingLaunch.run_id == handoff.run_id))
+            source = session.get(models.ImportSource, launch.source_id) if launch and launch.source_id else None
+            if run is None or launch is None or source is None or not source.is_active:
+                raise TransientHandoffError("launch source is unavailable")
+            if (
+                run.id != run_id
+                or handoff.generation != generation
+                or handoff.manifest_key != manifest_key
+                or handoff.manifest_digest != manifest_digest_expected
+                or launch.run_prefix != run_prefix
+                or source.bucket != bucket
+            ):
+                raise TransientHandoffError("launch source changed during checkpoint verification")
             checkpoints: list[models.Checkpoint] = []
-            for descriptor in descriptors:
-                object_head = _head(client, source, descriptor["object_key"])
-                _check_head_size(object_head, limit=MAX_CHECKPOINT_BYTES, label="checkpoint object")
-                head_size = object_head.get("ContentLength")
-                if head_size is not None and head_size != descriptor["size"]:
-                    raise DeterministicHandoffError("checkpoint object size does not match manifest")
-                object_version = object_head.get("VersionId")
-                if object_version is not None and (not isinstance(object_version, str) or not object_version):
-                    raise DeterministicHandoffError("checkpoint source version is invalid")
-                response = _get(client, source, descriptor["object_key"], version_id=object_version)
-                if (
-                    object_version is not None
-                    and response.get("VersionId") is not None
-                    and response.get("VersionId") != object_version
-                ):
-                    raise DeterministicHandoffError("checkpoint object response version changed")
-                _, size, digest = _read_stream(response["Body"], limit=MAX_CHECKPOINT_BYTES)
-                if size != descriptor["size"] or digest != descriptor["sha256"]:
-                    raise DeterministicHandoffError("checkpoint object digest or size does not match manifest")
+            for item in verified:
                 checkpoint = _materialize_checkpoint(
                     session,
                     run=run,
                     launch=launch,
                     source=source,
-                    descriptor=descriptor,
-                    head=object_head,
-                    digest=digest,
-                    size=size,
+                    descriptor=item.descriptor,
+                    head=item.head,
+                    digest=item.digest,
+                    size=item.size,
                 )
                 checkpoints.append(checkpoint)
-                handoff.verified_count += 1
             _reconcile_model(session, run, launch, checkpoints)
             now = models.utcnow()
             handoff.state = "imported"
             handoff.error = None
             handoff.checkpoint_count = len(descriptors)
+            handoff.verified_count = len(verified)
             handoff.imported_count = len(checkpoints)
             handoff.failed_count = 0
             handoff.verified_at = now

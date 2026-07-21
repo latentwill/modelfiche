@@ -482,7 +482,7 @@ class AssetDeliveryService:
                 return True
         except Exception:
             pass
-        if location.verification_state != "available" or not location.verified_sha256:
+        if location.verification_state not in {"available", "verified"} or not location.verified_sha256:
             return False
         source = db.get(models.ImportSource, location.source_id) if location.source_id else None
         return source is not None and source.is_active

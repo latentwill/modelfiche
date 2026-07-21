@@ -25,7 +25,7 @@ const source = {
   allowed_prefixes: [],
 };
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.location.hash = ""; });
 
 describe("settings dropdowns", () => {
   it("renders shared dropdowns and saves OpenRouter without forcing its default endpoint", async () => {
@@ -58,13 +58,14 @@ describe("settings dropdowns", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
+    window.location.hash = "#/settings?section=generation";
     render(<SettingsScreen />);
     const provider = await screen.findByRole("button", { name: "Provider" });
     expect(document.querySelector("select")).toBeNull();
     fireEvent.click(provider);
     fireEvent.click(screen.getByRole("option", { name: "OpenRouter" }));
-
-    expect(screen.getByText(/OpenRouter uses OPENROUTER_API_KEY/)).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).includes("provider=openrouter"))).toBe(true));
+    expect(screen.queryByRole("button", { name: "Load provider models" })).not.toBeInTheDocument();
     const filter = await screen.findByRole("searchbox", { name: "Filter models" });
     fireEvent.change(filter, { target: { value: "gpt-4o" } });
     const model = await screen.findByRole("button", { name: "Model" });
@@ -72,11 +73,13 @@ describe("settings dropdowns", () => {
     expect(screen.queryByRole("option", { name: /Claude Sonnet/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: /GPT-4o Mini/ }));
     const llmPanel = screen.getByRole("heading", { name: "LLM" }).closest("section")!;
-    expect(within(llmPanel).getByText(/OpenRouter credential · saved/)).toBeInTheDocument();
+    expect(llmPanel.querySelectorAll(".llm-settings-grid .vela-field")).toHaveLength(4);
+    expect(llmPanel.querySelector(".llm-credential-grid")).toBeInTheDocument();
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Validate LLM" }));
+    const key = within(llmPanel).getByLabelText("OpenRouter API key");
+    expect(key).toHaveValue("••••••••••••");
+    expect(llmPanel).not.toHaveTextContent(/No provider contact|Optional override|Write-only|OPENROUTER_API_KEY|Caption-capable models|Changing provider/);
     expect(await within(llmPanel).findByText("OpenRouter validated")).toBeInTheDocument();
-    expect(within(llmPanel).getByText(/credential source: saved/)).toBeInTheDocument();
-    const key = within(llmPanel).getByPlaceholderText("OpenRouter credential configured — enter a replacement");
     fireEvent.change(key, { target: { value: "replacement-key" } });
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Save key" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings/llm-key", expect.objectContaining({ method: "PUT" })));
@@ -91,7 +94,6 @@ describe("settings dropdowns", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings", expect.objectContaining({ method: "PATCH" })));
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ llm: { provider: "openrouter", base_url: null } });
-    expect(await screen.findByText("Saved LLM configuration:", { exact: false })).toHaveTextContent("Saved LLM configuration: openrouter / openai/gpt-4o-mini");
     await waitFor(() => expect(within(screen.getByRole("button", { name: "Save all provider settings" }).closest("form")!).getByRole("button", { name: "Model" })).toHaveTextContent("GPT-4o Mini"));
   });
 
@@ -122,16 +124,16 @@ describe("settings dropdowns", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
+    window.location.hash = "#/settings?section=generation";
     render(<SettingsScreen />);
+    await screen.findByRole("searchbox", { name: "Filter models" });
     const filter = await screen.findByRole("searchbox", { name: "Filter models" });
     fireEvent.change(filter, { target: { value: "luna" } });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: /GPT-5.6 Luna/ }));
-    expect(screen.getByText("Unsaved LLM selection")).toBeInTheDocument();
-    expect(screen.getByText("OpenRouter / openai/gpt-5.6-luna")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save LLM configuration" }));
 
-    await waitFor(() => expect(screen.getByText("Saved LLM configuration:", { exact: false })).toHaveTextContent("Saved LLM configuration: openrouter / openai/gpt-5.6-luna"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings", expect.objectContaining({ method: "PATCH" })));
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ llm: { provider: "openrouter", model: "openai/gpt-5.6-luna", base_url: null } });
   });
@@ -148,8 +150,9 @@ describe("settings dropdowns", () => {
     }));
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
+    window.location.hash = "#/settings?section=storage";
     render(<SettingsScreen />);
-    fireEvent.click(await screen.findByRole("link", { name: "Open Archive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Archive" }));
     const sourcePanel = screen.getByRole("heading", { name: "Edit Archive" }).closest("section")!;
     const panel = within(sourcePanel);
     const addressing = panel.getByRole("button", { name: "Addressing style" });
@@ -175,14 +178,15 @@ describe("settings dropdowns", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
+    window.location.hash = "#/settings?section=generation";
     render(<SettingsScreen />);
     const llmPanel = (await screen.findByRole("heading", { name: "LLM" })).closest("section")!;
-    const key = within(llmPanel).getByPlaceholderText("OpenAI credential configured — enter a replacement");
+    const key = within(llmPanel).getByLabelText("OpenAI API key");
     fireEvent.change(key, { target: { value: "secret-llm-key" } });
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Save key" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings/llm-key", expect.objectContaining({ method: "PUT" })));
     expect(JSON.parse(String(fetchMock.mock.calls.find(([path, init]) => String(path).includes("/api/operator-settings/llm-key") && init?.method === "PUT")?.[1]?.body))).toEqual({ key: "secret-llm-key" });
-    expect(key).toHaveValue("");
+    expect(key).toHaveValue("••••••••••••");
     expect(screen.queryByText("secret-llm-key")).not.toBeInTheDocument();
 
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Clear saved key" }));

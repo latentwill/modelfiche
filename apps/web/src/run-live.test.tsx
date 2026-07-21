@@ -115,13 +115,13 @@ describe("useRunLive", () => {
     expect(source.closed).toBe(true);
   });
 
-  it("does not open an event stream for an already-terminal snapshot", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => response({ run_id: "run-1", status: "interrupted", current_step: 3 })));
+  it.each(["interrupted", "canceled", "cancelled"])("does not open an event stream for an already-terminal %s snapshot", async status => {
+    vi.stubGlobal("fetch", vi.fn(async () => response({ run_id: "run-1", status, current_step: 3 })));
 
     render(<Harness />);
     await flushSnapshot();
 
-    expect(screen.getByTestId("status")).toHaveTextContent("interrupted");
+    expect(screen.getByTestId("status")).toHaveTextContent(status);
     expect(screen.getByTestId("connection")).toHaveTextContent("stopped");
     expect(FakeEventSource.instances).toHaveLength(0);
   });

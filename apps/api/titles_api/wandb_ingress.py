@@ -12,7 +12,7 @@ from pathlib import Path
 from collections.abc import Callable, Iterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -293,6 +293,32 @@ def create_wandb_ingress_app(
             )
         db.commit()
         return Response(status_code=200)
+
+    @app.get("/api/transfers/{transfer_id}/download")
+    def training_export_download(transfer_id: str, db: Session = Depends(db_provider)):
+        job = db.get(models.Job, transfer_id)
+        if (
+            job is None
+            or job.kind != "export.package"
+            or job.state != models.JobState.succeeded
+            or not job.payload.get("training_launch")
+        ):
+            raise HTTPException(status_code=404, detail="training export not found")
+
+        raw_path = job.result.get("path")
+        if not raw_path:
+            raise HTTPException(status_code=404, detail="training export is missing")
+        root = settings.export_root.resolve()
+        path = Path(str(raw_path)).resolve()
+        if not (path == root or root in path.parents):
+            raise HTTPException(status_code=403, detail="training export is outside the export root")
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="training export is missing")
+        return FileResponse(
+            path,
+            filename=job.result.get("filename") or path.name,
+            media_type="application/zip",
+        )
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     def unsupported(path: str):

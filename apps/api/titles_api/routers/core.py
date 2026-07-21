@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
 from ..database import get_db
-from ..services import active_profile, current_workspace, get_or_404, record_activity
+from ..services import active_profile, current_workspace, get_or_404, record_activity, workspace_object
 from ..image_provenance import normalize_fal_image_metadata
 from ..asset_cache import AssetCache
 from ..integrations.config import CacheSettings
@@ -44,7 +44,7 @@ def update_workspace(workspace_id: str, body: schemas.WorkspaceUpdate, db: DB, x
 
 @router.get("/profiles", response_model=list[schemas.ProfileOut])
 def profiles(db: DB, include_archived: bool = False):
-    query = select(models.UserProfile).order_by(models.UserProfile.display_name)
+    query = select(models.UserProfile).where(models.UserProfile.workspace_id == current_workspace(db).id).order_by(models.UserProfile.display_name)
     if not include_archived:
         query = query.where(models.UserProfile.is_active.is_(True))
     return db.scalars(query).all()
@@ -67,12 +67,12 @@ def selected_profile(db: DB):
 
 @router.get("/profiles/{profile_id}", response_model=schemas.ProfileOut)
 def profile(profile_id: str, db: DB):
-    return get_or_404(db, models.UserProfile, profile_id)
+    return workspace_object(db, models.UserProfile, profile_id)
 
 
 @router.patch("/profiles/{profile_id}", response_model=schemas.ProfileOut)
 def update_profile(profile_id: str, body: schemas.ProfileUpdate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    profile = get_or_404(db, models.UserProfile, profile_id)
+    profile = workspace_object(db, models.UserProfile, profile_id)
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(profile, key, value)
     record_activity(db, action="profile.updated", subject_type="profile", subject_id=profile.id, profile_id=profile_for(db, x_profile_id).id)
@@ -82,7 +82,7 @@ def update_profile(profile_id: str, body: schemas.ProfileUpdate, db: DB, x_profi
 
 @router.put("/profiles/{profile_id}/active", response_model=schemas.ProfileOut)
 def use_profile(profile_id: str, db: DB):
-    profile = get_or_404(db, models.UserProfile, profile_id)
+    profile = workspace_object(db, models.UserProfile, profile_id)
     if not profile.is_active:
         from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="archived profile cannot be active")
@@ -98,9 +98,12 @@ def use_profile(profile_id: str, db: DB):
 
 @router.post("/profiles/{profile_id}/archive", response_model=schemas.ProfileOut)
 def archive_profile(profile_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    profile = get_or_404(db, models.UserProfile, profile_id)
+    profile = workspace_object(db, models.UserProfile, profile_id)
     actor = profile_for(db, x_profile_id)
-    active_count = int(db.scalar(select(func.count()).select_from(models.UserProfile).where(models.UserProfile.is_active.is_(True))) or 0)
+    active_count = int(db.scalar(select(func.count()).select_from(models.UserProfile).where(
+        models.UserProfile.workspace_id == current_workspace(db).id,
+        models.UserProfile.is_active.is_(True),
+    )) or 0)
     if profile.is_active and active_count <= 1:
         raise HTTPException(status_code=409, detail="at least one active profile is required")
     preference = db.scalar(select(models.LocalPreference).where(models.LocalPreference.key == "active_profile"))
@@ -114,7 +117,7 @@ def archive_profile(profile_id: str, db: DB, x_profile_id: Annotated[str | None,
 
 @router.get("/projects", response_model=list[schemas.ProjectOut])
 def projects(db: DB, state: str | None = None, include_archived: bool = False):
-    query = select(models.Project).order_by(models.Project.updated_at.desc())
+    query = select(models.Project).where(models.Project.workspace_id == current_workspace(db).id).order_by(models.Project.updated_at.desc())
     if state:
         query = query.where(models.Project.state == state)
     elif not include_archived:
@@ -135,12 +138,12 @@ def create_project(body: schemas.ProjectCreate, db: DB, x_profile_id: Annotated[
 
 @router.get("/projects/{project_id}", response_model=schemas.ProjectOut)
 def project(project_id: str, db: DB):
-    return get_or_404(db, models.Project, project_id)
+    return workspace_object(db, models.Project, project_id)
 
 
 @router.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
 def update_project(project_id: str, body: schemas.ProjectUpdate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    project = get_or_404(db, models.Project, project_id)
+    project = workspace_object(db, models.Project, project_id)
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
     record_activity(db, action="project.updated", subject_type="project", subject_id=project.id, profile_id=profile_for(db, x_profile_id).id, project_id=project.id)
@@ -150,7 +153,7 @@ def update_project(project_id: str, body: schemas.ProjectUpdate, db: DB, x_profi
 
 @router.get("/assets", response_model=list[schemas.AssetOut])
 def assets(db: DB, project_id: str | None = None, kind: str | None = None, q: str | None = None, limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
-    query = select(models.Asset).options(selectinload(models.Asset.locations)).order_by(models.Asset.created_at.desc())
+    query = select(models.Asset).options(selectinload(models.Asset.locations)).where(models.Asset.workspace_id == current_workspace(db).id).order_by(models.Asset.created_at.desc())
     if project_id:
         query = query.where(models.Asset.project_id == project_id)
     if kind:
@@ -180,6 +183,7 @@ def _gallery_query(
     include_dataset_assets: bool = False,
     sort: str = "origin_time_desc",
 ):
+    workspace_id = current_workspace(db).id
     eval_time = select(models.EvalOutput.generated_at).where(models.EvalOutput.asset_id == models.Asset.id).order_by(models.EvalOutput.generated_at.desc()).limit(1).scalar_subquery()
     sample_time = select(models.Sample.modified_at).where(models.Sample.asset_id == models.Asset.id).order_by(models.Sample.modified_at.desc()).limit(1).scalar_subquery()
     is_eval = or_(select(models.EvalOutput.id).where(models.EvalOutput.asset_id == models.Asset.id).exists(), models.Asset.metadata_["category"].as_string() == "eval_output")
@@ -190,7 +194,7 @@ def _gallery_query(
     order = canonical_time.asc().nulls_last() if sort == "origin_time_asc" else canonical_time.desc().nulls_last()
     # created_at is only a deterministic tie-break inside the missing-time group;
     # it is never exposed or labelled as generated_at/modified_at.
-    query = select(models.Asset).order_by(order, models.Asset.created_at.desc(), models.Asset.id)
+    query = select(models.Asset).where(models.Asset.workspace_id == workspace_id).order_by(order, models.Asset.created_at.desc(), models.Asset.id)
     if not include_dataset_assets and not dataset_id:
         dataset_asset_ids = select(models.DatasetItem.asset_id)
         query = query.where(
@@ -441,20 +445,21 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         }.items() if value is not None})
         if run and sample.checkpoint_id:
             model_rows = db.execute(
-                select(models.Model.id, models.Model.name, models.ModelVersion.id, models.ModelVersion.name)
+                select(models.Model.id, models.Model.name, models.ModelVersion.id, models.ModelVersion.name, models.ModelVersion.checkpoint_revision_id)
                 .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
                 .where(models.ModelVersion.checkpoint_id == sample.checkpoint_id)
                 .distinct()
             ).all()
             if model_rows:
-                model_id, model_name, version_id, version_name = model_rows[0]
+                model_id, model_name, version_id, version_name, checkpoint_revision_id = model_rows[0]
                 assign("model_id", model_id, "eval-sample")
                 assign("model_name", model_name, "eval-sample")
                 assign("checkpoint_name", f"step {db.get(models.Checkpoint, sample.checkpoint_id).step}", "eval-sample")
                 assign("model_version_id", version_id, "eval-sample")
                 assign("model_version_name", version_name, "eval-sample")
                 assign("checkpoint_id", sample.checkpoint_id, "eval-sample")
-                metadata["models"] = [{"id": item[0], "name": item[1], "model_version_id": item[2], "model_version_name": item[3]} for item in model_rows]
+                metadata["checkpoint_revision_id"] = checkpoint_revision_id
+                metadata["models"] = [{"id": row[0], "name": row[1], "model_version_id": row[2], "model_version_name": row[3], "checkpoint_revision_id": row[4]} for row in model_rows]
             if run.dataset_version_id:
                 version = db.get(models.DatasetVersion, run.dataset_version_id)
                 dataset = db.get(models.Dataset, version.dataset_id) if version else None
@@ -492,6 +497,7 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         assign("dataset_version_name", dataset_version.name if dataset_version else None, "eval-sample")
         assign("checkpoint_id", checkpoint.id if checkpoint else None, "eval-sample")
         assign("checkpoint_name", f"step {checkpoint.step}" if checkpoint else None, "eval-sample")
+        metadata["checkpoint_revision_id"] = version.checkpoint_revision_id if version else None
         assign("provider", output.provider_metadata.get("provider") if isinstance(output.provider_metadata, dict) else None, "eval-sample")
         metadata.update({key: value for key, value in {
             "generated_at": output.generated_at, "eval_name": definition.name if definition else None,
@@ -556,7 +562,7 @@ def create_asset(body: schemas.AssetCreate, db: DB, x_profile_id: Annotated[str 
 
 @router.get("/assets/{asset_id}", response_model=schemas.AssetOut)
 def asset(asset_id: str, db: DB):
-    asset = db.scalar(select(models.Asset).options(selectinload(models.Asset.locations)).where(models.Asset.id == asset_id))
+    asset = db.scalar(select(models.Asset).options(selectinload(models.Asset.locations)).where(models.Asset.id == asset_id, models.Asset.workspace_id == current_workspace(db).id))
     if asset is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -565,13 +571,13 @@ def asset(asset_id: str, db: DB):
 
 @router.get("/assets/{asset_id}/locations", response_model=list[schemas.AssetLocationOut], include_in_schema=False)
 def asset_locations(asset_id: str, db: DB):
-    get_or_404(db, models.Asset, asset_id)
+    workspace_object(db, models.Asset, asset_id)
     return db.scalars(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset_id)).all()
 
 
 @router.get("/assets/{asset_id}/metadata", include_in_schema=False)
 def asset_metadata(asset_id: str, db: DB):
-    asset = get_or_404(db, models.Asset, asset_id)
+    asset = workspace_object(db, models.Asset, asset_id)
     image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset_id))
     return {
         "asset_id": asset.id,
@@ -583,7 +589,7 @@ def asset_metadata(asset_id: str, db: DB):
 
 @router.get("/assets/{asset_id}/context")
 def asset_context(asset_id: str, db: DB):
-    asset = get_or_404(db, models.Asset, asset_id)
+    asset = workspace_object(db, models.Asset, asset_id)
     image = db.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset.id))
     reviews = db.scalars(select(models.Review).where(models.Review.subject_type == "asset", models.Review.subject_id == asset.id).order_by(models.Review.created_at.desc())).all()
     comments = db.scalars(select(models.Comment).where(models.Comment.subject_type == "asset", models.Comment.subject_id == asset.id).order_by(models.Comment.created_at)).all()
@@ -600,7 +606,7 @@ def asset_context(asset_id: str, db: DB):
 
 
 def _local_asset_path(db: Session, asset_id: str) -> tuple[models.Asset, Path]:
-    asset = get_or_404(db, models.Asset, asset_id)
+    asset = workspace_object(db, models.Asset, asset_id)
     location = db.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset.id, models.AssetLocation.provider == "local", models.AssetLocation.hydration_state == "hydrated").order_by(models.AssetLocation.created_at.desc()))
     if location is None:
         raise HTTPException(status_code=409, detail="asset is remote-only; hydrate it before requesting content")
@@ -644,6 +650,22 @@ def delete_asset(asset_id: str, db: DB, x_profile_id: Annotated[str | None, Head
     if db.scalar(select(models.Checkpoint.id).where(models.Checkpoint.asset_id == asset_id).limit(1)):
         raise HTTPException(status_code=409, detail="Model checkpoint artifacts cannot be deleted from Gallery.")
     locations = [{"provider": item.provider, "uri": item.uri} for item in asset.locations]
+    location_ids = [item.id for item in asset.locations]
+    if location_ids:
+        referencing_assets = db.scalars(
+            select(models.Asset).where(
+                or_(
+                    models.Asset.preferred_location_id.in_(location_ids),
+                    models.Asset.origin_location_id.in_(location_ids),
+                )
+            )
+        ).all()
+        for referencing_asset in referencing_assets:
+            if referencing_asset.preferred_location_id in location_ids:
+                referencing_asset.preferred_location_id = None
+            if referencing_asset.origin_location_id in location_ids:
+                referencing_asset.origin_location_id = None
+        db.flush()
     db.query(models.Sample).filter(models.Sample.asset_id == asset_id).delete(synchronize_session=False)
     db.query(models.EvalOutput).filter(models.EvalOutput.asset_id == asset_id).delete(synchronize_session=False)
     db.query(models.Review).filter(models.Review.subject_type == "asset", models.Review.subject_id == asset_id).delete(synchronize_session=False)

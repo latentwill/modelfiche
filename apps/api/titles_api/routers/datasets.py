@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 from typing import Annotated, Any
@@ -10,7 +11,7 @@ from .. import models, schemas
 from ..dataset_versions import content_digest
 from ..database import get_db
 from ..integrations.llm import LLMConfigurationError, LLMResponseError, PromptGenerator
-from ..services import active_profile, get_or_404, record_activity
+from ..services import active_profile, current_workspace, get_or_404, record_activity
 from ..settings import get_settings
 
 router = APIRouter()
@@ -84,21 +85,72 @@ def _caption_prompt(prompt: str, caption_format: str) -> str:
     return prompt
 
 
+def _caption_json(caption: str) -> Any:
+    try:
+        value = json.loads(caption)
+    except json.JSONDecodeError as exc:
+        raise ValueError("caption is not valid JSON") from exc
+    if not isinstance(value, (dict, list)):
+        raise ValueError("caption JSON must be an object or array")
+    return value
+
+
 def _normalized_caption(caption: str, caption_format: str) -> str:
     if caption_format != "json":
         return caption
     try:
-        value = json.loads(caption)
-    except json.JSONDecodeError as exc:
-        raise LLMResponseError("caption model did not return valid JSON") from exc
-    if not isinstance(value, (dict, list)):
-        raise LLMResponseError("caption JSON must be an object or array")
+        value = _caption_json(caption)
+    except ValueError as exc:
+        raise LLMResponseError(str(exc)) from exc
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _operation_preview_token(
+    draft_id: str,
+    body: schemas.CaptionOperationRequest,
+    draft_items: list[models.DatasetDraftItem],
+    target_items: list[models.DatasetDraftItem],
+) -> str:
+    material = {
+        "draft_id": draft_id,
+        "operation": body.operation,
+        "parameters": body.parameters,
+        "scope": body.model_dump(
+            include={"item_ids", "tag", "included", "caption_format", "all"},
+            mode="json",
+        ),
+        "target_item_ids": [item.id for item in target_items],
+        "draft": [
+            {
+                "id": item.id,
+                "caption": item.caption,
+                "caption_format": item.caption_format,
+                "included": item.included,
+                "tags": list(item.tags or []),
+                "position": item.position,
+            }
+            for item in draft_items
+        ],
+    }
+    encoded = json.dumps(material, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _public_operation_result(result: dict[str, Any]) -> dict[str, Any]:
+    changes = list(result["changes"])
+    return {
+        "matched": result["matched"],
+        "changed": result["changed"],
+        "changes": changes[:100],
+        "truncated": len(changes) > 100,
+    }
 
 
 @router.get("/datasets")
 def list_datasets(db: DB, project_id: str | None = None):
-    query = select(models.Dataset).order_by(models.Dataset.updated_at.desc())
+    query = select(models.Dataset).join(models.Project, models.Project.id == models.Dataset.project_id).where(
+        models.Project.workspace_id == current_workspace(db).id,
+    ).order_by(models.Dataset.updated_at.desc())
     if project_id:
         query = query.where(models.Dataset.project_id == project_id)
     rows = []
@@ -127,7 +179,18 @@ def create_dataset(body: schemas.DatasetCreate, db: DB, x_profile_id: Annotated[
     db.flush()
     for item in body.items:
         get_or_404(db, models.Asset, item.asset_id)
-        db.add(models.DatasetItem(dataset_version_id=version.id, **item.model_dump()))
+        caption = item.caption
+        if body.caption_format == "json":
+            try:
+                caption = json.dumps(_caption_json(caption), ensure_ascii=False, separators=(",", ":"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=f"{item.asset_id}: {exc}") from exc
+        db.add(models.DatasetItem(
+            dataset_version_id=version.id,
+            **item.model_dump(exclude={"caption", "caption_format"}),
+            caption=caption,
+            caption_format=body.caption_format,
+        ))
     db.flush()
     version.content_digest = content_digest(version, db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all())
     record_activity(db, action="dataset.created", subject_type="dataset", subject_id=dataset.id, profile_id=actor.id, project_id=project.id, details={"version_id": version.id, "items": len(body.items)})
@@ -258,11 +321,12 @@ def active_draft(dataset_id: str, db: DB):
 
 
 @router.get("/dataset-versions/{version_id}/items")
-def version_items(version_id: str, db: DB, included: bool | None = None, limit: int = Query(200, le=1000), offset: int = 0):
+def version_items(version_id: str, db: DB, included: bool | None = None, limit: int = Query(200, le=1000), offset: int = 0, paginated: bool = False):
     get_or_404(db, models.DatasetVersion, version_id)
     query = select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version_id).order_by(models.DatasetItem.position)
     if included is not None:
         query = query.where(models.DatasetItem.included == included)
+    total = int(db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0)
     rows = []
     for item in db.scalars(query.offset(offset).limit(limit)).all():
         rows.append(
@@ -271,7 +335,7 @@ def version_items(version_id: str, db: DB, included: bool | None = None, limit: 
                 **_asset_fields(db, item.asset_id),
             }
         )
-    return rows
+    return {"items": rows, "total": total, "limit": limit, "offset": offset} if paginated else rows
 
 
 @router.get("/dataset-versions/{version_id}")
@@ -319,15 +383,47 @@ def update_draft_caption_format(
     if draft.state != "active":
         raise HTTPException(status_code=409, detail="draft is not active")
     items = list(db.scalars(select(models.DatasetDraftItem).where(models.DatasetDraftItem.draft_id == draft.id)).all())
+    normalized_captions: dict[str, str] = {}
+    if body.caption_format == "json":
+        invalid = []
+        for item in items:
+            try:
+                normalized_captions[item.id] = json.dumps(_caption_json(item.caption), ensure_ascii=False, separators=(",", ":"))
+            except ValueError:
+                invalid.append(item.id)
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "Every caption must contain a JSON object or array before switching the draft to JSON.", "item_ids": invalid},
+            )
+    changes = []
     for item in items:
-        item.caption_format = body.caption_format
+        normalized = normalized_captions.get(item.id, item.caption)
+        if normalized != item.caption:
+            changes.append({"item_id": item.id, "field": "caption", "before": item.caption, "after": normalized})
+            item.caption = normalized
+        if item.caption_format != body.caption_format:
+            changes.append({"item_id": item.id, "field": "caption_format", "before": item.caption_format, "after": body.caption_format})
+            item.caption_format = body.caption_format
     dataset = get_or_404(db, models.Dataset, draft.dataset_id)
+    actor = active_profile(db, x_profile_id)
+    if changes:
+        db.add(models.CaptionOperation(
+            draft_id=draft.id,
+            profile_id=actor.id,
+            operation="set_format",
+            parameters={"caption_format": body.caption_format},
+            scope={"all": True},
+            before_count=len(items),
+            after_count=len({str(change["item_id"]) for change in changes}),
+            preview={"matched": len(items), "changed": len(changes), "changes": changes},
+        ))
     record_activity(
         db,
         action="caption.format_updated",
         subject_type="dataset_draft",
         subject_id=draft.id,
-        profile_id=active_profile(db, x_profile_id).id,
+        profile_id=actor.id,
         project_id=dataset.project_id,
         details={"caption_format": body.caption_format, "count": len(items)},
     )
@@ -343,10 +439,35 @@ def patch_draft_item(draft_id: str, item_id: str, body: schemas.DraftItemPatch, 
     item = get_or_404(db, models.DatasetDraftItem, item_id)
     if item.draft_id != draft.id:
         raise HTTPException(status_code=404, detail="draft item not found")
-    for key, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    next_caption = str(updates.get("caption", item.caption))
+    next_format = str(updates.get("caption_format", item.caption_format))
+    if next_format == "json":
+        try:
+            updates["caption"] = json.dumps(_caption_json(next_caption), ensure_ascii=False, separators=(",", ":"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    changes = [
+        {"item_id": item.id, "field": key, "before": getattr(item, key), "after": value}
+        for key, value in updates.items()
+        if getattr(item, key) != value
+    ]
+    for key, value in updates.items():
         setattr(item, key, value)
     dataset = get_or_404(db, models.Dataset, draft.dataset_id)
-    record_activity(db, action="caption.updated", subject_type="dataset_draft_item", subject_id=item.id, profile_id=active_profile(db, x_profile_id).id, project_id=dataset.project_id)
+    actor = active_profile(db, x_profile_id)
+    if changes:
+        db.add(models.CaptionOperation(
+            draft_id=draft.id,
+            profile_id=actor.id,
+            operation="edit_item",
+            parameters={},
+            scope={"item_ids": [item.id]},
+            before_count=1,
+            after_count=1,
+            preview={"matched": 1, "changed": len(changes), "changes": changes},
+        ))
+    record_activity(db, action="caption.updated", subject_type="dataset_draft_item", subject_id=item.id, profile_id=actor.id, project_id=dataset.project_id)
     db.commit()
     return _dump(item)
 
@@ -367,15 +488,23 @@ def _apply(operation: schemas.CaptionOperationRequest, items: list[models.Datase
             after = ", ".join(part.strip() for part in before.split(",") if part.strip() != word)
         elif operation.operation == "set_included":
             if item.included != bool(operation.parameters["included"]):
-                changes.append({"item_id": item.id, "before": item.included, "after": bool(operation.parameters["included"])})
+                changes.append({"item_id": item.id, "field": "included", "before": item.included, "after": bool(operation.parameters["included"])})
                 if mutate:
                     item.included = bool(operation.parameters["included"])
             continue
         if after != before:
-            changes.append({"item_id": item.id, "before": before, "after": after})
+            if item.caption_format == "json":
+                try:
+                    after = json.dumps(_caption_json(after), ensure_ascii=False, separators=(",", ":"))
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"operation would make JSON caption invalid for item {item.id}: {exc}",
+                    ) from exc
+            changes.append({"item_id": item.id, "field": "caption", "before": before, "after": after})
             if mutate:
                 item.caption = after
-    return {"matched": len(items), "changed": len(changes), "changes": changes[:100], "truncated": len(changes) > 100}
+    return {"matched": len(items), "changed": len(changes), "changes": changes}
 
 
 @router.post("/dataset-drafts/{draft_id}/caption")
@@ -402,7 +531,7 @@ def generate_draft_captions(
     model = str(body.model or llm.get("model") or "")
     prompt = _caption_prompt(body.prompt, body.caption_format)
     generator = PromptGenerator()
-    before = {item.id: item.caption for item in items}
+    before = {item.id: {"caption": item.caption, "caption_format": item.caption_format} for item in items}
     try:
         for item in items:
             image_bytes, mime_type = _read_local_image(db, item.asset_id)
@@ -422,7 +551,19 @@ def generate_draft_captions(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except LLMResponseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    changed = sum(before[item.id] != item.caption for item in items)
+    changes = [
+        {
+            "item_id": item.id,
+            "field": "caption",
+            "before": before[item.id]["caption"],
+            "after": item.caption,
+            "before_caption_format": before[item.id]["caption_format"],
+            "after_caption_format": item.caption_format,
+        }
+        for item in items
+        if before[item.id]["caption"] != item.caption or before[item.id]["caption_format"] != item.caption_format
+    ]
+    changed = len(changes)
     actor = active_profile(db, x_profile_id)
     dataset = get_or_404(db, models.Dataset, draft.dataset_id)
     operation = models.CaptionOperation(
@@ -430,7 +571,7 @@ def generate_draft_captions(
         parameters={"prompt": body.prompt, "provider": provider, "model": model, "caption_format": body.caption_format},
         scope={"item_ids": body.item_ids, "all": body.all},
         before_count=len(items), after_count=changed,
-        preview={"changed": changed, "count": len(items)},
+        preview={"matched": len(items), "changed": changed, "changes": changes},
     )
     db.add(operation)
     db.flush()
@@ -448,25 +589,45 @@ def _operation(draft_id: str, body: schemas.CaptionOperationRequest, db: Session
     draft = get_or_404(db, models.DatasetDraft, draft_id)
     if draft.state != "active":
         raise HTTPException(status_code=409, detail="draft is not active")
-    query = select(models.DatasetDraftItem).where(models.DatasetDraftItem.draft_id == draft.id)
-    if body.item_ids:
-        query = query.where(models.DatasetDraftItem.id.in_(body.item_ids))
-    if body.tag is not None:
-        # SQLite JSON array membership without relying on JSON1 table functions.
-        query = query.where(models.DatasetDraftItem.tags.contains(body.tag))
-    if body.included is not None:
-        query = query.where(models.DatasetDraftItem.included == body.included)
-    if body.caption_format is not None:
-        query = query.where(models.DatasetDraftItem.caption_format == body.caption_format)
-    items = list(db.scalars(query).all())
-    preview = _apply(body, items, mutate)
+    draft_items = list(db.scalars(
+        select(models.DatasetDraftItem)
+        .where(models.DatasetDraftItem.draft_id == draft.id)
+        .order_by(models.DatasetDraftItem.position, models.DatasetDraftItem.id)
+    ).all())
+    requested_ids = set(body.item_ids or [])
+    items = [
+        item for item in draft_items
+        if (not requested_ids or item.id in requested_ids)
+        and (body.tag is None or body.tag in (item.tags or []))
+        and (body.included is None or item.included == body.included)
+        and (body.caption_format is None or item.caption_format == body.caption_format)
+    ]
+    if body.item_ids is not None and len(items) != len(body.item_ids):
+        raise HTTPException(status_code=404, detail="one or more draft items were not found")
+    preview_token = _operation_preview_token(draft.id, body, draft_items, items)
+    if mutate:
+        if not body.preview_token:
+            raise HTTPException(status_code=409, detail="preview required before applying this operation")
+        if body.preview_token != preview_token:
+            raise HTTPException(status_code=409, detail="operation preview is stale; preview the current draft and scope again")
+    result = _apply(body, items, mutate)
+    public_result = {**_public_operation_result(result), "preview_token": preview_token, "target_item_ids": [item.id for item in items]}
     if mutate:
         actor = active_profile(db, profile_id)
-        db.add(models.CaptionOperation(draft_id=draft.id, profile_id=actor.id, operation=body.operation, parameters=body.parameters, scope=body.model_dump(include={"item_ids", "tag", "included", "caption_format", "all"}), before_count=len(items), after_count=preview["changed"], preview=preview))
+        db.add(models.CaptionOperation(
+            draft_id=draft.id,
+            profile_id=actor.id,
+            operation=body.operation,
+            parameters=body.parameters,
+            scope=body.model_dump(include={"item_ids", "tag", "included", "caption_format", "all"}, mode="json"),
+            before_count=len(items),
+            after_count=result["changed"],
+            preview=result,
+        ))
         dataset = get_or_404(db, models.Dataset, draft.dataset_id)
-        record_activity(db, action="caption.batch_applied", subject_type="dataset_draft", subject_id=draft.id, profile_id=actor.id, project_id=dataset.project_id, details={"operation": body.operation, "changed": preview["changed"]})
+        record_activity(db, action="caption.batch_applied", subject_type="dataset_draft", subject_id=draft.id, profile_id=actor.id, project_id=dataset.project_id, details={"operation": body.operation, "changed": result["changed"]})
         db.commit()
-    return preview
+    return public_result
 
 
 @router.post("/dataset-drafts/{draft_id}/operations/preview")
@@ -477,6 +638,101 @@ def preview_operation(draft_id: str, body: schemas.CaptionOperationRequest, db: 
 @router.post("/dataset-drafts/{draft_id}/operations")
 def apply_operation(draft_id: str, body: schemas.CaptionOperationRequest, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     return _operation(draft_id, body, db, True, x_profile_id)
+
+
+@router.get("/dataset-drafts/{draft_id}/operations")
+def operation_history(draft_id: str, db: DB):
+    draft = get_or_404(db, models.DatasetDraft, draft_id)
+    operations = list(db.scalars(
+        select(models.CaptionOperation)
+        .where(models.CaptionOperation.draft_id == draft.id)
+        .order_by(models.CaptionOperation.created_at.desc(), models.CaptionOperation.id.desc())
+    ).all())
+    undone_ids = {
+        str(operation.parameters.get("operation_id"))
+        for operation in operations
+        if operation.operation == "undo" and operation.parameters.get("operation_id")
+    }
+    return [
+        {
+            **_dump(operation),
+            "preview": {
+                "matched": int((operation.preview or {}).get("matched", operation.before_count)),
+                "changed": int((operation.preview or {}).get("changed", operation.after_count)),
+            },
+            "undone": operation.id in undone_ids,
+            "can_undo": operation.operation != "undo" and operation.id not in undone_ids and bool((operation.preview or {}).get("changes")),
+        }
+        for operation in operations
+    ]
+
+
+@router.post("/dataset-drafts/{draft_id}/operations/{operation_id}/undo")
+def undo_operation(
+    draft_id: str,
+    operation_id: str,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    draft = get_or_404(db, models.DatasetDraft, draft_id)
+    if draft.state != "active":
+        raise HTTPException(status_code=409, detail="draft is not active")
+    operation = get_or_404(db, models.CaptionOperation, operation_id)
+    if operation.draft_id != draft.id or operation.operation == "undo":
+        raise HTTPException(status_code=404, detail="caption operation not found")
+    prior_undoes = list(db.scalars(
+        select(models.CaptionOperation).where(
+            models.CaptionOperation.draft_id == draft.id,
+            models.CaptionOperation.operation == "undo",
+        )
+    ).all())
+    if any(str(row.parameters.get("operation_id")) == operation.id for row in prior_undoes):
+        raise HTTPException(status_code=409, detail="caption operation was already undone")
+    changes = list((operation.preview or {}).get("changes") or [])
+    items_by_id = {
+        item.id: item
+        for item in db.scalars(select(models.DatasetDraftItem).where(models.DatasetDraftItem.draft_id == draft.id)).all()
+    }
+    for change in changes:
+        item = items_by_id.get(str(change.get("item_id")))
+        field = str(change.get("field") or ("included" if operation.operation == "set_included" else "caption"))
+        if item is None or getattr(item, field) != change.get("after"):
+            raise HTTPException(status_code=409, detail="draft changed after this operation; undo is no longer safe")
+        if "after_caption_format" in change and item.caption_format != change.get("after_caption_format"):
+            raise HTTPException(status_code=409, detail="draft caption format changed after this operation; undo is no longer safe")
+    reversed_changes = []
+    for change in changes:
+        item = items_by_id[str(change["item_id"])]
+        field = str(change.get("field") or ("included" if operation.operation == "set_included" else "caption"))
+        current = getattr(item, field)
+        setattr(item, field, change.get("before"))
+        if field == "caption" and "before_caption_format" in change:
+            item.caption_format = str(change["before_caption_format"])
+        reversed_changes.append({"item_id": item.id, "field": field, "before": current, "after": change.get("before")})
+    actor = active_profile(db, x_profile_id)
+    undo = models.CaptionOperation(
+        draft_id=draft.id,
+        profile_id=actor.id,
+        operation="undo",
+        parameters={"operation_id": operation.id, "operation": operation.operation},
+        scope={"item_ids": [str(change["item_id"]) for change in changes]},
+        before_count=len(changes),
+        after_count=len(changes),
+        preview={"matched": len(changes), "changed": len(changes), "changes": reversed_changes},
+    )
+    db.add(undo)
+    dataset = get_or_404(db, models.Dataset, draft.dataset_id)
+    record_activity(
+        db,
+        action="caption.batch_undone",
+        subject_type="dataset_draft",
+        subject_id=draft.id,
+        profile_id=actor.id,
+        project_id=dataset.project_id,
+        details={"operation_id": operation.id, "operation": operation.operation, "changed": len(changes)},
+    )
+    db.commit()
+    return {"operation_id": operation.id, "undone": len(changes)}
 
 
 @router.post("/dataset-drafts/{draft_id}/publish", status_code=status.HTTP_201_CREATED)

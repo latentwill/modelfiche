@@ -49,6 +49,99 @@ def test_ingress_rate_limit_returns_retry_window() -> None:
     assert limiter.retry_after("credential") is None
 
 
+def test_expired_signed_token_remains_valid_only_while_run_is_active(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post(
+        "/api/projects",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"title": "Long Training Project"},
+    ).json()
+    dataset = client.post(
+        "/api/datasets",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"project_id": project["id"], "name": "Training data", "items": []},
+    ).json()
+    source = client.post(
+        "/api/import-sources",
+        json={"name": "Training S3", "bucket": "training", "allowed_prefixes": [f"projects/{project['id']}/"]},
+    ).json()
+    with app_module.SessionLocal.begin() as db:
+        db.get(models.ImportSource, source["id"]).identity_fingerprint = "verified-source"
+    private_key = Ed25519PrivateKey.generate()
+    public_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    credential = client.post(
+        "/api/integrations/wandb/credentials",
+        headers={"X-Profile-ID": profile["id"]},
+        json={
+            "project_id": project["id"],
+            "alias": "long-run-key",
+            "public_key": base64.urlsafe_b64encode(public_bytes).decode("ascii").rstrip("="),
+        },
+    ).json()
+    launch = client.post(
+        "/api/training-launches",
+        headers={"X-Profile-ID": profile["id"]},
+        json={
+            "dataset_version_id": dataset["current_version_id"],
+            "wandb_credential_id": credential["id"],
+            "source_id": source["id"],
+            "client_request_id": "long-ingress-launch",
+            "name": "long-ingress-run",
+            "base_model": "FLUX.1-dev",
+            "output_directory": "/workspace/output",
+        },
+    ).json()
+    telemetry = launch["manifest"]["telemetry"]
+    claims = dict(telemetry["token"]["claims"])
+    claims["expires_at"] = "2000-01-01T00:00:00Z"
+    with app_module.SessionLocal.begin() as db:
+        launch_record = db.get(models.TrainingLaunch, launch["id"])
+        run = db.get(models.TrainingRun, launch["run_id"])
+        manifest = json.loads(json.dumps(launch_record.redacted_manifest))
+        manifest["telemetry"]["token"]["claims"] = claims
+        launch_record.redacted_manifest = manifest
+        launch_record.state = "running"
+        run.status = "completed"
+        run.started_at = models.utcnow()
+    auth = {"Authorization": _authorization(_token(private_key, claims))}
+    ingress_app = create_wandb_ingress_app(
+        app_module.SessionLocal,
+        upload_root=tmp_path / "wandb-uploads",
+        initialize_schema=False,
+    )
+    request = {"operationName": "ServerFeaturesQuery", "query": _query("ServerFeaturesQuery"), "variables": {}}
+    with TestClient(ingress_app) as ingress:
+        assert ingress.post("/graphql", headers=auth, json=request).status_code == 200
+        stream_path = f"/files/dam/{telemetry['project']}/{telemetry['run_id']}/file_stream"
+        stream = ingress.post(
+            stream_path,
+            headers=auth,
+            json={
+                "files": {
+                    "wandb-history.jsonl": {
+                        "offset": 0,
+                        "content": [json.dumps({"_step": 1, "loss": 1.0})],
+                    }
+                }
+            },
+        )
+        assert stream.status_code == 200
+        with app_module.SessionLocal() as db:
+            assert db.get(models.TrainingRun, launch["run_id"]).status == "running"
+        with app_module.SessionLocal.begin() as db:
+            db.get(models.TrainingLaunch, launch["id"]).state = "completed"
+            db.get(models.TrainingRun, launch["run_id"]).status = "completed"
+        expired = ingress.post("/graphql", headers=auth, json=request)
+        assert expired.status_code == 401
+        assert expired.json()["detail"] == "W&B launch token has expired"
+
+
 def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
     client: TestClient,
     tmp_path: Path,
@@ -233,12 +326,17 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
             },
         )
         assert out_of_order.status_code == 200
-        unsupported_stream = ingress.post(
+        auxiliary_stream = ingress.post(
             stream_path,
             headers=auth,
-            json={"files": {"wandb-events.jsonl": {"offset": 0, "content": []}}},
+            json={
+                "files": {
+                    "output.log": {"offset": 0, "content": []},
+                    "wandb-events.jsonl": {"offset": 0, "content": []},
+                }
+            },
         )
-        assert unsupported_stream.status_code == 422
+        assert auxiliary_stream.status_code == 200
 
         instructions = ingress.post(
             "/graphql",

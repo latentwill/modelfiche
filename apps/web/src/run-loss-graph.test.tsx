@@ -73,6 +73,8 @@ describe("RunScreen loss metrics", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/metrics?name=train%2Fobjective", expect.any(Object));
     expect(fetchMock).not.toHaveBeenCalledWith("/api/runs/run-1/metrics?name=loss", expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/metrics?name=learning_rate", expect.any(Object));
+    expect(screen.getByRole("button", { name: "Refresh import" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "Refresh review" })).not.toBeInTheDocument();
   });
 
   it("shows a clear empty state when the metric response has no usable points", async () => {

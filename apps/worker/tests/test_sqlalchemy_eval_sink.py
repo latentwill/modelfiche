@@ -71,3 +71,8 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         assert location.verified_sha256 == "a" * 64
         assert asset.content_blob_id is not None
         assert asset.preferred_location_id == location.id
+        activity = session.scalar(select(models.ActivityEvent).where(models.ActivityEvent.subject_id == asset.id))
+        assert activity.action == "asset.generated"
+        assert activity.workspace_id == workspace.id
+        assert activity.project_id == project.id
+        assert activity.details["endpoint"] == "fal-ai/test-model"

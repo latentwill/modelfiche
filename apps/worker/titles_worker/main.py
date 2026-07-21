@@ -24,7 +24,7 @@ def main() -> None:
     from .runner import JobRunner
     from .sqlalchemy_eval_sink import SQLAlchemyEvalOutputSink
     from .wandb_uploads import WandbUploadReconciler
-    from .checkpoint_handoffs import CheckpointHandoffReconciler
+    from .checkpoint_handoffs import CheckpointHandoffReconciler, CheckpointManifestPoller
     from .run_maintenance import RunMaintenance
 
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -56,6 +56,7 @@ def main() -> None:
     handlers["fal_eval"] = fal_batch
     handlers["fal.grid_cell"] = fal_eval
     upload_reconciler = WandbUploadReconciler(SessionLocal)
+    checkpoint_poller = CheckpointManifestPoller(SessionLocal)
     checkpoint_reconciler = CheckpointHandoffReconciler(SessionLocal)
     run_maintenance = RunMaintenance(
         SessionLocal,
@@ -65,6 +66,7 @@ def main() -> None:
         SessionLocal,
         handlers,
         maintenance_handlers=(
+            checkpoint_poller.run_once,
             upload_reconciler.run_once,
             checkpoint_reconciler.run_once,
             run_maintenance.interrupt_stale_runs,

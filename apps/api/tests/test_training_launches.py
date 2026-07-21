@@ -89,6 +89,7 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         "manifest_object",
         "callback",
     ]
+    assert manifest["backup"]["checkpoint_handoff"]["callback_required"] is False
     assert manifest["artifact_handoff"]["manifest_callback_url"].endswith(
         f"/checkpoint-handoffs/{created['run_id']}"
     )
@@ -150,3 +151,22 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
     )
     assert revoked.status_code == 200
     assert revoked.json()["state"] == "revoked"
+
+    preflight = client.get(f"/api/training-launches/{created['id']}/preflight")
+    assert preflight.status_code == 200
+    readiness = preflight.json()
+    assert readiness["ready_to_start"] is False
+    assert readiness["safe_to_retry"] is True
+    assert {
+        "EXPORT_READY",
+        "SIGNING_CREDENTIAL",
+        "STORAGE_SOURCE",
+        "TRAINER_TRANSPORT",
+    } <= {check["code"] for check in readiness["checks"]}
+    assert client.get(f"/api/training-launches/{created['id']}/packet").status_code == 409
+
+    cancelled = client.post(f"/api/training-launches/{created['id']}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["state"] == "canceled"
+    assert client.delete(f"/api/training-launches/{created['id']}").status_code == 204
+    assert client.get(f"/api/training-launches/{created['id']}").status_code == 404

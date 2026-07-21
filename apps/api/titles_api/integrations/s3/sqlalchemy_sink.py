@@ -169,6 +169,26 @@ class SQLAlchemyImportSink:
         version = self.session.scalar(select(models.DatasetVersion).where(models.DatasetVersion.source_uri == source_uri))
         name = PurePosixPath(context.prefix.rstrip("/")).name
         project_id = self._dataset_project_id(context)
+        captions = self._captions(context.prefix)
+        caption_format = "text"
+        nonempty_captions = [caption for caption in captions.values() if caption.strip()]
+        if nonempty_captions:
+            structured = []
+            for caption in nonempty_captions:
+                try:
+                    value = json.loads(caption)
+                except json.JSONDecodeError:
+                    break
+                if not isinstance(value, (dict, list)):
+                    break
+                structured.append(value)
+            else:
+                caption_format = "json"
+            if caption_format == "json":
+                captions = {
+                    key: json.dumps(json.loads(caption), ensure_ascii=False, separators=(",", ":"))
+                    for key, caption in captions.items()
+                }
         if version is None:
             version = self._referenced_dataset_version(project_id, context.prefix, name)
         if version is None:
@@ -183,7 +203,7 @@ class SQLAlchemyImportSink:
                 version_number=max_version + 1,
                 name=name,
                 source_uri=source_uri,
-                caption_format="text",
+                caption_format=caption_format,
                 status="published",
                 published_by_profile_id=context.requested_by_profile_id,
             )
@@ -198,7 +218,7 @@ class SQLAlchemyImportSink:
             version.status = "published"
             if context.requested_by_profile_id:
                 version.published_by_profile_id = context.requested_by_profile_id
-        captions = self._captions(context.prefix)
+            version.caption_format = caption_format
         image_keys = [key for key in self._assets if PurePosixPath(key).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".avif", ".tif", ".tiff"}]
         existing_items = {
             item.asset_id: item
@@ -215,20 +235,21 @@ class SQLAlchemyImportSink:
                 # discovered under another project's import job may be reassigned
                 # from its path, so carry its member assets to that project too.
                 asset.project_id = project_id
-                asset.metadata_ = {**dict(asset.metadata_ or {}), "category": "dataset_image", "caption": caption, "dataset_version_id": version.id}
+                asset.metadata_ = {**dict(asset.metadata_ or {}), "category": "dataset_image", "caption": caption, "caption_format": caption_format, "dataset_version_id": version.id}
             item = existing_items.get(asset_id)
             if item is None:
                 item = models.DatasetItem(
                     dataset_version_id=version.id,
                     asset_id=asset_id,
                     caption=caption,
-                    caption_format="text",
+                    caption_format=caption_format,
                     included=True,
                     position=position,
                 )
                 self.session.add(item)
             else:
                 item.position = position
+                item.caption_format = caption_format
                 if caption:
                     item.caption = caption
         return version.id
@@ -313,8 +334,9 @@ class SQLAlchemyImportSink:
                     filename = row.get("image") or row.get("file") or row.get("path") or row.get("filename")
                     caption = row.get("caption") or row.get("text") or row.get("prompt")
                     if filename and caption is not None:
-                        captions[str(filename)] = str(caption)
-                        captions[str(PurePosixPath(str(filename)).with_suffix(""))] = str(caption)
+                        serialized = json.dumps(caption, ensure_ascii=False, separators=(",", ":")) if isinstance(caption, (dict, list)) else str(caption)
+                        captions[str(filename)] = serialized
+                        captions[str(PurePosixPath(str(filename)).with_suffix(""))] = serialized
             elif path.suffix.lower() == ".txt":
                 captions[str(path.with_suffix(""))] = body.decode("utf-8", "replace").strip()
         return captions

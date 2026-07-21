@@ -18,6 +18,25 @@ from ..integrations.fal.adapters import LoraInput, ValidationError, get_adapter,
 from ..integrations.fal.credentials import fal_secret_store, resolve_fal_credential
 from ..integrations.s3.browser import PrefixAccessError, S3Browser, normalize_prefix
 from ..integrations.s3.detection import detect_prefix
+from ..review_tokens import issue_review_token, verify_review_token
+
+def _detection_scope(source_id: str, prefix: str, result: Any) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "prefix": normalize_prefix(prefix),
+        "kind": result.kind.value,
+        "observed": result.observed,
+        "declared": result.declared,
+        "metadata": result.metadata,
+    }
+
+def _detect_for_review(source_id: str, prefix: str, db: Session) -> tuple[Any, dict[str, Any]]:
+    browser = _browser(db, source_id)
+    try:
+        result = detect_prefix(browser.inventory(prefix), browser.read_small)
+    except PrefixAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return result, _detection_scope(source_id, prefix, result)
 from ..services import active_profile, current_workspace
 
 router = APIRouter(tags=["integrations"])
@@ -56,7 +75,7 @@ class ImportRequest(PrefixRequest):
     hydrate_dataset_images: bool = True
     dry_run: bool = False
     idempotency_key: str | None = None
-
+    review_token: str | None = None
 
 class FalValidateRequest(BaseModel):
     prompt: str
@@ -211,11 +230,7 @@ def browse_source(
 
 @router.post("/api/import-sources/{source_id}/detect")
 def detect_source(source_id: str, request: PrefixRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
-    browser = _browser(db, source_id)
-    try:
-        result = detect_prefix(browser.inventory(request.prefix), browser.read_small)
-    except PrefixAccessError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    result, scope = _detect_for_review(source_id, request.prefix, db)
     return {
         "kind": result.kind.value,
         "confidence": result.confidence,
@@ -224,6 +239,8 @@ def detect_source(source_id: str, request: PrefixRequest, db: Session = Depends(
         "observed": result.observed,
         "declared": result.declared,
         "metadata": result.metadata,
+        "review_token": issue_review_token("s3-import", scope),
+        "review_scope": scope,
     }
 
 
@@ -238,6 +255,13 @@ def enqueue_import(
     project = db.get(models.Project, request.project_id)
     if not source or not project:
         raise HTTPException(status_code=404, detail="import source or project not found")
+    if not request.dry_run:
+        if not request.review_token:
+            raise HTTPException(status_code=428, detail="S3 detection preview review_token is required before import")
+        _result, scope = _detect_for_review(request.source_id, request.prefix, db)
+        valid, reason = verify_review_token(request.review_token, "s3-import", scope)
+        if not valid:
+            raise HTTPException(status_code=409, detail=reason)
     profile = active_profile(db, request.profile_id or x_profile_id)
     idempotency_key = request.idempotency_key or idempotency_key_header
     payload = request.model_dump(exclude={"idempotency_key"}) | {"profile_id": profile.id}
