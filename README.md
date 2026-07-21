@@ -1,135 +1,186 @@
 # Modelfiche
 
-Local-first digital asset management for image-model datasets, training runs,
-checkpoints, evaluations, grids, reviews, and model promotion. The current
-release is an operator tool: it has local attributed profiles but no auth.
+Modelfiche is a local-first workbench for image-model datasets, training runs,
+checkpoints, evaluations, grids, reviews, and model promotion. It combines a
+macOS application, a browser UI, a durable worker, and the `mfiche` automation
+CLI in one operator-owned runtime.
 
-## Runtime
+> **Release scope:** the current release is a single-user local operator tool.
+> Profiles provide attribution, not authentication. The macOS artifacts are
+> currently unsigned and intended for controlled distribution.
 
-- Self-contained macOS app serving the API and React UI on `http://127.0.0.1:8400`
-- Durable polling worker for S3 imports, checkpoint hydration, exports, and FAL jobs
-- Embedded `mfiche` CLI for interactive and agentic use
-- W&B 0.28.0 compatibility ingress on `http://127.0.0.1:8401`
+## What it does
+
+- Imports datasets and training runs from local folders or S3-compatible storage.
+- Preserves typed lineage between source assets, dataset versions, runs,
+  checkpoints, evaluations, grids, reviews, and promoted model versions.
+- Serves remote originals through verified delivery descriptors and bounded
+  proxies without requiring every asset to be hydrated locally.
+- Submits Image, Eval, and Grid generation through explicit FAL admission and
+  billing-review steps.
+- Builds checksummed AI Toolkit trainer packets and receives checkpoints through
+  outbound object storage; no inbound trainer tunnel is required.
+- Exposes the same meaningful operator workflows through the web UI and the
+  JSON-first `mfiche` CLI.
+- Creates verified local backups and supports atomic restore and interrupted
+  restore recovery.
+
+## Documentation
+
+| Guide | Use it for |
+| --- | --- |
+| [Documentation index](docs/README.md) | All operator, automation, architecture, and compatibility guides |
+| [CLI guide](docs/CLI.md) | Installation, command discovery, common workflows, output, and exit codes |
+| [Agent guide](docs/AGENT_GUIDE.md) | Deterministic automation rules and copy-ready recipes for coding agents |
+| [W&B / AI Toolkit guide](docs/WANDB_COMPATIBILITY.md) | Trainer packets, optional live telemetry, signing, and checkpoint handoff |
+| [CLI contract](CLI_SPEC.md) | Stable command behavior, safety, and compatibility requirements |
+| [Product definition](PRODUCT.md) | Domain, users, product principles, and interaction constraints |
+| [Contributing](CONTRIBUTING.md) | Development setup, tests, migrations, and pull-request expectations |
+| [Security](SECURITY.md) | Supported deployment boundary and vulnerability reporting |
+
+The application also includes an offline-friendly **Docs** screen with the
+common operator and agent workflows.
 
 ## Install
 
-### macOS
+### macOS application
 
-Download `Modelfiche-<version>-macos-<architecture>.dmg`, drag Modelfiche to
-Applications, and open it. The app includes Python, the API, worker, W&B
-ingress, web UI, migrations, and the agent CLI. Runtime data is stored under
-`~/Library/Application Support/Modelfiche`; logs are under
-`~/Library/Logs/Modelfiche`.
+Download `Modelfiche-<version>-macos-<architecture>.dmg`, drag Modelfiche into
+Applications, and open it. The bundle contains Python, the API, migrations,
+worker, web UI, optional W&B-compatible ingress, and the agent CLI.
 
-The embedded CLI is available at:
+Runtime data:
 
-```bash
-"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json training doctor
+```text
+~/Library/Application Support/Modelfiche
 ```
 
-Release builds are reproducible from a development checkout:
+Logs:
 
-```bash
-scripts/build_macos_app.sh
+```text
+~/Library/Logs/Modelfiche
 ```
 
-Versioned ZIP, DMG, and SHA-256 files are written to `dist/macos/release/`.
+Run the embedded CLI directly:
 
-### Development
+```bash
+"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json doctor
+```
+
+The Settings screen can install the packaged command into
+`~/.local/bin/mfiche` without administrator access.
+
+### Development checkout
+
+Requirements: Python 3.11+, `uv`, Node.js, and `pnpm`.
 
 ```bash
 uv sync --extra dev
 pnpm --dir apps/web install
 uv run alembic upgrade head
 uv tool install --editable .
-
 ```
 
-## S3 configuration
-
-Import sources are standard S3 connections. For AWS, omit the endpoint and let
-boto3 use its normal credential chain. For another S3-compatible service, set
-an endpoint and choose `auto`, `path`, or `virtual` addressing.
-
-Credentials are never saved to SQLite. Each source stores a credential prefix,
-such as `TRAINING`; the process reads `TRAINING_ACCESS_KEY`,
-`TRAINING_SECRET_KEY`, and optional `TRAINING_SESSION_TOKEN`. The default `S3`
-prefix also supports `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and the rest
-of boto3's AWS credential chain.
-
-The existing Mega source can be injected from 1Password:
-
-```bash
-cp .env.1password.example .env.1password
-op run --env-file=.env.1password -- mfiche start
-```
-
-Create a connector from the CLI:
-
-```bash
-mfiche s3 source-create \
-  --name training-runs \
-  --bucket my-training-bucket \
-  --region us-east-1 \
-  --allowed-prefix completed-runs/ \
-  --credential-env-prefix TRAINING
-```
-
-Add `--endpoint-url https://s3.example.com --addressing-style path` for a
-custom provider. `mfiche s3 sources` returns the UUID required by browse and
-import commands.
-
-## Remote image serving
-
-MEGA S4 can be used as an S3-compatible origin for imported image assets. Titles
-stores the S3 object identity and serves images through the typed delivery
-descriptor; it does not need to download the original into `assets/` first.
-Direct browser delivery requires a current exact object version. If the object
-only supports conditional reads, Titles uses a bounded proxy and verifies the
-bytes before serving them. Thumbnails are derivative cache entries, not durable
-copies of the original.
-
-This remote-origin path applies to imported assets. FAL-generated outputs still
-use the worker's local publication path until an S3 write-ready output policy is
-selected and admitted.
-
-## Run
-
-Start the API, worker, and frontend together:
+Start the complete local stack:
 
 ```bash
 mfiche start
 mfiche status
 ```
 
-`server start` waits for the API and frontend health checks, then supervises
-all three processes. If any process exits, the supervisor stops the remaining
-services and `server status` reports failure. The frontend runs at
-`http://127.0.0.1:5173`; the API runs at `http://127.0.0.1:8400`.
-
-Stop the complete service stack with:
+Open `http://127.0.0.1:5173`, then stop the stack with:
 
 ```bash
 mfiche stop
 ```
 
-Logs are written to `var/server.log`, `var/worker.log`, `var/web.log`, and
-`var/supervisor.log`.
+Without an installed entry point, replace `mfiche ...` with
+`uv run mfiche ...`.
+
+## First-run checklist
+
+1. Open **Settings** and configure the local profile and provider defaults.
+2. Connect and verify an S3-compatible source when remote assets or training
+   handoff are required.
+3. Configure the FAL credential only when generation is required.
+4. Run `mfiche backup create` and verify the resulting archive.
+5. Run `mfiche --json doctor` and `mfiche --json training doctor`.
+
+The detailed readiness checks remain available at `#/readiness`, but are no
+longer a primary navigation destination.
+
+## Common CLI workflows
+
+Discover the installed contract rather than relying on remembered flags:
+
+```bash
+mfiche --help
+mfiche --json capabilities
+mfiche --json enums
+mfiche <group> --help
+mfiche <group> <command> --help
+```
+
+Inspect local state:
+
+```bash
+mfiche --json doctor
+mfiche --json project list
+mfiche --json job list
+mfiche --json gallery list --limit 20
+```
+
+Create and verify a backup:
+
+```bash
+mfiche --json backup create
+mfiche --json backup list
+mfiche --json backup verify "/path/to/modelfiche-backup.tar.gz"
+```
+
+Prepare an outbound-only trainer packet:
+
+```bash
+mfiche --json training setup
+mfiche --json training doctor
+mfiche --json training run prepare <launch-id> \
+  --output ./modelfiche-training-packet
+```
+
+See [docs/CLI.md](docs/CLI.md) for complete workflow examples and
+[docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) for the non-interactive contract.
+
+## Storage and credentials
+
+Import sources are standard S3 connections. For AWS, omit the endpoint and use
+the boto3 credential chain. For S3-compatible services, configure the endpoint,
+region, and `auto`, `path`, or `virtual` addressing.
+
+Credentials are never stored in SQLite. A source stores only a credential
+environment prefix. For a prefix such as `TRAINING`, the runtime reads:
+
+```text
+TRAINING_ACCESS_KEY
+TRAINING_SECRET_KEY
+TRAINING_SESSION_TOKEN  # optional
+```
+
+The default `S3` prefix also supports the standard AWS environment and boto3
+credential chain. Provider secrets and signing private keys must remain outside
+the repository and database.
 
 ## Backup and restore
 
-Packaged upgrades create a verified pre-migration backup automatically and
-abort before changing the database if the backup fails. Manual snapshots
-include the SQLite database, local assets, cache, exports, and settings:
+Packaged upgrades create a verified pre-migration backup and abort before a
+migration if backup verification fails.
 
 ```bash
 mfiche backup create
 mfiche backup list
-mfiche backup verify "/path/to/modelfiche-YYYY-MM-DD-UUID.tar.gz"
+mfiche backup verify "/path/to/backup.tar.gz"
 ```
 
-Stop Modelfiche before restoring. Restore verifies every file and the SQLite
-integrity check before atomically replacing the application data directory:
+Restore is intentionally explicit and requires Modelfiche to be stopped:
 
 ```bash
 mfiche stop
@@ -137,91 +188,46 @@ mfiche backup restore "/path/to/backup.tar.gz" \
   --confirm "RESTORE MODELFICHE BACKUP"
 ```
 
-`mfiche backup recover` rolls back an interrupted directory swap.
+Use `mfiche backup recover` to roll back an interrupted directory swap.
 
-## AI Toolkit live logging
-
-Modelfiche exposes a narrow W&B 0.28.0 compatibility service for AI Toolkit.
-It accepts run start/resume, scalar and text metrics, image samples with
-captions, summaries, and completion. The regular API pre-creates the expected
-run and the trainer authenticates with a run-scoped signed token.
-
-Set up the local asymmetric signing identity once, inspect the actionable
-readiness report, then start from a published dataset in the UI:
-
-```bash
-"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json training setup
-"/Applications/Modelfiche.app/Contents/MacOS/mfiche" --json training doctor
-```
-
-After creating the launch in the UI, the launch screen supplies the exact
-`training run prepare` command. It refuses to generate a trainer packet until
-the immutable dataset export, signing identity, and verified training storage
-pass preflight. Public ingress is not required. The resulting checksummed
-packet contains the dataset archive, redacted manifest, AI Toolkit logging
-fragment, signed run-scoped environment, and checkpoint-sync helper.
-
-Run `python3 modelfiche-run-sync.py --manifest manifest.json` from the packet
-beside AI Toolkit on the trainer. It uses outbound S3 access to upload only
-stable checkpoint files, verifies each remote object, and publishes the
-generation manifest last. ModelFiche discovers those manifests through the
-configured storage source; no inbound trainer connection or tunnel is needed.
-See [docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for deployment,
-reverse-proxy routing, launch JSON, key handling, failure recovery, and the
-pinned compatibility-test procedure.
-
-`uv tool install --editable .` installs the project’s `mfiche` entry point on
-your `PATH` for local development. `uv run mfiche ...` remains the portable
-alternative when the entry point is not installed.
-
-## Agentic CLI
-
-All commands accept `--json`; collection commands also support `--jsonl`.
-Mutations accept explicit IDs, the active local profile is sent for attribution,
-and long operations expose durable jobs that can be polled with
-`mfiche job wait <job-id>`.
-
-```bash
-mfiche --json profile list
-mfiche --json project list
-mfiche --json s3 sources
-mfiche --json s3 ls --source <source-uuid> --prefix completed-runs/
-mfiche --json import create --source <source-uuid> \
-  --project <project-uuid> --prefix completed-runs/example/ --wait
-```
-
-Use `mfiche --help` for the full command tree. `mfiche start`, `mfiche status`,
-and `mfiche stop` are short forms of their `mfiche server` equivalents.
-
-## Operator APIs
-
-The wireframe-facing application contracts are available under `/api`:
-
-- `GET /dashboard` and `GET /search?q=...` provide the workspace shell data.
-- `POST /checkpoints/{id}/hydrate` queues an atomic, verified S3 download.
-- `/transfers` creates and tracks local export ZIPs; completed exports are
-  downloaded from `/transfers/{id}/download`.
-- `/operator-settings` stores nonsecret local defaults. The
-  `/operator-settings/test/{llm|fal|storage}` checks are configuration-only and
-  never call a provider. Credential values remain process environment variables.
-- `POST /prompt-sets/generate` is the explicit LLM action used by the editable
-  prompt-set builder. It reads the configured provider/model, accepts
-  `instruction`, `count`, and structured `context`, then returns ordered
-  `{id, prompt, position, metadata}` objects with `persisted: false`. Saving the
-  edited result remains a separate `POST /prompt-sets` action.
-
-Export packages contain a JSON manifest, selected asset metadata,
-reviews/comments, and any selected files that are already hydrated locally.
-
-## Verify
+## Development verification
 
 ```bash
 uv run pytest -q
+pnpm --dir apps/web test
 pnpm --dir apps/web typecheck
 pnpm --dir apps/web build
 ```
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md),
-[CLI_SPEC.md](CLI_SPEC.md), [FAL_ENDPOINT_SCHEMAS.md](FAL_ENDPOINT_SCHEMAS.md),
-and [docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for the domain,
-CLI, provider, and W&B compatibility contracts.
+Build reproducible unsigned macOS release artifacts:
+
+```bash
+scripts/build_macos_app.sh
+```
+
+The ZIP, DMG, and SHA-256 manifest are written to `dist/macos/release/`.
+
+## Architecture at a glance
+
+```text
+Web UI / mfiche CLI
+        |
+        v
+Local FastAPI service ---- optional W&B-compatible ingress
+        |
+        +---- SQLite / PostgreSQL
+        +---- local asset and derivative stores
+        +---- S3-compatible origins and training handoff
+        +---- durable worker ---- FAL / imports / exports / hydration
+```
+
+The API owns validation, transactions, activity records, provider admission,
+and safety checks. The CLI and UI do not write directly to the database or
+asset directories.
+
+## Project status
+
+Modelfiche is under active development. Compatibility-sensitive surfaces are
+covered by migrations, API/CLI contract tests, pinned W&B protocol tests, and
+frontend behavior tests. Review [SECURITY.md](SECURITY.md) before exposing any
+service beyond the documented local boundary.

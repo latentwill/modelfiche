@@ -1,16 +1,16 @@
-# Modelfiche Agentic CLI Specification
+# Modelfiche CLI contract
 
 ## 1. Purpose
 
-The CLI is a complete automation surface for operators, scripts, and coding agents. It must support the same meaningful operations as the web application without duplicating business logic or requiring interactive terminal input.
+The `mfiche` CLI is the supported automation surface for operators, scripts,
+and coding agents. It exposes the same meaningful operations as the web
+application without duplicating business logic or requiring interactive
+terminal input.
 
-Working command name:
-
-```text
-mfiche
-```
-
-The final binary name can change before implementation. Command and JSON contracts should remain stable once Release 1 is operational.
+This file defines stable behavior and safety requirements. The exact command
+tree for an installed version is `mfiche --help`; current workflows are
+documented in [docs/CLI.md](docs/CLI.md), and unattended usage is documented in
+[docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md).
 
 ## 2. Architecture
 
@@ -133,13 +133,14 @@ Comments, notes, ratings, decisions, imports, dataset publications, model-versio
 
 ```text
 mfiche version
-mfiche doctor [--json]
+mfiche capabilities
+mfiche enums
+mfiche doctor
+mfiche start|status|stop
 mfiche server start|status|stop
-mfiche config show
-mfiche config set <key> <value>
-mfiche connection list
-mfiche connection test mega
-mfiche connection test fal
+mfiche context show|set
+mfiche connection list|test
+mfiche settings show|update|test
 ```
 
 Secret values are environment/1Password supplied and cannot be printed by `config show`.
@@ -396,39 +397,43 @@ Mutations are divided into:
 
 Rules:
 
-- All version-creating and provider-executing commands support `--dry-run`.
-- Provider execution returns estimated image/job count before submission.
-- `--yes` is required only when a human-oriented invocation would otherwise confirm. Agents can use an explicit `--request-id` plus `--yes`.
-- No S3 delete/write commands exist in the operator CLI.
-- Dataset publish never overwrites a previous version.
-- Model-version approval does not modify the underlying checkpoint.
-- Download commands check free space and use atomic temporary files.
-- Optimistic concurrency uses `--if-version` for mutable records.
+- Provider-executing workflows expose a preview, schema, preflight, or explicit
+  consequence review before submission.
+- Destructive and restore commands require the confirmation contract shown by
+  command help; agents must not synthesize human confirmation.
+- No S3 object-delete command exists in the operator CLI.
+- Dataset publication creates a new immutable version.
+- Model-version approval does not modify checkpoint bytes.
+- Downloads and restore operations verify content before atomic replacement.
+- Mutable resources use explicit version/state preconditions where supported.
 
 ## 7. Agent Discoverability
 
 The CLI must be self-describing without prose scraping:
 
 ```text
-mfiche capabilities --json
-mfiche schema command <command-path> --json
-mfiche eval schema <endpoint> --json
-mfiche enums --json
+mfiche --json capabilities
+mfiche --json enums
+mfiche --json eval endpoints
+mfiche --json eval schema <endpoint>
+mfiche <group> --help
+mfiche <group> <command> --help
 ```
 
-`mfiche capabilities` returns feature availability, API/schema versions, configured providers, supported endpoint adapters, allowed S3 roots, and maximum operation limits.
+`mfiche capabilities` returns server and feature availability. `mfiche enums`
+returns the installed API's accepted enum values. Endpoint-specific generation
+schemas come from the same adapter registry used for admission.
 
-OpenAPI remains the canonical network contract. The CLI publishes JSON Schemas for command inputs and outputs generated from the same Pydantic models.
+The maintained documentation surfaces are:
 
-Provide:
-
-- `docs/cli/` command reference generated from source.
-- `docs/automation/recipes.md` with deterministic examples.
-- A small Codex/agent skill that teaches capability discovery and safety rules without embedding environment credentials.
+- `docs/CLI.md` for operator installation and workflows;
+- `docs/AGENT_GUIDE.md` for deterministic automation and safety rules;
+- `docs/WANDB_COMPATIBILITY.md` for AI Toolkit and trainer transport;
+- OpenAPI for the canonical local network schema.
 
 ## 8. Compatibility and Versioning
 
-- `mfiche version --json` reports CLI, API, database schema, and command schema versions.
+- `mfiche --json version` reports the CLI version and available server metadata.
 - The CLI refuses unsafe major-version mismatches with the local API.
 - Additive JSON fields are allowed in minor releases.
 - Existing fields and enum meanings do not change silently.

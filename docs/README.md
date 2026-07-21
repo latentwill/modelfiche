@@ -1,0 +1,53 @@
+# Modelfiche documentation
+
+This directory is the documentation hub for operators, automation authors, and
+contributors. Start with the guide matching the task; design plans are not
+runtime instructions.
+
+## Operator guides
+
+- [CLI guide](CLI.md) — install `mfiche`, discover commands, run common
+  workflows, interpret output, and recover from errors.
+- [Agent guide](AGENT_GUIDE.md) — deterministic JSON-first automation contract,
+  safety rules, and copy-ready recipes.
+- [W&B-compatible AI Toolkit logging](WANDB_COMPATIBILITY.md) — signed trainer
+  environments, outbound checkpoint handoff, optional live telemetry, and
+  protocol verification.
+- [FAL endpoint schemas](../FAL_ENDPOINT_SCHEMAS.md) — supported generation
+  adapters and endpoint-specific request fields.
+
+## Product and implementation reference
+
+- [Product definition](../PRODUCT.md) — users, domain language, design
+  principles, and product boundaries.
+- [CLI contract](../CLI_SPEC.md) — stable automation, safety, output, and
+  compatibility requirements.
+- [Implementation plan](../IMPLEMENTATION_PLAN.md) — original architecture and
+  implementation milestones. Current code and migrations take precedence.
+- [System map](qa/modelfiche-system-map.md) — route, API, database, storage, and
+  test map. It is an engineering reference, not an operator guide.
+
+## Contributor guides
+
+- [Contributing](../CONTRIBUTING.md) — setup, focused tests, migrations, and
+  pull-request expectations.
+- [Security](../SECURITY.md) — supported deployment boundary, secrets, and
+  vulnerability reporting.
+
+## Historical design material
+
+Files under `docs/plans/`, `docs/superpowers/specs/`, and `plans/` capture design
+history and implementation decisions. They may describe superseded commands or
+future work. Use the application, `mfiche --help`, OpenAPI, migrations, and the
+operator guides above as the current contract.
+
+## Documentation rules
+
+When behavior changes:
+
+1. Update the user-facing guide and in-app Docs screen in the same change.
+2. Verify every command with `mfiche <group> <command> --help`.
+3. Mark optional services and billable provider actions explicitly.
+4. Keep secrets, private paths, signed tokens, and presigned URLs out of examples.
+5. Prefer stable concepts and workflow examples over screenshots that age
+   immediately.

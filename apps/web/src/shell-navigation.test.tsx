@@ -50,6 +50,8 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "#/models?project=project-1");
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings");
+    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "#/docs");
+    expect(screen.queryByRole("link", { name: "Setup" })).not.toBeInTheDocument();
     expect(screen.getByText(/Local cache/)).toBeInTheDocument();
 
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toHaveAttribute("data-layout", "scroll-region");

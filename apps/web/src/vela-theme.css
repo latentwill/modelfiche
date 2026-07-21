@@ -2999,3 +2999,65 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
     font: .625rem/1.4 var(--vela-font-mono);
   }
 }
+
+/* Documentation workspace */
+.vela-theme .docs-intro { display: grid; gap: var(--vela-space-3); }
+.vela-theme .docs-intro p { max-width: 78ch; margin: 0; }
+.vela-theme .docs-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--vela-space-3);
+}
+.vela-theme .docs-card {
+  display: grid;
+  align-content: start;
+  gap: var(--vela-space-2);
+  min-width: 0;
+  padding: var(--vela-space-4);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+}
+.vela-theme .docs-card h3,
+.vela-theme .docs-card p { margin: 0; }
+.vela-theme .docs-card h3 { font: 700 .75rem/1.3 var(--vela-font-display); text-transform: uppercase; letter-spacing: .06em; }
+.vela-theme .docs-card p { color: var(--vela-muted); }
+.vela-theme .docs-card a { align-self: end; font-weight: 700; }
+.vela-theme .docs-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--vela-space-4);
+}
+.vela-theme .docs-columns > .vela-panel { margin: 0; }
+.vela-theme .docs-panel-heading { display: flex; align-items: flex-start; gap: var(--vela-space-2); }
+.vela-theme .docs-panel-heading p { margin: 0; }
+.vela-theme .docs-command {
+  margin: var(--vela-space-3) 0;
+  padding: var(--vela-space-3);
+  overflow-x: auto;
+  border: 1px solid var(--vela-border);
+  background: var(--mf-bg-deep);
+  color: var(--mf-ink-primary);
+  font: .75rem/1.7 var(--vela-font-mono);
+}
+.vela-theme .docs-steps { display: grid; gap: var(--vela-space-2); margin-bottom: 0; padding-left: 1.35rem; }
+.vela-theme .docs-reference-list { display: grid; border-top: 1px solid var(--vela-border); }
+.vela-theme .docs-reference-list > a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vela-space-3);
+  padding: var(--vela-space-3);
+  border-bottom: 1px solid var(--vela-border);
+  color: inherit;
+}
+.vela-theme .docs-reference-list > a:hover { background: var(--vela-surface-soft); }
+.vela-theme .docs-reference-list span { display: grid; gap: var(--vela-space-1); }
+.vela-theme .docs-reference-list small { color: var(--vela-muted); }
+
+@media (max-width: 1020px) {
+  .vela-theme .docs-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .vela-theme .docs-card-grid,
+  .vela-theme .docs-columns { grid-template-columns: minmax(0, 1fr); }
+}

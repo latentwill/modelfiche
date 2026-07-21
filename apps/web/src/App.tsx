@@ -32,6 +32,7 @@ const ImageGeneratorScreen = lazy(() => import("./generator").then(module => ({ 
 const TrainingLaunchCreateScreen = lazy(() => import("./training").then(module => ({ default: module.TrainingLaunchCreateScreen })));
 const TrainingLaunchScreen = lazy(() => import("./training").then(module => ({ default: module.TrainingLaunchScreen })));
 const ReadinessScreen = lazy(() => import("./readiness").then(module => ({ default: module.ReadinessScreen })));
+const DocsScreen = lazy(() => import("./docs-screen").then(module => ({ default: module.DocsScreen })));
 
 export function App() {
   const rawRoute = useHashRoute();
@@ -80,6 +81,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "grid": return <GridScreen id={id} />;
     case "reviews": return <ReviewsScreen projectId={projectId} subject={params.get("subject") ?? ""} />;
     case "transfers": return <TransfersScreen mode={params.get("mode") ?? ""} params={params} />;
+    case "docs": return <DocsScreen />;
     case "readiness": return <ReadinessScreen />;
     case "settings": return <SettingsScreen />;
     default: return <main><h1>Not found</h1><a href="#/projects">Return to projects</a></main>;
