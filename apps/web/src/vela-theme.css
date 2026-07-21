@@ -1623,6 +1623,36 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   scrollbar-width: thin;
 }
 
+.vela-theme .settings-section-nav {
+  display: flex;
+  gap: var(--vela-space-1);
+  overflow-x: auto;
+  padding-block-end: var(--vela-space-2);
+  border-bottom: 1px solid var(--mf-border);
+}
+.vela-theme .settings-section-nav a {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  color: var(--mf-text-muted);
+  font: 700 11px/1 var(--vela-font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.vela-theme .settings-section-nav a[aria-current="page"] {
+  color: var(--mf-text);
+  background: var(--mf-surface-muted);
+  box-shadow: inset 0 -2px 0 var(--mf-border-strong);
+}
+.vela-theme .settings-sections {
+  display: grid;
+  gap: var(--vela-space-4);
+  align-items: start;
+}
+.vela-theme .settings-sections > :is(div, .vela-notice) {
+  min-width: 0;
+  margin: 0;
+}
+
 /* Settings console: compact overview, paired provider controls, and full-width storage. */
 .vela-theme .settings-layout {
   display: grid;
@@ -1718,6 +1748,32 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   justify-content: flex-end;
   margin: 0 0 var(--vela-space-3);
 }
+.vela-theme .llm-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--vela-space-3);
+  align-items: end;
+}
+.vela-theme .llm-settings-grid .vela-field,
+.vela-theme .llm-key-field .vela-field {
+  min-width: 0;
+  margin: 0;
+}
+.vela-theme .llm-credential-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.6fr) auto auto;
+  gap: var(--vela-space-3);
+  align-items: end;
+  margin-top: var(--vela-space-3);
+}
+.vela-theme .llm-key-actions,
+.vela-theme .llm-config-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.vela-theme .llm-credential-grid .vela-field > input {
+  width: 100%;
+}
 .vela-theme .settings-storage .vela-table-wrap {
   margin-block: var(--vela-space-3);
 }
@@ -1740,6 +1796,38 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
 .vela-theme .settings-profiles > .vela-panel > :is(.vela-form, button) {
   grid-column: 2;
 }
+.vela-theme .readiness-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--vela-space-4);
+}
+.vela-theme .readiness-card-grid > .vela-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 250px;
+  margin: 0;
+}
+.vela-theme .readiness-card-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vela-space-3);
+}
+.vela-theme .readiness-card-state.is-ready > svg { color: var(--vela-success); }
+.vela-theme .readiness-card-state.is-blocked > svg { color: var(--vela-danger); }
+.vela-theme .readiness-next {
+  display: grid;
+  gap: var(--vela-space-1);
+  margin-block: auto var(--vela-space-4);
+  padding: var(--vela-space-3);
+  border-left: 3px solid var(--vela-accent);
+  background: var(--vela-surface-muted);
+}
+.vela-theme .readiness-next strong {
+  font: 700 10px var(--vela-font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
 @media (max-width: 1020px) {
   .vela-theme .settings-layout {
     grid-template-columns: 1fr;
@@ -1754,6 +1842,16 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   .vela-theme .settings-provider > .vela-form,
   .vela-theme .settings-profiles > .vela-panel {
     grid-template-columns: 1fr;
+  }
+  .vela-theme .llm-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vela-theme .llm-credential-grid {
+    grid-template-columns: 1fr;
+  }
+  .vela-theme .llm-key-actions,
+  .vela-theme .llm-config-actions {
+    justify-content: flex-start;
   }
   .vela-theme .settings-profiles > .vela-panel > :is(.vela-section-heading, .vela-notice, .vela-table-wrap, .vela-form, button) {
     grid-column: 1;
@@ -1786,6 +1884,13 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   .vela-theme .mf-rail-ornament { display: none !important; }
   .vela-theme .image-review-media { padding: 0; }
   .vela-theme .image-review-media > img { height: min(62vh, 620px); }
+  .vela-theme .llm-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .vela-theme .llm-key-actions,
+  .vela-theme .llm-config-actions {
+    flex-wrap: wrap;
+  }
 }
 
 /* Impeccable delight: image-first motion, fiche cues, and reader trays. */

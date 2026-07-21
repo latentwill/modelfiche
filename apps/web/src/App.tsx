@@ -8,6 +8,7 @@ import { WorkbenchShell, useThemeController } from "./shell";
 import { DashboardScreen, ImageReviewScreen, SampleViewerScreen, TransfersScreen } from "./screens-wireframe";
 import { GenerationQueueScreen, ImageGeneratorScreen } from "./generator";
 import { TrainingLaunchCreateScreen, TrainingLaunchScreen } from "./training";
+import { ReadinessScreen } from "./readiness";
 
 export function App() {
   const rawRoute = useHashRoute();
@@ -56,6 +57,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "grid": return <GridScreen id={id} />;
     case "reviews": return <ReviewsScreen projectId={projectId} subject={params.get("subject") ?? ""} />;
     case "transfers": return <TransfersScreen mode={params.get("mode") ?? ""} params={params} />;
+    case "readiness": return <ReadinessScreen />;
     case "settings": return <SettingsScreen />;
     default: return <main><h1>Not found</h1><a href="#/projects">Return to projects</a></main>;
   }

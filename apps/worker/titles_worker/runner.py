@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
+import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from titles_api.models import GenerationQueueChild, GenerationQueueItem, ImportJob, Job, JobState
+from titles_api import __version__
+from titles_api.models import GenerationQueueChild, GenerationQueueItem, ImportJob, Job, JobState, WorkerHeartbeat
 
 logger = logging.getLogger("titles.worker")
 JobHandler = Callable[["JobContext", dict[str, Any]], dict[str, Any] | None]
@@ -80,6 +85,7 @@ class JobRunner:
         max_attempts: int = 5,
         maintenance_handlers: tuple[MaintenanceHandler, ...] = (),
         maintenance_interval: float = 5.0,
+        heartbeat_interval: float = 2.0,
     ):
         self.session_factory = session_factory
         self.handlers = handlers
@@ -87,6 +93,10 @@ class JobRunner:
         self.max_attempts = max_attempts
         self.maintenance_handlers = maintenance_handlers
         self.maintenance_interval = maintenance_interval
+        self.heartbeat_interval = heartbeat_interval
+        self.worker_id = str(uuid.uuid4())
+        self.started_at = datetime.now(timezone.utc)
+        self._heartbeat_stop = threading.Event()
         self._next_maintenance_at = 0.0
         self._stopping = False
 
@@ -174,16 +184,53 @@ class JobRunner:
                 logger.exception("worker maintenance handler failed")
         return True
 
+    def record_heartbeat(self, *, state: str = "running") -> None:
+        now = datetime.now(timezone.utc)
+        with self.session_factory.begin() as session:
+            heartbeat = session.get(WorkerHeartbeat, self.worker_id)
+            if heartbeat is None:
+                heartbeat = WorkerHeartbeat(
+                    worker_id=self.worker_id,
+                    state=state,
+                    pid=os.getpid(),
+                    version=__version__,
+                    started_at=self.started_at,
+                    heartbeat_at=now,
+                )
+                session.add(heartbeat)
+            else:
+                heartbeat.state = state
+                heartbeat.heartbeat_at = now
+
+    def _heartbeat_loop(self) -> None:
+        while not self._heartbeat_stop.is_set():
+            try:
+                self.record_heartbeat()
+            except Exception:
+                logger.exception("worker heartbeat failed")
+            self._heartbeat_stop.wait(self.heartbeat_interval)
+
+
     def run_forever(self) -> None:
         recovered = self.recover_interrupted()
         if recovered:
             logger.info("recovered interrupted jobs", extra={"count": recovered})
         self._install_signal_handlers()
-        while not self._stopping:
-            worked = self.run_one()
-            self.run_maintenance()
-            if not worked:
-                time.sleep(self.poll_interval)
+        heartbeat_thread = threading.Thread(target=self._heartbeat_loop, name="worker-heartbeat", daemon=True)
+        heartbeat_thread.start()
+        try:
+            while not self._stopping:
+                worked = self.run_one()
+                self.run_maintenance()
+                if not worked:
+                    time.sleep(self.poll_interval)
+        finally:
+            self._heartbeat_stop.set()
+            heartbeat_thread.join(timeout=max(self.heartbeat_interval * 2, 1))
+            try:
+                self.record_heartbeat(state="stopped")
+            except Exception:
+                logger.exception("final worker heartbeat failed")
 
     def stop(self) -> None:
         self._stopping = True

@@ -10,6 +10,7 @@ import signal
 import time
 from pathlib import Path
 from typing import Any
+import urllib.error
 import urllib.request
 
 import boto3
@@ -110,7 +111,8 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
         descriptors.append({"object_key": key, "sha256": digest, "size": stat.st_size, "step": step, "name": path.stem})
     if not descriptors:
         return {"uploaded": 0, "checkpoint_count": 0, "message": "no stable checkpoints are ready"}
-    manifest_prefix = str(backup["checkpoint_handoff"]["manifest_prefix"])
+    handoff = backup["checkpoint_handoff"]
+    manifest_prefix = str(handoff["manifest_prefix"])
     generation = _generation(client, bucket, manifest_prefix)
     body = {
         "schema_version": "modelfiche.checkpoint-manifest.v1",
@@ -131,20 +133,36 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
         "manifest_version_id": receipt.get("VersionId"),
         "checkpoint_count": len(descriptors),
     }).encode("utf-8")
+    callback_required = bool(handoff.get("callback_required", True))
+    callback_status = "skipped"
     token = os.getenv("MODELFICHE_HANDOFF_TOKEN")
-    if not token:
+    if token:
+        authorization = base64.b64encode(f"api:{token}".encode("ascii")).decode("ascii")
+        request = urllib.request.Request(
+            str(handoff["callback_url"]),
+            data=callback_body,
+            method="POST",
+            headers={"Authorization": f"Basic {authorization}", "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.status not in {200, 201}:
+                    raise RuntimeError(f"checkpoint callback failed with HTTP {response.status}")
+            callback_status = "delivered"
+        except (urllib.error.URLError, RuntimeError):
+            if callback_required:
+                raise
+            callback_status = "unavailable"
+    elif callback_required:
         raise RuntimeError("MODELFICHE_HANDOFF_TOKEN is required for checkpoint handoff")
-    authorization = base64.b64encode(f"api:{token}".encode("ascii")).decode("ascii")
-    request = urllib.request.Request(
-        str(backup["checkpoint_handoff"]["callback_url"]),
-        data=callback_body,
-        method="POST",
-        headers={"Authorization": f"Basic {authorization}", "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        if response.status not in {200, 201}:
-            raise RuntimeError(f"checkpoint callback failed with HTTP {response.status}")
-    return {"uploaded": len(descriptors), "checkpoint_count": len(descriptors), "generation": generation, "manifest_key": manifest_key, "manifest_sha256": digest}
+    return {
+        "uploaded": len(descriptors),
+        "checkpoint_count": len(descriptors),
+        "generation": generation,
+        "manifest_key": manifest_key,
+        "manifest_sha256": digest,
+        "callback_status": callback_status,
+    }
 
 
 def main() -> None:

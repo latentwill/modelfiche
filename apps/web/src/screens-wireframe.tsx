@@ -329,8 +329,14 @@ export function SampleViewerScreen({ runId, initialStep = "" }: { runId: string;
   </div>;
 }
 
+export function forwardSampleComparisonWheel(event: { deltaX: number; deltaY: number; currentTarget: HTMLElement; preventDefault: () => void }) {
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || event.currentTarget.scrollHeight > event.currentTarget.clientHeight) return;
+  event.preventDefault();
+  window.scrollBy({ top: event.deltaY });
+}
+
 function SampleComparisonTable({ columns, rows: promptRows, activeAssetId, projectId, onSelect }: { columns: SampleComparisonColumn[]; rows: SampleComparisonRow[]; activeAssetId: string; projectId: string; onSelect: (assetId: string) => void }) {
-  return <div className="sample-comparison-table-wrap" role="region" aria-label="Sample comparison matrix" tabIndex={0}>
+  return <div className="sample-comparison-table-wrap" role="region" aria-label="Sample comparison matrix" tabIndex={0} onWheel={forwardSampleComparisonWheel}>
     <table className="sample-comparison-table">
       <thead><tr><th scope="col">Prompt / sample</th>{columns.map(column => <th scope="col" key={column.id}><strong>{column.label}</strong>{column.checkpointId ? <a href={`#/checkpoint/${column.checkpointId}`}>{column.checkpointFilename || "Open checkpoint"}</a> : <span>{column.checkpointFilename || "Checkpoint unresolved"}</span>}<Status value={column.localStatus || column.checkpointState} />{column.modelVersionId ? <a href={`#/model-version/${column.modelVersionId}`}>{column.modelVersionName || "Registered version"}</a> : <span>Not registered as a model version</span>}</th>)}</tr></thead>
       <tbody>{promptRows.map(row => <tr key={row.id}><th scope="row"><strong>{row.label}</strong>{row.ordinal != null && <span>Sample {row.ordinal + 1}</span>}</th>{columns.map(column => { const sample = row.cells[column.id]; const assetId = sample ? str(sample.asset_revision_id ?? sample.asset_id ?? sample.id) : ""; return <td key={column.id}>{sample ? <SampleCell sample={{ ...sample, project_id: sample.project_id ?? projectId }} active={activeAssetId === assetId} label={`${row.label} at ${column.label}`} onSelect={() => onSelect(assetId)} /> : <span className="sample-comparison-missing">Not archived</span>}</td>; })}</tr>)}</tbody>

@@ -153,6 +153,44 @@ def test_gallery_delete_reports_retained_remote_content_and_removes_metadata(cli
     assert client.get(f"/api/assets/{asset['id']}").status_code == 404
 
 
+
+def test_gallery_delete_clears_asset_location_references(client: TestClient):
+    _profile, headers, project, _asset, _dataset = _seed(client)
+    asset = client.post("/api/assets", headers=headers, json={
+        "project_id": project["id"],
+        "kind": "image",
+        "name": "generated.png",
+        "location": {"provider": "s3", "uri": "s3://bucket/generated.png", "bucket": "bucket", "object_key": "generated.png"},
+    }).json()
+    with app_module.SessionLocal() as db:
+        location = db.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset["id"]))
+        row = db.get(models.Asset, asset["id"])
+        assert location is not None and row is not None
+        row.preferred_location_id = location.id
+        row.origin_location_id = location.id
+        dependent = models.Asset(
+            workspace_id=row.workspace_id,
+            project_id=project["id"],
+            kind=models.AssetKind.image,
+            name="derived.png",
+            preferred_location_id=location.id,
+            origin_location_id=location.id,
+        )
+        db.add(dependent)
+        db.commit()
+        dependent_id = dependent.id
+
+    response = client.delete(f"/api/assets/{asset['id']}?report=true&delete_content=true", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["metadata"] == "deleted"
+    assert client.get(f"/api/assets/{asset['id']}").status_code == 404
+    with app_module.SessionLocal() as db:
+        dependent = db.get(models.Asset, dependent_id)
+        assert dependent is not None
+        assert dependent.preferred_location_id is None
+        assert dependent.origin_location_id is None
+
 def test_gallery_delete_reports_partial_local_storage_failure(client: TestClient, tmp_path):
     _profile, headers, project, _asset, _dataset = _seed(client)
     outside = tmp_path / "outside-root.png"

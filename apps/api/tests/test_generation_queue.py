@@ -95,6 +95,29 @@ def test_worker_terminal_sync_and_restart_recovery(client):
     assert terminal["status"] == "completed" and terminal["result"] == {"asset_ids": ["done"]}
 
 
+def test_failed_generation_can_be_retried_from_persisted_job_payload(client):
+    profile = client.get("/api/profiles").json()[0]
+    project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Retry"}).json()
+    model, version = _registered_checkpoint(client, project["id"])
+    _, queued = _compile_and_queue(client, project, model, version)
+    claimed = client.post("/api/generation-queue/claim").json()
+    failing = JobRunner(app_module.SessionLocal, {"fal.eval_admission": lambda context, payload: (_ for _ in ()).throw(RuntimeError("provider timeout"))})
+
+    assert failing.run_one()
+    failed = client.get(f"/api/generation-queue/{queued.json()['id']}").json()
+    assert failed["status"] == "failed"
+    retried = client.post(f"/api/generation-queue/{failed['id']}/retry")
+    assert retried.status_code == 202, retried.text
+    assert retried.json()["status"] == "queued"
+    assert retried.json()["job_id"] != claimed["job_id"]
+
+    succeeding = JobRunner(app_module.SessionLocal, {"fal.eval_admission": lambda context, payload: {"asset_ids": ["recovered"]}})
+    assert succeeding.run_one()
+    recovered = client.get(f"/api/generation-queue/{failed['id']}").json()
+    assert recovered["status"] == "completed"
+    assert recovered["result"] == {"asset_ids": ["recovered"]}
+
+
 def test_provider_managed_queue_is_never_scheduled_internally(client):
     assert queue_capability("comfyui") == {"owner": "provider", "dispatch": "provider_native"}
     body = {"workflow": "image", "provider": "comfyui", "context": {"project_id": str(uuid4())},

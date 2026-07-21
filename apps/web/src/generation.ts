@@ -217,7 +217,7 @@ export function connectedFalGenerationModels(rows: Record<string, unknown>[], pr
 }
 
 export function generatorHref(workflow: GenerationWorkflow, context: GenerationContext, prefillAssetId?: string) {
-  const params = new URLSearchParams({ workflow, scope: context.kind, project: context.projectId });
+  const params = new URLSearchParams({ workflow, project: context.projectId });
   if (context.kind === "model") {
     params.set("model", context.modelId);
     if (context.modelVersionId) params.set("model_version", context.modelVersionId);

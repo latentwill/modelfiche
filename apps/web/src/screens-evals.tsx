@@ -15,7 +15,7 @@ import { AssetImage } from "./asset-image";
 import { useResource, pollWhileActive } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { EndpointFields, GenerationQueue, LoraScaleField, ModelCheckpointPicker, parametersFromForm } from "./generator";
-import { connectedFalGenerationModels } from "./generation";
+import { connectedFalGenerationModels, type GenerationContext } from "./generation";
 import { galleryOpenHref } from "./screens-assets";
 
 type Row = Record<string, unknown>;
@@ -223,7 +223,6 @@ function PromptSetBuilder({ projects, resource, selected, selectedId, onSelect, 
 
 export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { projectId?: string; initialModelVersionId?: string }) {
   const initialParams = new URLSearchParams(location.hash.split("?")[1] ?? "");
-  const [scope, setScope] = useState<"project" | "model">(initialParams.get("scope") === "model" ? "model" : "project");
   const [project, setProject] = useState(projectId);
   const [modelId, setModelId] = useState(initialParams.get("model") ?? "");
   const [selectedModels, setSelectedModels] = useState<string[]>(initialModelVersionId ? [initialModelVersionId] : []);
@@ -242,7 +241,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const promptSets = useResource<unknown>(project ? `/api/prompt-sets${query({ project_id: project })}` : null);
   const promptSet = useResource<Row>(selectedPromptSetId ? `/api/prompt-sets/${selectedPromptSetId}` : null);
   const savedGrids = useResource<unknown>(project ? `/api/grids${query({ project_id: project })}` : null);
-  const generationModels = connectedFalGenerationModels(rows(models.data), project, scope === "model" ? modelId : undefined);
+  const generationModels = connectedFalGenerationModels(rows(models.data), project, modelId || undefined);
   const evalRunRows = rows(evals.data);
   const latestEval = evalRunRows[0];
   const recentEvalRuns = evalRunRows.slice(0, 3);
@@ -258,10 +257,10 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const eligibleModelIds = new Set(generationModels.map(model => model.modelId));
   const readyPromptCount = prompts.reduce((count, prompt) => count + Number(Boolean(prompt.text.trim())), 0);
   const selectedProject = rows(projects.data).find(item => idOf(item) === project);
+  const context: GenerationContext = modelId ? { kind: "model", projectId: project, modelId } : { kind: "project", projectId: project };
   const evalPreflightError =
     !project ? "Select a project." :
-      scope === "model" && !modelId ? "Select a model context." :
-        !selectedModels.length ? "Select at least one model checkpoint." :
+      !selectedModels.length ? "Select at least one model checkpoint." :
           selectedGenerationModels.length !== selectedModels.length ? "Wait for selected checkpoint details to load." :
             endpoints.loading || selectedEndpointSchemas.length !== selectedEndpointIds.length ? "Loading settings for the selected FAL endpoints." :
               selectedPromptSetId && promptSet.loading ? "Loading the selected prompt set version." :
@@ -270,7 +269,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
                     !readyPromptCount ? "Add at least one prompt." :
                       !settingsValid ? "Complete the endpoint-defined settings within their allowed bounds." : "";
 
-  useEffect(() => setSelectedModels(ids => ids.filter(id => generationModels.some(model => model.id === id))), [models.data, project, scope, modelId]);
+  useEffect(() => setSelectedModels(ids => ids.filter(id => generationModels.some(model => model.id === id))), [models.data, project, modelId]);
   useEffect(() => {
     if (!selectedPromptSetId || !promptSet.data) return;
     setPrompts(rows(promptSet.data.prompts).map(prompt => ({ id: idOf(prompt), text: str(prompt.text) })));
@@ -293,17 +292,6 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
     >
       <Notice error={models.error || modelFamilies.error || projects.error || endpoints.error || promptSets.error} loading={models.loading || modelFamilies.loading || projects.loading || endpoints.loading || promptSets.loading} />
       <Panel title="Evaluation context"><div className="form-grid">
-        <Field label="Scope">
-          <Dropdown
-            aria-label="Scope"
-            value={scope}
-            onChange={value => { setScope(value as "project" | "model"); setSelectedModels([]); }}
-            options={[
-              { value: "project", label: "Project" },
-              { value: "model", label: "Model / checkpoint" },
-            ]}
-          />
-        </Field>
         <Field label="Project">
           <Dropdown
             aria-label="Project"
@@ -315,7 +303,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
             ]}
           />
         </Field>
-        {scope === "model" && <Field label="Model">
+        <Field label="Model">
           <Dropdown
             aria-label="Model"
             value={modelId}
@@ -327,7 +315,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
                 .map(row => ({ value: idOf(row), label: str(row.name) })),
             ]}
           />
-        </Field>}
+        </Field>
       </div><ModelCheckpointPicker mode="multiple" models={generationModels} selected={selectedModels} onChange={setSelectedModels} />
       {selectedModels.map(id => { const model = generationModels.find(item => item.id === id); return model && !model.available ? <div className="vela-notice vela-notice-error" role="alert" key={id}>{model.name} / {model.checkpointLabel}: {model.unavailableReason}</div> : null; })}</Panel>
       <Panel title={selectedPromptSetId ? "Prompt set version" : "Ordered manual prompts"}>
@@ -356,11 +344,11 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
               if (!schema) throw new Error(`FAL settings for ${model.endpoint} are unavailable.`);
               const parameters = { ...parametersFromForm(form, schema), lora_scale: loraScale };
               const requestId = crypto.randomUUID();
-              const result = await api<Row>("/api/eval-generation-requests/compile", jsonBody({ workflow: "eval", provider: model.provider, context: scope === "model" ? { kind: "model", project_id: project, model_id: modelId } : { kind: "project", project_id: project }, model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId, prompt_set_id: selectedPromptSetId || undefined, prompts: orderedPrompts, parameters, client_request_id: requestId }));
+              const result = await api<Row>("/api/eval-generation-requests/compile", jsonBody({ workflow: "eval", provider: model.provider, context: { kind: context.kind, project_id: context.projectId, model_id: context.kind === "model" ? context.modelId : undefined }, model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId, prompt_set_id: selectedPromptSetId || undefined, prompts: orderedPrompts, parameters, client_request_id: requestId }));
               compiled.push({ model, requestId, admission: result.admission as Row, parameters });
             }
             const parentId = crypto.randomUUID();
-            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: scope, project_id: project, model_id: scope === "model" ? modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", endpoint_ids: selectedEndpointIds, context: { kind: scope, projectId: project, projectTitle: str(selectedProject?.title ?? selectedProject?.name, project), modelId }, models: compiled.map(item => item.model), prompt_set: selectedPromptSetId ? { id: selectedPromptSetId, name: str(promptSet.data?.name), version: promptSet.data?.version } : null, prompts: orderedPrompts, parameters: Object.fromEntries(compiled.map(item => [item.model.id, item.parameters])) }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
+            const queued = await api<Row>("/api/generation-queue", jsonBody({ workflow: "eval", provider: "fal", context: { kind: context.kind, project_id: context.projectId, model_id: context.kind === "model" ? context.modelId : undefined }, model_version_ids: compiled.map(item => item.model.id), compiled_request_id: parentId, client_request_id: parentId, request: { workflow: "eval", endpoint_ids: selectedEndpointIds, context: { ...context, projectTitle: str(selectedProject?.title ?? selectedProject?.name, project) }, models: compiled.map(item => item.model), prompt_set: selectedPromptSetId ? { id: selectedPromptSetId, name: str(promptSet.data?.name), version: promptSet.data?.version } : null, prompts: orderedPrompts, parameters: Object.fromEntries(compiled.map(item => [item.model.id, item.parameters])) }, children: compiled.map(item => ({ model_version_id: item.model.id, compiled_request_id: item.requestId, admission_id: item.admission.id })) }));
             setMessage(`One evaluation job queued as ${idOf(queued)} for ${compiled.length} checkpoint${compiled.length === 1 ? "" : "s"}.`);
             await queue.reload();
           }}
@@ -414,7 +402,7 @@ export function EvalScreen({ id }: { id: string }) {
   }, [promptIds]);
   const shown = Object.entries(grouped).filter(([key]) => selected.includes(key)).slice(0, 4);
   const projectId = str(resource.data?.project_id, "");
-  const returnHref = `#/evals${projectId ? `?project=${projectId}&scope=project` : ""}`;
+  const returnHref = `#/evals${projectId ? `?project=${projectId}` : ""}`;
   const cancelDisabledReason = resource.loading
     ? "Eval data is still loading"
     : resource.error

@@ -69,6 +69,7 @@ def _manifest(output: Path) -> dict[str, Any]:
             "checkpoint_handoff": {
                 "manifest_prefix": "projects/p1/runs/r1/manifests/checkpoints/",
                 "callback_url": "https://wandb.example/api/checkpoint-handoffs/dam-run-1",
+                "callback_required": False,
             },
         },
     }
@@ -90,6 +91,7 @@ def test_sync_uploads_stable_checkpoint_then_publishes_manifest_and_callback(tmp
 
     assert result["uploaded"] == 1
     assert result["generation"] == 1
+    assert result["callback_status"] == "delivered"
     checkpoint_keys = [key for key in s3.objects if "/checkpoints/" in key and not key.endswith(".json")]
     assert len(checkpoint_keys) == 1
     published = json.loads(s3.objects[result["manifest_key"]])
@@ -100,6 +102,26 @@ def test_sync_uploads_stable_checkpoint_then_publishes_manifest_and_callback(tmp
     assert callback["manifest_sha256"] == result["manifest_sha256"]
     assert callback["manifest_etag"] == "manifest-etag"
     assert requests[0][0].headers["Authorization"].startswith("Basic ")
+
+
+def test_sync_succeeds_when_optional_callback_is_unavailable(tmp_path, monkeypatch) -> None:
+    checkpoint = tmp_path / "checkpoints" / "checkpoint-1000.safetensors"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"stable checkpoint")
+    old = time.time() - 120
+    os.utime(checkpoint, (old, old))
+    s3 = FakeS3()
+    monkeypatch.setattr(run_sync, "_client", lambda *_args: s3)
+    monkeypatch.setenv("MODELFICHE_HANDOFF_TOKEN", "M" * 64)
+
+    def unavailable(*_args, **_kwargs):
+        raise run_sync.urllib.error.HTTPError("https://wandb.example", 403, "blocked", {}, None)
+
+    monkeypatch.setattr(run_sync.urllib.request, "urlopen", unavailable)
+    result = run_sync.sync_once(_manifest(tmp_path), stable_seconds=60)
+
+    assert result["callback_status"] == "unavailable"
+    assert result["manifest_key"] in s3.objects
 
 
 def test_sync_does_not_publish_checkpoint_that_is_still_changing(tmp_path, monkeypatch) -> None:

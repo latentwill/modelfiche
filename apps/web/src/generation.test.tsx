@@ -13,10 +13,10 @@ vi.mock("./api", async importOriginal => {
 afterEach(() => cleanup());
 
 describe("shared generation contracts", () => {
-  it("round-trips scoped model launch context in the generator href", () => {
+  it("round-trips model launch context without a scope parameter", () => {
     const href = generatorHref("image", { kind: "model", projectId: "project-a", modelId: "model-a", modelVersionId: "version-a" }, "asset-a");
     const params = new URLSearchParams(href.split("?", 2)[1]);
-    expect(Object.fromEntries(params)).toEqual({ workflow: "image", scope: "model", project: "project-a", model: "model-a", model_version: "version-a", prefill_asset: "asset-a" });
+    expect(Object.fromEntries(params)).toEqual({ workflow: "image", project: "project-a", model: "model-a", model_version: "version-a", prefill_asset: "asset-a" });
   });
 
   it("derives FAL provider and endpoint exclusively from registration metadata", () => {
@@ -104,7 +104,7 @@ describe("shared generation contracts", () => {
 
   it("does not submit an admission when the Image Generator opens", () => {
     vi.mocked(apiModule.api).mockClear();
-    render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&scope=project&prefill_asset=a1")} />);
+    render(<ImageGeneratorScreen params={new URLSearchParams("project=p1&prefill_asset=a1")} />);
     expect(vi.mocked(apiModule.api).mock.calls.some(([path]) => /generation-requests\/compile|fal-admissions/.test(String(path)))).toBe(false);
   });
 

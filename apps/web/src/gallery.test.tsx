@@ -46,7 +46,7 @@ describe("gallery navigation contracts", () => {
     expect(screen.getByText("LoRA scale · 0.65")).toBeInTheDocument();
     const replay = screen.getByRole("link", { name: /Generate/ });
     const params = new URLSearchParams(replay.getAttribute("href")?.split("?", 2)[1]);
-    expect(Object.fromEntries(params)).toMatchObject({ workflow: "image", scope: "model", project: "p1", model: "m1", model_version: "v1", prefill_asset: "a1" });
+    expect(Object.fromEntries(params)).toMatchObject({ workflow: "image", project: "p1", model: "m1", model_version: "v1", prefill_asset: "a1" });
   });
 
   it("keeps gallery tiles square and responsive at boundary widths", () => {
@@ -129,6 +129,9 @@ describe("gallery navigation contracts", () => {
     render(<GalleryScreen projectId="project-1" params={params} />);
 
     const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
+    const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
+    expect(metadataFields).toEqual(expect.arrayContaining(["File", "Type", "Kind", "Dimensions", "Dataset", "Provider"]));
+    expect(metadataFields).not.toEqual(expect.arrayContaining(["Model", "Checkpoint", "Base model", "Training run", "LoRA scale"]));
     await waitFor(() => expect(screen.getByRole("link", { name: "Close image review" })).toHaveFocus());
     expect(screen.getByRole("heading", { name: "Filters", hidden: true }).closest("section")).toHaveAttribute("aria-hidden", "true");
     const focusables = Array.from(dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), textarea:not([disabled])"));
@@ -137,5 +140,26 @@ describe("gallery navigation contracts", () => {
     expect(focusables[0]).toHaveFocus();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(location.hash).toBe("#/dataset/dataset-1?version=version-3");
+  });
+  it("retains training metadata in non-dataset image review", async () => {
+    const asset = { id: "sample-1", asset_id: "sample-1", asset_revision_id: "sample-1", project_id: "project-1", name: "sample.png", kind: "image", mime_type: "image/png", origin_type: "SAMPLE" };
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      const body = path.includes("/api/gallery/context")
+        ? { items: [asset], current: asset, previous: null, next: null }
+        : path.includes("/api/assets/sample-1/context")
+          ? { metadata: { origin_type: "SAMPLE", lora: { scale: 0.65 }, relationships: { model: { name: "Fine tune" }, checkpoint: { name: "step 1200" }, base_model: { name: "Flux" }, training_run: { name: "run-1" } } }, image: { width: 640, height: 480 }, storage: [] }
+          : path.includes("/api/assets/sample-1")
+            ? asset
+            : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+
+    render(<GalleryScreen projectId="project-1" params={new URLSearchParams("project=project-1&category=sample&asset=sample-1")} />);
+
+    const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
+    const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
+    expect(metadataFields).toEqual(expect.arrayContaining(["Model", "Checkpoint", "Base model", "Training run", "LoRA scale"]));
   });
 });

@@ -627,6 +627,16 @@ class Job(UUIDMixin, TimestampMixin, Base):
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    worker_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    state: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    pid: Mapped[int] = mapped_column(Integer)
+    version: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    heartbeat_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
 class ActivityEvent(UUIDMixin, Base):
     __tablename__ = "activity_events"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)

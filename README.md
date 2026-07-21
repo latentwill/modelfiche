@@ -41,6 +41,8 @@ Versioned ZIP, DMG, and SHA-256 files are written to `dist/macos/release/`.
 uv sync --extra dev
 pnpm --dir apps/web install
 uv run alembic upgrade head
+uv tool install --editable .
+
 ```
 
 ## S3 configuration
@@ -59,13 +61,13 @@ The existing Mega source can be injected from 1Password:
 
 ```bash
 cp .env.1password.example .env.1password
-op run --env-file=.env.1password -- uv run mfiche server start
+op run --env-file=.env.1password -- mfiche start
 ```
 
 Create a connector from the CLI:
 
 ```bash
-uv run mfiche s3 source-create \
+mfiche s3 source-create \
   --name training-runs \
   --bucket my-training-bucket \
   --region us-east-1 \
@@ -96,8 +98,8 @@ selected and admitted.
 Start the API, worker, and frontend together:
 
 ```bash
-uv run mfiche server start
-uv run mfiche server status
+mfiche start
+mfiche status
 ```
 
 `server start` waits for the API and frontend health checks, then supervises
@@ -108,11 +110,34 @@ services and `server status` reports failure. The frontend runs at
 Stop the complete service stack with:
 
 ```bash
-uv run mfiche server stop
+mfiche stop
 ```
 
 Logs are written to `var/server.log`, `var/worker.log`, `var/web.log`, and
 `var/supervisor.log`.
+
+## Backup and restore
+
+Packaged upgrades create a verified pre-migration backup automatically and
+abort before changing the database if the backup fails. Manual snapshots
+include the SQLite database, local assets, cache, exports, and settings:
+
+```bash
+mfiche backup create
+mfiche backup list
+mfiche backup verify "/path/to/modelfiche-YYYY-MM-DD-UUID.tar.gz"
+```
+
+Stop Modelfiche before restoring. Restore verifies every file and the SQLite
+integrity check before atomically replacing the application data directory:
+
+```bash
+mfiche stop
+mfiche backup restore "/path/to/backup.tar.gz" \
+  --confirm "RESTORE MODELFICHE BACKUP"
+```
+
+`mfiche backup recover` rolls back an interrupted directory swap.
 
 ## AI Toolkit live logging
 
@@ -145,6 +170,10 @@ ModelFiche handoff endpoint. See
 reverse-proxy routing, launch JSON, key handling, failure recovery, and the
 pinned compatibility-test procedure.
 
+`uv tool install --editable .` installs the project’s `mfiche` entry point on
+your `PATH` for local development. `uv run mfiche ...` remains the portable
+alternative when the entry point is not installed.
+
 ## Agentic CLI
 
 All commands accept `--json`; collection commands also support `--jsonl`.
@@ -153,15 +182,16 @@ and long operations expose durable jobs that can be polled with
 `mfiche job wait <job-id>`.
 
 ```bash
-uv run mfiche --json profile list
-uv run mfiche --json project list
-uv run mfiche --json s3 sources
-uv run mfiche --json s3 ls --source <source-uuid> --prefix completed-runs/
-uv run mfiche --json import create --source <source-uuid> \
+mfiche --json profile list
+mfiche --json project list
+mfiche --json s3 sources
+mfiche --json s3 ls --source <source-uuid> --prefix completed-runs/
+mfiche --json import create --source <source-uuid> \
   --project <project-uuid> --prefix completed-runs/example/ --wait
 ```
 
-Use `uv run mfiche --help` for the full command tree.
+Use `mfiche --help` for the full command tree. `mfiche start`, `mfiche status`,
+and `mfiche stop` are short forms of their `mfiche server` equivalents.
 
 ## Operator APIs
 

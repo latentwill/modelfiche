@@ -32,7 +32,7 @@ describe("Eval workflow contracts", () => {
   it("uses Dropdown for single-value evaluation controls while retaining listboxes", () => {
     expect(evalSource).not.toMatch(/<select(?![^>]*\bmultiple\b)/);
     expect(evalSource).toContain('aria-label="Saved set"');
-    expect(evalSource).toContain('aria-label="Scope"');
+    expect(evalSource).not.toContain('aria-label="Scope"');
     expect(evalSource).toContain('name="rating"');
     expect(evalSource).toContain('name="decision"');
     expect(evalSource).toContain("<select multiple value={visibleModels}");

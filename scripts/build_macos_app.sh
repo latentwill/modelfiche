@@ -29,7 +29,9 @@ RESOURCES="$CONTENTS/Resources"
 PYTHON="$RESOURCES/python/bin/python3"
 SUPPORT="$HOME/Library/Application Support/Modelfiche"
 LOGS="$HOME/Library/Logs/Modelfiche"
+API_PORT="${TITLES_API_PORT:-8400}"
 export PYTHONDONTWRITEBYTECODE=1
+export TITLES_APP_SUPPORT="$SUPPORT"
 mkdir -p "$SUPPORT/assets" "$SUPPORT/cache" "$SUPPORT/exports" "$LOGS"
 export PYTHONPATH="$RESOURCES/site-packages"
 export TITLES_DATABASE_URL="sqlite:///$SUPPORT/modelfiche.sqlite3"
@@ -38,7 +40,10 @@ export TITLES_CACHE_ROOT="$SUPPORT/cache"
 export TITLES_ALEMBIC_SCRIPT_LOCATION="$RESOURCES/alembic"
 export TITLES_EXPORT_ROOT="$SUPPORT/exports"
 export TITLES_WEB_DIST="$RESOURCES/web"
-export TITLES_CORS_ORIGINS='["http://127.0.0.1:8400","http://localhost:8400","http://127.0.0.1:5173","http://localhost:5173"]'
+export TITLES_API_PORT="$API_PORT"
+export TITLES_RUN_LOCK="$SUPPORT/runtime.lock"
+export TITLES_CLI_PATH="$CONTENTS/MacOS/mfiche"
+export TITLES_CORS_ORIGINS="[\"http://127.0.0.1:$API_PORT\",\"http://localhost:$API_PORT\"]"
 
 PIDS=()
 cleanup() {
@@ -48,12 +53,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 "$PYTHON" -m titles_api >>"$LOGS/api.log" 2>&1 & PIDS+=("$!")
-"$PYTHON" -m titles_worker.main >>"$LOGS/worker.log" 2>&1 & PIDS+=("$!")
-"$PYTHON" -m titles_api.wandb_ingress_main >>"$LOGS/wandb-ingress.log" 2>&1 & PIDS+=("$!")
 
 for _ in $(seq 1 100); do
-  if /usr/bin/curl -fsS http://127.0.0.1:8400/api/health >/dev/null 2>&1; then
-    /usr/bin/open http://127.0.0.1:8400/
+  if /usr/bin/curl -fsS "http://127.0.0.1:$API_PORT/api/health" >/dev/null 2>&1; then
+    "$PYTHON" -m titles_worker.main >>"$LOGS/worker.log" 2>&1 & PIDS+=("$!")
+    "$PYTHON" -m titles_api.wandb_ingress_main >>"$LOGS/wandb-ingress.log" 2>&1 & PIDS+=("$!")
+    /usr/bin/open "http://127.0.0.1:$API_PORT/"
     break
   fi
   sleep 0.1
@@ -68,12 +73,15 @@ cat > "$MACOS/mfiche" <<'CLI'
 set -euo pipefail
 CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
 RESOURCES="$CONTENTS/Resources"
+API_PORT="${TITLES_API_PORT:-8400}"
 SUPPORT="$HOME/Library/Application Support/Modelfiche"
 export PYTHONDONTWRITEBYTECODE=1
+export TITLES_APP_SUPPORT="$SUPPORT"
 export PYTHONPATH="$RESOURCES/site-packages"
 export TITLES_DATABASE_URL="sqlite:///$SUPPORT/modelfiche.sqlite3"
 export TITLES_ASSET_ROOT="$SUPPORT/assets"
 export TITLES_CACHE_ROOT="$SUPPORT/cache"
+export TITLES_CLI_ORIGIN="http://127.0.0.1:$API_PORT"
 export TITLES_EXPORT_ROOT="$SUPPORT/exports"
 exec "$RESOURCES/python/bin/python3" -m titles_cli.main "$@"
 CLI

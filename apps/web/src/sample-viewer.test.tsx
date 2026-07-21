@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SampleViewerScreen, sampleComparisonColumns, sampleComparisonRows } from "./screens-wireframe";
+import { SampleViewerScreen, forwardSampleComparisonWheel, sampleComparisonColumns, sampleComparisonRows } from "./screens-wireframe";
 
 vi.mock("./asset-image", () => ({
   AssetImage: ({ assetRevisionId, alt = "" }: { assetRevisionId: string; alt?: string }) => <img src={`/asset/${assetRevisionId}`} alt={alt} />,
@@ -44,6 +44,20 @@ describe("SampleViewerScreen", () => {
     expect(Object.keys(rows[0].cells)).toEqual(["checkpoint-250", "checkpoint-500"]);
   });
 
+  it("forwards vertical wheel input from a horizontally scrollable sample matrix", () => {
+    const scrollBy = vi.fn();
+    const preventDefault = vi.fn();
+    vi.stubGlobal("scrollBy", scrollBy);
+    forwardSampleComparisonWheel({ deltaX: 0, deltaY: 320, currentTarget: { clientHeight: 100, scrollHeight: 100 } as HTMLElement, preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(scrollBy).toHaveBeenCalledWith({ top: 320 });
+
+    forwardSampleComparisonWheel({ deltaX: 320, deltaY: 0, currentTarget: { clientHeight: 100, scrollHeight: 100 } as HTMLElement, preventDefault });
+    forwardSampleComparisonWheel({ deltaX: 0, deltaY: 320, currentTarget: { clientHeight: 100, scrollHeight: 200 } as HTMLElement, preventDefault });
+    expect(scrollBy).toHaveBeenCalledOnce();
+  });
+
+
   it("restores URL selection, preserves return context, and bounds mounted review rows", async () => {
     const samples = Array.from({ length: 7 }, (_, column) => Array.from({ length: 20 }, (_, prompt) => sample((column + 1) * 250, prompt))).flat();
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
@@ -56,6 +70,7 @@ describe("SampleViewerScreen", () => {
     location.hash = "#/samples/run-1?checkpoints=checkpoint-500&return=model%2Fmodel-1";
 
     const view = render(<SampleViewerScreen runId="run-1" />);
+    expect(view.container.querySelector(".comparison-viewer.vela-focus-workspace")).toBeInTheDocument();
     const selected = await screen.findByRole("button", { name: /Step 500/ });
     await waitFor(() => expect(selected).toHaveAttribute("aria-pressed", "true"));
     expect(screen.getByRole("button", { name: /Step 250/ })).toHaveAttribute("aria-pressed", "false");

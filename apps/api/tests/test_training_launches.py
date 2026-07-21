@@ -89,6 +89,7 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         "manifest_object",
         "callback",
     ]
+    assert manifest["backup"]["checkpoint_handoff"]["callback_required"] is False
     assert manifest["artifact_handoff"]["manifest_callback_url"].endswith(
         f"/checkpoint-handoffs/{created['run_id']}"
     )

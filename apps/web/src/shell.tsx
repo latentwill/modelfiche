@@ -248,6 +248,7 @@ function Sidebar({ section, id, activeProjectId, projects, workspace, theme, col
       <VelaNavLink href="#/transfers" active={section === "transfers" || section === "import" || section === "jobs"} icon={<ArrowLeftRight size={16} />}>Transfers</VelaNavLink>
     </nav>
     <div className="vela-sidebar-footer" data-layout={SHELL_LAYOUT_CONTRACT.footer}>
+      <VelaNavLink href="#/readiness" active={section === "readiness"} icon={<Activity size={16} />}>Setup</VelaNavLink>
       <VelaNavLink href="#/settings" active={section === "settings"} icon={<Settings size={16} />}>Settings</VelaNavLink>
       <div className="vela-storage"><strong><Database size={14} /> Storage</strong><span className="vela-meta">Local cache · {sources.loading ? "checking sources" : `${activeSources} S3 source${activeSources === 1 ? "" : "s"}`}</span></div>
     </div>

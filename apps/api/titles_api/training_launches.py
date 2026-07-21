@@ -115,6 +115,7 @@ def _backup_configuration(
             "schema_version": CHECKPOINT_MANIFEST_VERSION,
             "manifest_prefix": f"{run_prefix}manifests/checkpoints/",
             "write_order": ["checkpoint_objects", "manifest_object", "callback"],
+            "callback_required": False,
             "callback_url": callback_url,
             "authorization": {
                 "scheme": "Basic",

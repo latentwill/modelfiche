@@ -29,7 +29,7 @@ GRAPHQL_DOCUMENTS = {
     "ba754af80fea63fe2deab1ade3a1429d0a018856f5af4996ab86a55936ff07a7": "Viewer",
     "66f378732e60ffebf606025796ebd6515971be93fae2716730ef9a0fe6532997": "CreateRunFiles",
 }
-SUPPORTED_FILESTREAM_FILES = frozenset({"wandb-history.jsonl", "wandb-summary.json"})
+SUPPORTED_FILESTREAM_FILES = frozenset({"wandb-history.jsonl", "wandb-summary.json", "output.log", "wandb-events.jsonl"})
 
 
 class ProtocolError(ValueError):
@@ -301,6 +301,10 @@ def handle_filestream(session: Session, principal: WandbPrincipal, body: object)
     run = principal.run
     launch = principal.launch
     now = models.utcnow()
+    if launch.state == "running" and run.started_at is not None and run.finished_at is None:
+        # A live filestream is authoritative evidence that the trainer is
+        # active; recover inconsistent non-terminal projections.
+        run.status = "running"
     run.last_event_at = now
     for filename, raw_segment in files.items():
         if not isinstance(raw_segment, dict):

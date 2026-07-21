@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import json
 import hashlib
+import mimetypes
 import os
 import signal
 import subprocess
@@ -320,6 +322,20 @@ def context_set(
         runtime.context.workspace = workspace
     runtime.context.save()
     context_show(ctx)
+
+
+workspace_app = typer.Typer(no_args_is_help=True)
+app.add_typer(workspace_app, name="workspace")
+
+
+@workspace_app.command("list")
+def workspace_list(ctx: typer.Context) -> None:
+    call(ctx, lambda client: client.get("/api/workspaces"))
+
+
+@workspace_app.command("rename")
+def workspace_rename(ctx: typer.Context, workspace: str, name: str = typer.Option(...)) -> None:
+    call(ctx, lambda client: client.patch(f"/api/workspaces/{workspace}", {"name": name}))
 
 
 profile_app = typer.Typer(no_args_is_help=True)
@@ -1140,6 +1156,12 @@ def s3_source_test(ctx: typer.Context, source: str) -> None:
     call(ctx, lambda client: client.post(f"/api/import-sources/{source}/test"))
 
 
+@s3_app.command("source-disconnect")
+def s3_source_disconnect(ctx: typer.Context, source: str) -> None:
+    """Disable a source without deleting bucket data."""
+    call(ctx, lambda client: client.delete(f"/api/import-sources/{source}"))
+
+
 @s3_app.command("ls")
 def s3_ls(
     ctx: typer.Context,
@@ -1343,6 +1365,34 @@ def import_backfill_metrics(
 
     call(ctx, enqueue)
 
+@import_app.command("local")
+def import_local(
+    ctx: typer.Context,
+    folder: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),
+    project: str = typer.Option(...),
+    name: str = typer.Option(..., help="Dataset name"),
+) -> None:
+    supported = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif", ".txt", ".json"}
+    paths = sorted(path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in supported)
+    if not paths:
+        raise typer.BadParameter("Folder contains no supported images or sidecars")
+    if len(paths) > 1000:
+        raise typer.BadParameter("Folder contains more than the 1000-file import limit")
+    total_size = sum(path.stat().st_size for path in paths)
+    if total_size > 250 * 1024 * 1024:
+        raise typer.BadParameter("Folder exceeds the 250 MiB import limit")
+    files = [
+        {
+            "path": path.relative_to(folder).as_posix(),
+            "content_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
+            "mime_type": mimetypes.guess_type(path.name)[0],
+            "last_modified": int(path.stat().st_mtime * 1000),
+        }
+        for path in paths
+    ]
+    call(ctx, lambda client: client.post("/api/local-imports", {"project_id": project, "dataset_name": name, "files": files}))
+
+
 job_app = typer.Typer(no_args_is_help=True)
 app.add_typer(job_app, name="job")
 
@@ -1512,6 +1562,52 @@ def caption_add_word(
     caption_operation(ctx, draft, "add_word", preview=preview, word=word, item=item, tag=tag, included=included, caption_format=caption_format, all_items=all_items)
 
 
+@caption_app.command("remove-word")
+def caption_remove_word(
+    ctx: typer.Context,
+    draft: str,
+    word: str = typer.Option(...),
+    preview: bool = typer.Option(False),
+    item: list[str] = typer.Option([], "--item"),
+    tag: str | None = None,
+    included: bool | None = None,
+    caption_format: str | None = None,
+    all_items: bool = typer.Option(False, "--all"),
+) -> None:
+    caption_operation(ctx, draft, "remove_word", preview=preview, word=word, item=item, tag=tag, included=included, caption_format=caption_format, all_items=all_items)
+
+
+@caption_app.command("set-included")
+def caption_set_included(
+    ctx: typer.Context,
+    draft: str,
+    included_value: bool = typer.Option(..., "--included/--excluded"),
+    preview: bool = typer.Option(False),
+    item: list[str] = typer.Option([], "--item"),
+    tag: str | None = None,
+    caption_format: str | None = None,
+    all_items: bool = typer.Option(False, "--all"),
+) -> None:
+    caption_operation(ctx, draft, "set_included", preview=preview, item=item, tag=tag, caption_format=caption_format, all_items=all_items, included=included_value)
+
+
+@caption_app.command("format")
+def caption_format(ctx: typer.Context, draft: str, value: str = typer.Option(...)) -> None:
+    if value not in {"text", "json"}:
+        raise typer.BadParameter("--value must be text or json")
+    call(ctx, lambda client: client.patch(f"/api/dataset-drafts/{draft}/caption-format", {"caption_format": value}))
+
+
+@caption_app.command("undo")
+def caption_undo(ctx: typer.Context, draft: str, operation: str) -> None:
+    call(ctx, lambda client: client.post(f"/api/dataset-drafts/{draft}/operations/{operation}/undo"))
+
+
+@caption_app.command("history")
+def caption_history(ctx: typer.Context, draft: str) -> None:
+    call(ctx, lambda client: client.get(f"/api/dataset-drafts/{draft}/operations"))
+
+
 @caption_app.command("set")
 def caption_set(ctx: typer.Context, draft: str, item: str, text: str = typer.Option(...)) -> None:
     call(ctx, lambda client: client.patch(f"/api/dataset-drafts/{draft}/items/{item}", {"caption": text}))
@@ -1610,12 +1706,34 @@ def checkpoint_download(ctx: typer.Context, checkpoint: str, output: Path | None
 
 @checkpoint_app.command("verify")
 def checkpoint_verify(ctx: typer.Context, checkpoint: str) -> None:
-    unsupported(
-        ctx,
-        "checkpoint verify",
-        "Checkpoint verification is not exposed by the current API",
-        alternative=f"mfiche checkpoint show {checkpoint}",
-    )
+    """Verify the checkpoint's persisted handoff and storage evidence."""
+    def verify(client: TitlesClient) -> dict[str, Any]:
+        row = client.get(f"/api/checkpoints/{checkpoint}")
+        artifact = row.get("artifact") or {}
+        digest = str(artifact.get("sha256") or "")
+        storage = artifact.get("storage") if isinstance(artifact.get("storage"), list) else []
+        evidenced = [
+            location
+            for location in storage
+            if str(location.get("verification_state") or "").lower() in {"available", "verified"}
+            and location.get("size") is not None
+        ]
+        checks = {
+            "artifact_registered": bool(artifact.get("asset_id")),
+            "sha256_recorded": len(digest) == 64 and all(character in "0123456789abcdefABCDEF" for character in digest),
+            "storage_evidence_recorded": bool(evidenced),
+            "checkpoint_revision_recorded": bool(artifact.get("checkpoint_revision_id")),
+        }
+        return {
+            "checkpoint_id": checkpoint,
+            "verified": all(checks.values()),
+            "scope": "persisted_handoff_evidence",
+            "checks": checks,
+            "sha256": digest or None,
+            "locations": evidenced,
+        }
+
+    call(ctx, verify)
 
 
 model_app = typer.Typer(no_args_is_help=True)
@@ -1685,6 +1803,16 @@ def prompt_version(ctx: typer.Context, prompt_set: str, file: Path = typer.Optio
     call(ctx, lambda client: client.post(f"/api/prompt-sets/{prompt_set}/versions", {"prompts": read_json(file)}))
 
 
+@prompt_app.command("generate")
+def prompt_generate(
+    ctx: typer.Context,
+    instruction: str = typer.Option(...),
+    count: int = typer.Option(6, min=1, max=50),
+    project: str | None = typer.Option(None),
+) -> None:
+    call(ctx, lambda client: client.post("/api/prompt-sets/generate", {"instruction": instruction, "count": count, "context": {"project_id": project} if project else {}}))
+
+
 FAL_BILLING_ACKNOWLEDGEMENT = "I understand FAL may bill this run even if checkpoint fetch fails"
 
 
@@ -1740,6 +1868,68 @@ def fal_grid_projection(client: TitlesClient, *, grid_id: str) -> dict[str, Any]
     if not all(body[key] for key in ("project_id", "model_version_id", "checkpoint_revision_id")) or not body["parameters"].get("endpoint_id"):
         raise ApiError("Grid has no immutable model checkpoint revision or endpoint", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
     return client.post("/api/fal-admissions", body)
+
+
+def fal_image_projection(
+    client: TitlesClient,
+    *,
+    model_version: str,
+    prompt: str,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    version = client.get(f"/api/model-versions/{model_version}")
+    project_id = str(version.get("project_id") or "")
+    model_id = str(version.get("model_id") or "")
+    checkpoint_revision_id = str(version.get("checkpoint_revision_id") or "")
+    if not project_id or not checkpoint_revision_id:
+        raise ApiError("Model version has no immutable checkpoint revision", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
+    return client.post(
+        "/api/generation-requests/compile",
+        {
+            "workflow": "image",
+            "provider": "fal",
+            "context": {"kind": "model", "project_id": project_id, "model_id": model_id or None},
+            "model_version_id": model_version,
+            "checkpoint_revision_id": checkpoint_revision_id,
+            "prompt": prompt,
+            "parameters": parameters,
+            "client_request_id": str(uuid.uuid4()),
+        },
+    )
+
+
+image_app = typer.Typer(no_args_is_help=True)
+app.add_typer(image_app, name="image")
+
+
+@image_app.command("generate")
+def image_generate(
+    ctx: typer.Context,
+    model_version: str = typer.Option(...),
+    prompt: str = typer.Option(...),
+    param: list[str] = typer.Option([], "--param"),
+    dry_run: bool = False,
+    wait: bool = False,
+) -> None:
+    def operation(client: TitlesClient):
+        projection = fal_image_projection(client, model_version=model_version, prompt=prompt, parameters=parse_params(param))
+        if dry_run:
+            return projection
+        admission = projection.get("admission") or {}
+        if admission.get("state") != "ready":
+            return projection
+        accepted = client.post(
+            f"/api/fal-admissions/{admission['id']}/admit",
+            {"expected_version": admission["version"], "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT},
+        )
+        if accepted.get("eval_run_id"):
+            run = client.get(f"/api/eval-runs/{accepted['eval_run_id']}")
+            accepted["job_id"] = run.get("job_id")
+        return accepted
+
+    result = call(ctx, operation)
+    if wait and isinstance(result, dict) and result.get("job_id"):
+        wait_for_job(ctx, result["job_id"])
 
 
 eval_app = typer.Typer(no_args_is_help=True)
@@ -1866,6 +2056,12 @@ def grid_run(ctx: typer.Context, grid: str, dry_run: bool = False, wait: bool = 
         wait_for_job(ctx, result["job_id"])
 
 
+@grid_app.command("cancel")
+def grid_cancel(ctx: typer.Context, grid_run: str) -> None:
+    """Cancel the Eval run created for an admitted grid."""
+    call(ctx, lambda client: client.post(f"/api/eval-runs/{grid_run}/cancel"))
+
+
 @grid_app.command("cells")
 def grid_cells(ctx: typer.Context, grid_run: str) -> None:
     call(ctx, lambda client: client.get(f"/api/grid-runs/{grid_run}/cells"))
@@ -1913,6 +2109,16 @@ def asset_lineage(ctx: typer.Context, asset: str) -> None:
     call(ctx, lambda client: client.get("/api/lineage", subject_type="asset", subject_id=asset))
 
 
+@asset_app.command("delete")
+def asset_delete(
+    ctx: typer.Context,
+    asset: str,
+    delete_content: bool = typer.Option(False, help="Also delete supported local content"),
+) -> None:
+    content = "true" if delete_content else "false"
+    call(ctx, lambda client: client.delete(f"/api/assets/{asset}?report=true&delete_content={content}"))
+
+
 review_app = typer.Typer(no_args_is_help=True)
 app.add_typer(review_app, name="review")
 
@@ -1955,14 +2161,6 @@ def comment_add(ctx: typer.Context, subject: str, text: str = typer.Option(...))
     call(ctx, lambda client: client.post("/api/comments", {"subject_type": subject_type, "subject_id": subject_id, "body": text}))
 
 
-@comment_app.command("update")
-def comment_update(ctx: typer.Context, comment: str, text: str = typer.Option(...)) -> None:
-    unsupported(
-        ctx,
-        "comment update",
-        "Comments are immutable in the current API",
-        alternative="mfiche comment add <subject> --text <text>",
-    )
 
 
 note_app = typer.Typer(no_args_is_help=True)
@@ -2001,13 +2199,44 @@ def lineage_show(ctx: typer.Context, subject: str) -> None:
 
 
 @lineage_app.command("path")
-def lineage_path(ctx: typer.Context, source: str, target: str) -> None:
-    unsupported(
-        ctx,
-        "lineage path",
-        "Lineage path traversal is not exposed by the current API",
-        alternative=f"mfiche lineage show {source}",
-    )
+def lineage_path(
+    ctx: typer.Context,
+    source: str,
+    target: str,
+    max_depth: int = typer.Option(5, min=1, max=20),
+) -> None:
+    """Find one directed lineage path between typed subjects."""
+    source_node = split_subject(source)
+    target_node = split_subject(target)
+
+    def find_path(client: TitlesClient) -> dict[str, Any]:
+        frontier: list[tuple[tuple[str, str], list[dict[str, Any]]]] = [(source_node, [])]
+        visited = {source_node}
+        for _depth in range(max_depth):
+            next_frontier: list[tuple[tuple[str, str], list[dict[str, Any]]]] = []
+            for node, path in frontier:
+                edges = client.get("/api/lineage", subject_type=node[0], subject_id=node[1])
+                for edge in edges if isinstance(edges, list) else []:
+                    if (str(edge.get("source_type")), str(edge.get("source_id"))) != node:
+                        continue
+                    next_node = (str(edge.get("target_type")), str(edge.get("target_id")))
+                    next_path = [*path, edge]
+                    if next_node == target_node:
+                        return {"source": source, "target": target, "depth": len(next_path), "edges": next_path}
+                    if next_node not in visited:
+                        visited.add(next_node)
+                        next_frontier.append((next_node, next_path))
+            frontier = next_frontier
+            if not frontier:
+                break
+        raise ApiError(
+            f"No directed lineage path found from {source} to {target}",
+            status_code=4,
+            code="LINEAGE_PATH_NOT_FOUND",
+            details={"source": source, "target": target, "max_depth": max_depth},
+        )
+
+    call(ctx, find_path)
 
 
 connection_app = typer.Typer(no_args_is_help=True)
@@ -2022,6 +2251,123 @@ def connection_list(ctx: typer.Context) -> None:
 @connection_app.command("test")
 def connection_test(ctx: typer.Context, provider: str) -> None:
     call(ctx, lambda client: client.post(f"/api/connections/{provider}/test"))
+
+
+settings_app = typer.Typer(no_args_is_help=True)
+app.add_typer(settings_app, name="settings")
+
+
+@settings_app.command("show")
+def settings_show(ctx: typer.Context) -> None:
+    call(ctx, lambda client: client.get("/api/operator-settings"))
+
+
+@settings_app.command("update")
+def settings_update(ctx: typer.Context, file: Path = typer.Option(..., exists=True, dir_okay=False, readable=True)) -> None:
+    payload = read_json(file)
+    if not isinstance(payload, dict):
+        raise typer.BadParameter("--file must contain a JSON object")
+    call(ctx, lambda client: client.patch("/api/operator-settings", payload))
+
+
+@settings_app.command("test")
+def settings_test(ctx: typer.Context, provider: str) -> None:
+    if provider not in {"llm", "fal", "storage"}:
+        raise typer.BadParameter("provider must be llm, fal, or storage")
+    call(ctx, lambda client: client.post(f"/api/operator-settings/test/{provider}", {}))
+
+
+backup_app = typer.Typer(no_args_is_help=True)
+app.add_typer(backup_app, name="backup")
+
+
+def backup_paths(data_root: Path | None, backup_root: Path | None) -> tuple[Path, Path, str]:
+    if data_root is not None:
+        root = data_root.expanduser().resolve()
+        database_name = "modelfiche.sqlite3"
+    else:
+        database_url = os.getenv("TITLES_DATABASE_URL")
+        if database_url and database_url.startswith("sqlite"):
+            from sqlalchemy.engine import make_url
+
+            database_path = Path(make_url(database_url).database or "").expanduser().resolve()
+            root, database_name = database_path.parent, database_path.name
+        else:
+            root = (project_root() / "var").resolve()
+            database_name = "titles-dam.sqlite3"
+    archives = backup_root.expanduser().resolve() if backup_root else root.parent / f"{root.name}-backups"
+    return root, archives, database_name
+
+
+@backup_app.command("create")
+def backup_create(
+    ctx: typer.Context,
+    data_root: Path | None = typer.Option(None, "--data-root"),
+    backup_root: Path | None = typer.Option(None, "--backup-root"),
+) -> None:
+    from titles_api.storage.installation_backup import InstallationBackupStore
+
+    root, archives, database_name = backup_paths(data_root, backup_root)
+    receipt = InstallationBackupStore(archives).create(root, database_name)
+    emit(
+        {"backup_id": receipt.backup_id, "archive": str(receipt.archive), "created_at": receipt.created_at, "files": receipt.files, "bytes": receipt.bytes, "sha256": receipt.sha256},
+        json_output=rt(ctx).json_output,
+    )
+
+
+@backup_app.command("list")
+def backup_list(
+    ctx: typer.Context,
+    data_root: Path | None = typer.Option(None, "--data-root"),
+    backup_root: Path | None = typer.Option(None, "--backup-root"),
+) -> None:
+    _root, archives, _database_name = backup_paths(data_root, backup_root)
+    rows = [{"archive": str(path), "bytes": path.stat().st_size} for path in sorted(archives.glob("modelfiche-*.tar.gz"), reverse=True)] if archives.exists() else []
+    emit(rows, json_output=rt(ctx).json_output, jsonl=rt(ctx).jsonl)
+
+
+@backup_app.command("verify")
+def backup_verify(
+    ctx: typer.Context,
+    archive: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+    backup_root: Path | None = typer.Option(None, "--backup-root"),
+) -> None:
+    from titles_api.storage.installation_backup import InstallationBackupStore
+
+    archives = backup_root.expanduser().resolve() if backup_root else archive.expanduser().resolve().parent
+    digest = InstallationBackupStore(archives).verify(archive)
+    emit({"ok": True, "archive": str(archive.expanduser().resolve()), "sha256": digest}, json_output=rt(ctx).json_output)
+
+
+@backup_app.command("restore")
+def backup_restore(
+    ctx: typer.Context,
+    archive: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+    data_root: Path | None = typer.Option(None, "--data-root"),
+    backup_root: Path | None = typer.Option(None, "--backup-root"),
+    confirm: str = typer.Option(..., "--confirm"),
+) -> None:
+    from titles_api.storage.installation_backup import InstallationBackupStore
+
+    if confirm != "RESTORE MODELFICHE BACKUP":
+        raise typer.BadParameter('--confirm must exactly equal "RESTORE MODELFICHE BACKUP"')
+    runtime = rt(ctx)
+    if _url_is_ready(f"{runtime.context.api_url.rstrip('/')}/api/health"):
+        raise typer.BadParameter("stop Modelfiche before restoring a backup")
+    root, archives, _database_name = backup_paths(data_root, backup_root)
+    store = InstallationBackupStore(archives)
+    store.recover(root)
+    store.restore(archive, root)
+    emit({"ok": True, "archive": str(archive.expanduser().resolve()), "restored": str(root)}, json_output=runtime.json_output)
+
+
+@backup_app.command("recover")
+def backup_recover(ctx: typer.Context, data_root: Path | None = typer.Option(None, "--data-root")) -> None:
+    from titles_api.storage.installation_backup import InstallationBackupStore
+
+    root, _archives, _database_name = backup_paths(data_root, None)
+    recovered = InstallationBackupStore.recover(root)
+    emit({"ok": True, "recovered": recovered, "data_root": str(root)}, json_output=rt(ctx).json_output)
 
 
 storage_app = typer.Typer(no_args_is_help=True)
@@ -2283,6 +2629,24 @@ def server_stop(ctx: typer.Context) -> None:
     (var / "server.ready").unlink(missing_ok=True)
     (var / "server.error").unlink(missing_ok=True)
     emit({"ok": True, "running": False, "pids": pids}, json_output=rt(ctx).json_output)
+
+
+@app.command("start", help="Start the local API, worker, and frontend.")
+def start(ctx: typer.Context) -> None:
+    """Convenience alias for `mfiche server start`."""
+    server_start(ctx)
+
+
+@app.command("status", help="Show local API, worker, and frontend status.")
+def status(ctx: typer.Context) -> None:
+    """Convenience alias for `mfiche server status`."""
+    server_status(ctx)
+
+
+@app.command("stop", help="Stop the local API, worker, and frontend.")
+def stop(ctx: typer.Context) -> None:
+    """Convenience alias for `mfiche server stop`."""
+    server_stop(ctx)
 
 
 if __name__ == "__main__":

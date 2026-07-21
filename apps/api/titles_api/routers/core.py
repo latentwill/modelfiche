@@ -650,6 +650,22 @@ def delete_asset(asset_id: str, db: DB, x_profile_id: Annotated[str | None, Head
     if db.scalar(select(models.Checkpoint.id).where(models.Checkpoint.asset_id == asset_id).limit(1)):
         raise HTTPException(status_code=409, detail="Model checkpoint artifacts cannot be deleted from Gallery.")
     locations = [{"provider": item.provider, "uri": item.uri} for item in asset.locations]
+    location_ids = [item.id for item in asset.locations]
+    if location_ids:
+        referencing_assets = db.scalars(
+            select(models.Asset).where(
+                or_(
+                    models.Asset.preferred_location_id.in_(location_ids),
+                    models.Asset.origin_location_id.in_(location_ids),
+                )
+            )
+        ).all()
+        for referencing_asset in referencing_assets:
+            if referencing_asset.preferred_location_id in location_ids:
+                referencing_asset.preferred_location_id = None
+            if referencing_asset.origin_location_id in location_ids:
+                referencing_asset.origin_location_id = None
+        db.flush()
     db.query(models.Sample).filter(models.Sample.asset_id == asset_id).delete(synchronize_session=False)
     db.query(models.EvalOutput).filter(models.EvalOutput.asset_id == asset_id).delete(synchronize_session=False)
     db.query(models.Review).filter(models.Review.subject_type == "asset", models.Review.subject_id == asset_id).delete(synchronize_session=False)

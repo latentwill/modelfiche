@@ -36,6 +36,7 @@ def upgrade_installed_database(database_url: str | None = None) -> None:
     """Advance an installed database through the immutable Alembic chain."""
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
 
     resolved_url = database_url or get_settings().database_url
     project_root = Path(__file__).resolve().parents[3]
@@ -44,6 +45,25 @@ def upgrade_installed_database(database_url: str | None = None) -> None:
     script_location = os.getenv("TITLES_ALEMBIC_SCRIPT_LOCATION") or str(project_root / "apps" / "api" / "alembic")
     config.set_main_option("script_location", script_location)
     config.set_main_option("sqlalchemy.url", resolved_url)
+
+    app_support = os.getenv("TITLES_APP_SUPPORT")
+    if resolved_url.startswith("sqlite:") and app_support:
+        database = make_url(resolved_url).database
+        if database and database not in {":memory:", ""} and "mode=memory" not in resolved_url:
+            database_path = Path(database).expanduser().resolve()
+            data_root = Path(app_support).expanduser().resolve()
+            if database_path.parent != data_root:
+                raise RuntimeError("packaged database must be inside TITLES_APP_SUPPORT")
+            if database_path.exists():
+                with sqlite3.connect(f"file:{database_path}?mode=ro", uri=True) as connection:
+                    tables = {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                    current = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] if "alembic_version" in tables else None
+                head = ScriptDirectory.from_config(config).get_current_head()
+                if tables - {"alembic_version"} and current != head:
+                    from .storage.installation_backup import InstallationBackupStore
+
+                    backup_root = Path(os.getenv("TITLES_BACKUP_ROOT", str(data_root.parent / f"{data_root.name}-backups")))
+                    InstallationBackupStore(backup_root).create(data_root, database_path.name)
 
     if resolved_url.startswith("sqlite:"):
         database = make_url(resolved_url).database

@@ -234,6 +234,53 @@ def update_queue_item(item_id: str, body: QueueStateUpdate, db: DB):
     db.commit(); db.refresh(item)
     return projection(item)
 
+@router.post("/generation-queue/{item_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def retry_queue_item(item_id: str, db: DB):
+    item = owned_queue_item(db, item_id)
+    if item.state != "failed":
+        raise HTTPException(status_code=409, detail="only failed generation work can be retried")
+    children = list(db.scalars(select(models.GenerationQueueChild).where(
+        models.GenerationQueueChild.queue_item_id == item.id,
+    ).order_by(models.GenerationQueueChild.ordinal)))
+    failed_children = [child for child in children if child.state == "failed"]
+    retry_targets = failed_children or ([None] if not children else [])
+    if not retry_targets:
+        raise HTTPException(status_code=409, detail="no failed generation attempt is available to retry")
+    replacement_jobs = []
+    for child in retry_targets:
+        prior_job_id = child.job_id if child else item.job_id
+        prior = db.get(models.Job, prior_job_id) if prior_job_id else None
+        if prior is None:
+            raise HTTPException(status_code=409, detail="the failed attempt has no recoverable job payload")
+        replacement = models.Job(
+            workspace_id=prior.workspace_id,
+            kind=prior.kind,
+            state=models.JobState.queued,
+            profile_id=prior.profile_id,
+            payload=dict(prior.payload or {}),
+            progress=0,
+            result={},
+        )
+        db.add(replacement)
+        db.flush()
+        replacement_jobs.append(replacement.id)
+        if child:
+            child.job_id = replacement.id
+            child.state = "queued"
+            child.error = None
+            child.progress = {**dict(child.progress or {}), "fraction": 0}
+        else:
+            item.job_id = replacement.id
+    if children:
+        item.job_id = replacement_jobs[0]
+    item.state = "queued"
+    item.error = None
+    item.provider_job_id = None
+    db.commit()
+    db.refresh(item)
+    return {**projection(item), "retry_job_ids": replacement_jobs}
+
+
 @router.post("/generation-queue", status_code=status.HTTP_202_ACCEPTED)
 def enqueue(body: QueueCreate, db: DB):
     workspace = current_workspace(db)
