@@ -1030,6 +1030,8 @@ def training_run_prepare(
         template = client.get_text(f"/api/training-launches/{launch}/environment")
         claims = packet["manifest"]["telemetry"]["token"]["claims"]
         secret_environment = render_agent_environment(template, sign_launch_claims(claims, read_private_key(key_path)))
+        dataset_url = str(packet["manifest"]["dataset"]["download_url"])
+        dataset_archive = client.get_bytes(dataset_url)
         destination = output.expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         destination.chmod(0o700)
@@ -1043,11 +1045,11 @@ def training_run_prepare(
             "README.txt": (
                 "ModelFiche training packet\n\n"
                 "1. Copy this directory to the trainer host over an encrypted channel.\n"
-                "2. Source trainer.env only in the AI Toolkit process.\n"
-                "3. Merge ai-toolkit-logging.yaml into the selected AI Toolkit job config.\n"
-                "4. Download dataset.download_url from manifest.json before starting.\n"
+                "2. Verify checksums.json, then extract training-dataset.zip.\n"
+                "3. Provide the S3 credentials named in manifest.json.\n"
+                "4. Merge ai-toolkit-logging.yaml into the selected AI Toolkit job config.\n"
                 "5. Start `python3 modelfiche-run-sync.py --manifest manifest.json` beside AI Toolkit.\n"
-                "6. Keep ModelFiche ingress reachable until the run finishes.\n"
+                "6. Start AI Toolkit. No inbound tunnel to ModelFiche is required.\n"
             ),
         }
         checksums: dict[str, str] = {}
@@ -1056,6 +1058,10 @@ def training_run_prepare(
             path.write_text(body, encoding="utf-8")
             path.chmod(0o600 if filename == "trainer.env" else 0o644)
             checksums[filename] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        dataset_path = destination / "training-dataset.zip"
+        dataset_path.write_bytes(dataset_archive)
+        dataset_path.chmod(0o644)
+        checksums["training-dataset.zip"] = hashlib.sha256(dataset_archive).hexdigest()
         checksum_body = json.dumps({"algorithm": "sha256", "files": checksums}, indent=2, sort_keys=True) + "\n"
         (destination / "checksums.json").write_text(checksum_body, encoding="utf-8")
         emit(
@@ -1064,8 +1070,8 @@ def training_run_prepare(
                 "launch_id": launch,
                 "run_id": packet["run_id"],
                 "output": str(destination),
-                "files": sorted([*files, "checksums.json"]),
-                "next_action": "Copy the packet to the trainer host and start AI Toolkit with trainer.env.",
+                "files": sorted([*files, "training-dataset.zip", "checksums.json"]),
+                "next_action": "Copy the packet to the trainer, verify checksums, and start AI Toolkit with outbound S3 credentials.",
             },
             json_output=runtime.json_output,
             jsonl=runtime.jsonl,

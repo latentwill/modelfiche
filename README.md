@@ -156,17 +156,17 @@ readiness report, then start from a published dataset in the UI:
 
 After creating the launch in the UI, the launch screen supplies the exact
 `training run prepare` command. It refuses to generate a trainer packet until
-the immutable dataset export, signing identity, verified training storage, and
-public HTTPS ingress all pass preflight. The resulting checksummed packet
-contains the redacted manifest, AI Toolkit logging fragment, signed
-run-scoped environment, and checkpoint-sync command.
+the immutable dataset export, signing identity, and verified training storage
+pass preflight. Public ingress is not required. The resulting checksummed
+packet contains the dataset archive, redacted manifest, AI Toolkit logging
+fragment, signed run-scoped environment, and checkpoint-sync helper.
 
 Run `python3 modelfiche-run-sync.py --manifest manifest.json` from the packet
-beside AI Toolkit on the trainer. It uploads only stable checkpoint files,
-verifies the remote object,
-publishes the generation manifest last, and notifies the authenticated
-ModelFiche handoff endpoint. See
-[docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for deployment,
+beside AI Toolkit on the trainer. It uses outbound S3 access to upload only
+stable checkpoint files, verifies each remote object, and publishes the
+generation manifest last. ModelFiche discovers those manifests through the
+configured storage source; no inbound trainer connection or tunnel is needed.
+See [docs/WANDB_COMPATIBILITY.md](docs/WANDB_COMPATIBILITY.md) for deployment,
 reverse-proxy routing, launch JSON, key handling, failure recovery, and the
 pinned compatibility-test procedure.
 

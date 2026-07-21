@@ -157,12 +157,12 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
     readiness = preflight.json()
     assert readiness["ready_to_start"] is False
     assert readiness["safe_to_retry"] is True
-    assert {check["code"] for check in readiness["checks"]} >= {
+    assert {
         "EXPORT_READY",
         "SIGNING_CREDENTIAL",
         "STORAGE_SOURCE",
-        "PUBLIC_INGRESS",
-    }
+        "TRAINER_TRANSPORT",
+    } <= {check["code"] for check in readiness["checks"]}
     assert client.get(f"/api/training-launches/{created['id']}/packet").status_code == 409
 
     cancelled = client.post(f"/api/training-launches/{created['id']}/cancel")

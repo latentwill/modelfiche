@@ -112,7 +112,7 @@ export function TrainingLaunchCreateScreen({ params }: { params: URLSearchParams
         {error && <div className="vela-notice vela-notice-error" role="alert"><strong>Launch not created</strong><span>{error}</span></div>}
         <div className="training-submit-rail"><div><ShieldCheck size={20} /><span><strong>No provider work starts yet.</strong><small>Creation prepares the export and readiness checks. An agent starts compute only after preflight passes.</small></span></div><button className="vela-button vela-button-primary" disabled={!canSubmit} onClick={() => void createLaunch()}>{busy ? "Preparing…" : "Prepare training run"}</button></div>
       </div>
-      <aside className="training-wizard-aside"><strong>What happens next</strong><ol><li>ModelFiche exports this exact version.</li><li>Preflight verifies ingress, signing, storage, and data.</li><li>An agent generates the secure trainer packet.</li><li>AI Toolkit reports metrics and samples here.</li><li>Checkpoints import back into the linked project.</li></ol><p>Nothing billable is queued from this screen.</p></aside>
+      <aside className="training-wizard-aside"><strong>What happens next</strong><ol><li>ModelFiche exports this exact version.</li><li>Preflight verifies signing, storage, and data.</li><li>An agent generates a self-contained trainer packet.</li><li>The trainer uploads stable checkpoints through outbound S3.</li><li>ModelFiche imports them into the linked project.</li></ol><p>No tunnel or inbound trainer connection is required. Nothing billable is queued from this screen.</p></aside>
     </div>
   </Page>;
 }
@@ -153,7 +153,7 @@ export function TrainingLaunchScreen({ id }: { id: string }) {
     <Notice error={launch.error || preflight.error} loading={launch.loading || preflight.loading} />
     {actionError && <div className="vela-notice vela-notice-error" role="alert">{actionError}</div>}
     {preflight.data && <>
-      <div className={`training-readiness-hero ${ready ? "is-ready" : "is-blocked"}`}><div>{ready ? <ShieldCheck size={28} /> : <TriangleAlert size={28} />}<span><small>Launch readiness</small><strong>{ready ? "Ready for the trainer" : str(preflight.data.phase, "Preparing")}</strong><p>{ready ? "All required data, identity, storage, and ingress checks passed." : str((preflight.data.next_action as Row | undefined)?.label, "ModelFiche is preparing this run.")}</p></span></div><Status value={ready ? "ready" : "blocked"} /></div>
+      <div className={`training-readiness-hero ${ready ? "is-ready" : "is-blocked"}`}><div>{ready ? <ShieldCheck size={28} /> : <TriangleAlert size={28} />}<span><small>Launch readiness</small><strong>{ready ? "Ready for the trainer" : str(preflight.data.phase, "Preparing")}</strong><p>{ready ? "Data, identity, and outbound storage checks passed. No tunnel is required." : str((preflight.data.next_action as Row | undefined)?.label, "ModelFiche is preparing this run.")}</p></span></div><Status value={ready ? "ready" : "blocked"} /></div>
       <Panel title="Preflight"><CheckList checks={listOf<Row>(preflight.data.checks)} /><button className="vela-button" onClick={() => void Promise.all([launch.reload(), preflight.reload()])}>Check again</button></Panel>
       <Panel title="Agent handoff">
         <p className="training-intro">The agent runs one command on this Mac. It verifies preflight again, signs the run-scoped token locally, and creates a checksummed packet without exposing the private key to ModelFiche.</p>
@@ -161,7 +161,7 @@ export function TrainingLaunchScreen({ id }: { id: string }) {
         <div className="actions"><a className={`button vela-button ${ready ? "" : "is-disabled"}`} aria-disabled={!ready} href={ready ? `/api/training-launches/${id}/manifest` : undefined}><Download size={15} />Download redacted manifest</a></div>
         {!ready && <small>Packet generation remains locked until every required check passes.</small>}
       </Panel>
-      <Panel title="What the trainer must use"><dl className="details"><dt>W&B base URL</dt><dd>{str(((launch.data?.manifest as Row | undefined)?.telemetry as Row | undefined)?.base_url)}</dd><dt>W&B project</dt><dd>{str(((launch.data?.manifest as Row | undefined)?.telemetry as Row | undefined)?.project)}</dd><dt>W&B run ID</dt><dd>{str(((launch.data?.manifest as Row | undefined)?.telemetry as Row | undefined)?.run_id)}</dd><dt>DAM run ID</dt><dd>{str(launch.data?.run_id)}</dd></dl><p className="training-intro">The display name is not the security binding. The generated environment supplies the exact project, W&B run ID, and signed token expected by the ingress.</p></Panel>
+      <Panel title="Trainer transport"><dl className="details"><dt>Transport</dt><dd>Outbound object storage</dd><dt>Storage prefix</dt><dd>{str(((launch.data?.manifest as Row | undefined)?.backup as Row | undefined)?.destination && ((((launch.data?.manifest as Row).backup as Row).destination as Row).prefix))}</dd><dt>Run ID</dt><dd>{str(launch.data?.run_id)}</dd></dl><p className="training-intro">The generated packet contains the dataset and sync helper. The trainer needs S3 credentials for the named environment variables, but ModelFiche does not need an inbound tunnel.</p></Panel>
     </>}
   </Page>;
 }

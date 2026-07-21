@@ -47,6 +47,7 @@ class LaunchRequest:
     supported_endpoint_ids: list[str]
     expected_duration_seconds: int
     base_url: str
+    live_telemetry: bool
 
 
 def _canonical_json(value: object) -> bytes:
@@ -190,7 +191,8 @@ def launch_preflight(session: Session, launch: models.TrainingLaunch) -> dict[st
     export_path = Path(str((export.result or {}).get("path", ""))).resolve() if export and (export.result or {}).get("path") else None
     export_ready = bool(export and export_state == "succeeded" and export_path and export_path.is_file())
     telemetry = (launch.redacted_manifest or {}).get("telemetry", {})
-    public_url = str(telemetry.get("base_url") or "")
+    live_telemetry = bool(telemetry.get("live_enabled")) if isinstance(telemetry, dict) else False
+    transport = str(telemetry.get("transport") or "") if isinstance(telemetry, dict) else ""
     claims = telemetry.get("token", {}).get("claims", {}) if isinstance(telemetry, dict) else {}
     expires_text = str(claims.get("expires_at") or "")
     try:
@@ -210,7 +212,7 @@ def launch_preflight(session: Session, launch: models.TrainingLaunch) -> dict[st
         _check("SIGNING_CREDENTIAL", bool(credential and credential.state == "active"), "Run-scoped signing credential is active." if credential and credential.state == "active" else "The W&B signing credential is missing, revoked, or inactive.", fix="Run `mfiche training setup`."),
         _check("SIGNING_WINDOW", token_window_valid, "Signing claims are within their validity window." if token_window_valid else "The launch signing window has expired.", fix="Create a fresh launch."),
         _check("STORAGE_SOURCE", bool(source and source.is_active and source.identity_fingerprint), "Verified training storage is bound." if source and source.is_active and source.identity_fingerprint else "A verified writable training source is required.", fix="Verify a training S3 source."),
-        _check("PUBLIC_INGRESS", public_url.startswith("https://"), f"Public W&B ingress is configured at {public_url}." if public_url.startswith("https://") else "A public HTTPS W&B ingress is required.", fix="Configure TITLES_WANDB_INGRESS_BASE_URL and verify the tunnel.", owner="operator"),
+        _check("TRAINER_TRANSPORT", transport == "object_storage", "Trainer uses outbound object storage; no inbound tunnel is required." if transport == "object_storage" else "Outbound training transport is not configured.", fix="Select a verified training S3 source."),
     ]
     blockers = [item for item in checks if item["status"] != "pass"]
     ready = not blockers
@@ -240,6 +242,7 @@ def launch_packet(session: Session, launch: models.TrainingLaunch) -> dict[str, 
         raise LaunchError("training launch preflight has blockers")
     manifest = launch.redacted_manifest
     telemetry = manifest["telemetry"]
+    live_telemetry = bool(telemetry.get("live_enabled"))
     return {
         "schema_version": "modelfiche.training-packet.v1",
         "launch_id": launch.id,
@@ -248,24 +251,24 @@ def launch_packet(session: Session, launch: models.TrainingLaunch) -> dict[str, 
         "preflight": preflight,
         "ai_toolkit": {
             "logging": {
-                "use_wandb": True,
+                "use_wandb": live_telemetry,
                 "project_name": telemetry["project"],
                 "run_name": manifest["run"]["name"],
             },
-            "required_environment": [
-                "WANDB_BASE_URL",
-                "WANDB_PROJECT",
-                "WANDB_RUN_ID",
-                "WANDB_RESUME",
-                "WANDB_API_KEY",
-                "MODELFICHE_HANDOFF_TOKEN",
+            "required_environment": (
+                ["WANDB_BASE_URL", "WANDB_PROJECT", "WANDB_RUN_ID", "WANDB_RESUME", "WANDB_API_KEY"]
+                if live_telemetry
+                else []
+            ) + [
+                manifest["backup"]["credential_environment"]["access_key"],
+                manifest["backup"]["credential_environment"]["secret_key"],
             ],
         },
         "instructions": [
-            "Render trainer.env with `mfiche training run prepare`.",
-            "Download and verify the dataset URL and manifest checksum.",
-            "Source trainer.env only inside the trainer process.",
-            "Start AI Toolkit with the generated logging configuration.",
+            "Render the self-contained trainer packet with `mfiche training run prepare`.",
+            "Copy the packet to the trainer and verify checksums.json.",
+            "Extract training-dataset.zip before starting AI Toolkit.",
+            "Run modelfiche-run-sync.py beside AI Toolkit; it sends checkpoints through outbound object storage.",
         ],
     }
 
@@ -468,7 +471,9 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
         "telemetry": {
             "sdk": "wandb",
             "sdk_version": WANDB_SDK_VERSION,
-            "base_url": base_url,
+            "live_enabled": request.live_telemetry,
+            "transport": "object_storage",
+            "base_url": base_url if request.live_telemetry else None,
             "entity": "dam",
             "project": run.wandb_project,
             "run_id": run.wandb_run_id,
@@ -510,13 +515,20 @@ def launch_environment(launch: models.TrainingLaunch) -> str:
     claims = telemetry["token"]["claims"]
     claims_json = _canonical_json(claims).decode("utf-8")
     lines = [
-        f"export WANDB_BASE_URL={json.dumps(telemetry['base_url'])}",
-        f"export WANDB_PROJECT={json.dumps(telemetry['project'])}",
-        f"export WANDB_RUN_ID={json.dumps(telemetry['run_id'])}",
+        'export MODELFICHE_TRANSPORT="object-storage"',
         'export WANDB_RESUME="allow"',
         f"# Sign these canonical claims with credential alias {telemetry['credential_alias']!r}:",
         f"# {claims_json}",
-        'export WANDB_API_KEY="<MF1_BASE32_ED25519_SIGNED_TOKEN>"',
-        'export MODELFICHE_HANDOFF_TOKEN="$WANDB_API_KEY"',
+        'export MODELFICHE_HANDOFF_TOKEN="<MF1_BASE32_ED25519_SIGNED_TOKEN>"',
     ]
+    if telemetry["live_enabled"]:
+        lines.extend(
+            [
+                f"export WANDB_BASE_URL={json.dumps(telemetry['base_url'])}",
+                f"export WANDB_PROJECT={json.dumps(telemetry['project'])}",
+                f"export WANDB_RUN_ID={json.dumps(telemetry['run_id'])}",
+                'export WANDB_RESUME="allow"',
+                'export WANDB_API_KEY="$MODELFICHE_HANDOFF_TOKEN"',
+            ]
+        )
     return "\n".join(lines) + "\n"

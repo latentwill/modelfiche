@@ -53,9 +53,12 @@ The public reverse proxy must route W&B SDK paths to the ingress service:
 /api/...                                  -> regular DAM API
 ```
 
-`TITLES_WANDB_INGRESS_BASE_URL` must be visible to the regular API process because launch creation places it in the trainer environment. Use the externally reachable HTTPS origin, not the ingress listener's loopback address.
-
-Production deployments should use Postgres. SQLite remains useful for one-process local validation, but it is not the intended concurrent API, ingress, and worker deployment.
+`TITLES_WANDB_INGRESS_BASE_URL` is optional. The default trainer packet uses
+outbound object storage for dataset delivery and checkpoint handoff, so a local
+macOS installation does not need public ingress or a tunnel. Set this value to
+an externally reachable HTTPS origin only when explicitly enabling live W&B
+telemetry. Multi-process live-ingress deployments should use Postgres; SQLite
+remains appropriate for the default local object-storage workflow.
 
 The examples below use the installed `mfiche` command. In a checkout without
 that entry point on `PATH`, use the equivalent `uv run mfiche ...` command.
@@ -132,9 +135,24 @@ The response contains `id`, `run_id`, launch state, manifest digest, run prefix,
 
 The same fields can be supplied as flags. Use `mfiche training-launch create --help` for the complete flag contract.
 
-## Produce the trainer environment
+## Produce the trainer packet
 
-The ordinary environment endpoint intentionally contains a token placeholder:
+The recommended command downloads the immutable dataset export and writes it
+beside the manifest, signed environment, logging fragment, checksums, and
+checkpoint-sync helper:
+
+```bash
+mfiche --json training run prepare <launch-id> --output ./trainer-packet
+```
+
+The default packet sets `MODELFICHE_TRANSPORT=object-storage`; it does not set a
+W&B base URL. Copy the packet to the trainer, verify `checksums.json`, extract
+`training-dataset.zip`, provide the S3 credentials named by the manifest, and
+run `modelfiche-run-sync.py` beside AI Toolkit. No inbound connection is
+required.
+
+For deployments that explicitly enable live W&B telemetry, the ordinary
+environment endpoint intentionally contains a token placeholder:
 
 ```bash
 mfiche training-launch environment <launch-id>

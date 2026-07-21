@@ -71,10 +71,10 @@ def training_setup(db: DB):
             "fix": None if sources else "Create and verify an S3 source.",
         },
         {
-            "code": "PUBLIC_INGRESS",
-            "status": "pass" if ingress and ingress.startswith("https://") else "blocked",
-            "message": f"Public W&B ingress: {ingress}" if ingress else "Public W&B ingress is not configured.",
-            "fix": None if ingress else "Set TITLES_WANDB_INGRESS_BASE_URL to the verified HTTPS origin.",
+            "code": "TRAINER_TRANSPORT",
+            "status": "pass" if any(source.identity_fingerprint for source in sources) else "blocked",
+            "message": "Training uses outbound object storage; no inbound tunnel is required." if any(source.identity_fingerprint for source in sources) else "Verify an S3 training source.",
+            "fix": None if any(source.identity_fingerprint for source in sources) else "Create and verify an S3 source.",
         },
     ]
     return {
@@ -107,7 +107,10 @@ def create_launch(
 ):
     workspace = current_workspace(db)
     actor = active_profile(db, x_profile_id)
-    ingress_base_url = get_settings().wandb_ingress_base_url or str(request.base_url).rstrip("/")
+    configured_ingress = get_settings().wandb_ingress_base_url
+    if body.live_telemetry and not (configured_ingress and configured_ingress.startswith("https://")):
+        raise HTTPException(status_code=409, detail="live telemetry requires a configured HTTPS W&B ingress")
+    ingress_base_url = configured_ingress or str(request.base_url).rstrip("/")
     try:
         launch, created = create_training_launch(
             db,
@@ -127,6 +130,7 @@ def create_launch(
                 supported_endpoint_ids=body.supported_endpoint_ids,
                 expected_duration_seconds=body.expected_duration_seconds,
                 base_url=ingress_base_url,
+                live_telemetry=bool(body.live_telemetry),
             ),
         )
     except LaunchError as exc:
