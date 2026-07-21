@@ -190,5 +190,20 @@ describe("shared generation contracts", () => {
     expect(rows[1]).toHaveTextContent("v2");
     expect(rows[2]).toHaveTextContent("v1");
   });
+  it("retries failed queue work only after an explicit billing warning", async () => {
+    const reload = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(apiModule.api).mockResolvedValueOnce({});
+    render(<GenerationQueue onRetry={reload} items={[{ id: "failed-1", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "failed", error: "provider timeout" }]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed work" }));
+
+    await waitFor(() => expect(apiModule.api).toHaveBeenCalledWith("/api/generation-queue/failed-1/retry", expect.objectContaining({ method: "POST" })));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("billable provider request"));
+    expect(reload).toHaveBeenCalled();
+    confirm.mockRestore();
+    vi.mocked(apiModule.api).mockImplementation(() => { throw new Error("network must not be called"); });
+  });
+
 
 });
