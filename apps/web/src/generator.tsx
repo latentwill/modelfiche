@@ -162,6 +162,7 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
   const [promptValue, setPromptValue] = useState("");
   const [requestRevision, setRequestRevision] = useState(0);
   const [requestValid, setRequestValid] = useState(false);
+  const [billingReviewed, setBillingReviewed] = useState(false);
   const requestFieldsRef = useRef<HTMLDivElement>(null);
   const queueStatuses = useRef<Record<string, string>>({});
   const queue = useResource<unknown>("/api/generation-queue", PROGRESS_POLL);
@@ -227,16 +228,17 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
   useEffect(() => {
     setRequestValid(Boolean(requestFieldsRef.current?.closest("form")?.checkValidity()));
   }, [imageSchema, promptValue, requestRevision]);
-  const imagePreflightError = !projectId ? "Select a project." : !selectedModel ? "Select an available model checkpoint." : !selectedModel.available ? selectedModel.unavailableReason || "Select a provider-registered checkpoint." : !endpointId ? "Select a compatible FAL endpoint." : endpointSchema.loading || !endpointSchema.data ? "Loading settings for the selected FAL endpoint." : !promptValue.trim() ? "Enter a prompt." : !requestValid ? "Complete the endpoint-defined fields within their allowed bounds." : "";
+  const configurationError = !projectId ? "Select a project." : !selectedModel ? "Select an available model checkpoint." : !selectedModel.available ? selectedModel.unavailableReason || "Select a provider-registered checkpoint." : !endpointId ? "Select a compatible FAL endpoint." : endpointSchema.loading || !endpointSchema.data ? "Loading settings for the selected FAL endpoint." : !promptValue.trim() ? "Enter a prompt." : !requestValid ? "Complete the endpoint-defined fields within their allowed bounds." : "";
+  const imagePreflightError = configurationError || (!billingReviewed ? "Review and acknowledge the provider cost consequence." : "");
   return <Page title="Image Generator" subtitle="Generate through the shared provider layer using the selected project/model context.">
     <Notice error={projects.error || modelFamilies.error || versions.error || endpoints.error || assetContext.error || endpointSchema.error} loading={projects.loading || modelFamilies.loading || versions.loading || endpoints.loading || assetContext.loading} />
     {prefillAssetId && <div className="generation-source-layout"><figure className="generation-image-frame"><AssetImage assetRevisionId={prefillAssetId} variant="content" alt="Source image for generation settings" /><figcaption>Source image · settings reference</figcaption></figure><div className="vela-notice" role="status"><strong>Settings loaded</strong><span>Supported settings from image {prefillAssetId} are prefilled. Nothing will run until you submit.</span></div></div>}
     <Panel title="Generation context"><div className="form-grid">
-      <Field label="Project"><Dropdown aria-label="Project" value={projectId} options={[{ value: "", label: "Select..." }, ...rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} onChange={value => { setProjectId(value); setModelId(""); setSelected([]); }} /></Field>
-      <Field label="Model"><Dropdown aria-label="Model" value={modelId} disabled={!projectId} options={[{ value: "", label: "All models" }, ...rows(modelFamilies.data).map(model => ({ value: idOf(model), label: str(model.name) }))]} onChange={value => { setModelId(value); setSelected([]); }} /></Field>
+      <Field label="Project"><Dropdown aria-label="Project" value={projectId} options={[{ value: "", label: "Select..." }, ...rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} onChange={value => { setProjectId(value); setModelId(""); setSelected([]); setBillingReviewed(false); }} /></Field>
+      <Field label="Model"><Dropdown aria-label="Model" value={modelId} disabled={!projectId} options={[{ value: "", label: "All models" }, ...rows(modelFamilies.data).map(model => ({ value: idOf(model), label: str(model.name) }))]} onChange={value => { setModelId(value); setSelected([]); setBillingReviewed(false); }} /></Field>
     </div>
-    <ModelCheckpointPicker mode="single" models={generationModels} selected={selected} onChange={setSelected} label="Model / checkpoint" />
-    <Field label="FAL endpoint"><Dropdown aria-label="FAL endpoint" value={endpointId} disabled={!selectedModel} options={[{ value: "", label: "Select..." }, ...compatibleEndpoints.map(endpoint => ({ value: str(endpoint.endpoint_id ?? endpoint.id), label: str(endpoint.name, str(endpoint.endpoint_id ?? endpoint.id)) }))]} onChange={setEndpointId} /></Field>
+    <ModelCheckpointPicker mode="single" models={generationModels} selected={selected} onChange={ids => { setSelected(ids); setBillingReviewed(false); }} label="Model / checkpoint" />
+    <Field label="FAL endpoint"><Dropdown aria-label="FAL endpoint" value={endpointId} disabled={!selectedModel} options={[{ value: "", label: "Select..." }, ...compatibleEndpoints.map(endpoint => ({ value: str(endpoint.endpoint_id ?? endpoint.id), label: str(endpoint.name, str(endpoint.endpoint_id ?? endpoint.id)) }))]} onChange={value => { setEndpointId(value); setBillingReviewed(false); }} /></Field>
     {context && selected[0] && <p className="vela-meta">Provider and endpoint: {selectedModel?.provider?.toUpperCase()} / {endpointId}</p>}
     </Panel>
     <div className={`vela-notice${imagePreflightError ? " vela-notice-error" : ""}`} role="status"><strong>Generation preflight</strong><span>{imagePreflightError || `Ready for ${selectedModel?.provider?.toUpperCase()} / ${endpointId}. Enter a prompt, then generate one image.`}</span></div>
@@ -250,12 +252,17 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
       const result = await falAdapter.submit({ workflow: "image", context, model: { ...model, endpoint: endpointId }, parameters, clientRequestId: crypto.randomUUID() });
       setQueued(result.providerRequestId ? `Queued as ${result.providerRequestId}.` : "Generation queued."); await queue.reload();
     }} repeatable><div ref={requestFieldsRef}><div className="form-grid">
-      <Field label="Prompt"><textarea name="prompt" required value={promptValue} onChange={event => { setPromptValue(event.target.value); setRequestRevision(value => value + 1); }} /></Field>
-      <Field label="Seed"><input name="seed" type="number" key={`seed-${prefill.seed}`} defaultValue={prefill.seed} onChange={() => setRequestRevision(value => value + 1)} /></Field>
-      <EndpointFields key={`${endpointId}-${prefill.width}-${prefill.height}`} schema={imageSchema} omit={["num_images", "seed"]} onChange={() => setRequestRevision(value => value + 1)} />
-      <LoraScaleField key={`scale-${endpointId}-${prefill.loraScale}`} schema={imageSchema} defaultValue={prefill.loraScale} onChange={() => setRequestRevision(value => value + 1)} />
+      <Field label="Prompt"><textarea name="prompt" required value={promptValue} onChange={event => { setPromptValue(event.target.value); setRequestRevision(value => value + 1); setBillingReviewed(false); }} /></Field>
+      <Field label="Seed"><input name="seed" type="number" key={`seed-${prefill.seed}`} defaultValue={prefill.seed} onChange={() => { setRequestRevision(value => value + 1); setBillingReviewed(false); }} /></Field>
+      <EndpointFields key={`${endpointId}-${prefill.width}-${prefill.height}`} schema={imageSchema} omit={["num_images", "seed"]} onChange={() => { setRequestRevision(value => value + 1); setBillingReviewed(false); }} />
+      <LoraScaleField key={`scale-${endpointId}-${prefill.loraScale}`} schema={imageSchema} defaultValue={prefill.loraScale} onChange={() => { setRequestRevision(value => value + 1); setBillingReviewed(false); }} />
     </div>
     </div>
+    {!configurationError && <section className="generation-consequence-review" role="region" aria-label="Generation consequence review">
+      <strong>Provider cost review</strong>
+      <p>This queues one image through {selectedModel?.provider?.toUpperCase()} / {endpointId}. Provider pricing applies; the exact charge is determined by FAL and this endpoint. Submission may not be cancelable after provider dispatch.</p>
+      <label><input type="checkbox" checked={billingReviewed} onChange={event => setBillingReviewed(event.target.checked)} /> I reviewed the provider and billing consequence.</label>
+    </section>}
     </Form>{queued && <div className="vela-notice" role="status"><ImagePlus size={16} /><span>{queued}</span></div>}</Panel>
     <GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} />
   </Page>;

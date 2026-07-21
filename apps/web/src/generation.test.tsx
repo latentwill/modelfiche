@@ -141,6 +141,11 @@ describe("shared generation contracts", () => {
     const prompt = screen.getByRole("textbox", { name: "Prompt" });
     fireEvent.input(prompt, { target: { value: "A usable image prompt" } });
     expect(prompt).toHaveValue("A usable image prompt");
+    const review = await screen.findByRole("region", { name: "Generation consequence review" });
+    expect(review).toHaveTextContent("exact charge is determined by FAL");
+    expect(view.container.querySelector('button[type="submit"]')).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I reviewed the provider and billing consequence." }));
+    expect(view.container.querySelector('button[type="submit"]')).toBeEnabled();
     view.unmount();
     vi.mocked(apiModule.api).mockImplementation(() => { throw new Error("network must not be called"); });
   });
