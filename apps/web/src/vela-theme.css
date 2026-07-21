@@ -2426,6 +2426,24 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   font-size: 10px;
 }
 
+.vela-theme .generation-consequence-review {
+  display: grid;
+  gap: var(--vela-space-2);
+  margin-block-start: var(--vela-space-3);
+  padding: var(--vela-space-3);
+  border: 1px solid var(--mf-border-strong);
+  background: var(--mf-surface-muted);
+}
+.vela-theme .generation-consequence-review p {
+  margin: 0;
+}
+.vela-theme .generation-consequence-review label {
+  display: flex;
+  gap: var(--vela-space-2);
+  align-items: flex-start;
+  font-weight: 700;
+}
+
 /* Model review workspaces: bounded checkpoint comparison, typed lineage, and
    consequence-aware artifact/version actions. */
 .vela-theme .sample-comparison-boundary,

@@ -36,6 +36,7 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   const [error, setError] = useState("");
   const [queuedId, setQueuedId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [costReviewed, setCostReviewed] = useState(false);
   const attempt = useRef<{ parent: string; children: string[]; gridId?: string } | null>(null);
   const fixedFormRef = useRef<HTMLFormElement>(null);
   const initializedEndpoint = useRef("");
@@ -134,7 +135,7 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
     previewError = reason instanceof Error ? reason.message : String(reason);
   }
   const duplicateAxis = new Set(usedAxisFields).size !== usedAxisFields.length;
-  const gridPreflightError =
+  const gridConfigurationError =
     !projectId ? "Select a project." :
       versions.loading ? "Loading registered checkpoints." :
         !fixedModel ? "Select a fixed model / checkpoint to establish the endpoint schema." :
@@ -152,9 +153,10 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
                               !fixedFormValid ? "Complete the endpoint-defined fixed fields within their allowed bounds." :
                                 previewError || !preview.length ? previewError || "Add axis values to compose a grid." :
                                   preview.some(cell => !cell.model.available || cell.model.provider !== "fal" || cell.model.endpoint !== endpointId) ? `Every cell must use a usable ${endpointId} checkpoint.` : "";
+  const gridPreflightError = gridConfigurationError || (!costReviewed ? "Review and acknowledge the provider cost consequence." : "");
   const uniqueCheckpointCount = new Set(preview.map(cell => cell.model.id)).size;
   const planSignature = JSON.stringify({ projectId, endpointId, promptSetId, x, y, z, fixedRevision, fixedPrompt, models: preview.map(cell => cell.model.id) });
-  useEffect(() => { attempt.current = null; }, [planSignature]);
+  useEffect(() => { attempt.current = null; setCostReviewed(false); }, [planSignature]);
 
   async function generate() {
     if (submitting) return;
@@ -242,6 +244,11 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
     </Panel>
     <div className={`vela-notice${gridPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>{gridPreflightError ? "Grid incomplete" : "Grid preflight"}</strong><span>{gridPreflightError || `${endpointId} accepts ${preview.length} cell${preview.length === 1 ? "" : "s"} across ${uniqueCheckpointCount} checkpoint${uniqueCheckpointCount === 1 ? "" : "s"}.`}</span></div>
     <GridPreview cells={preview} x={x} y={y} z={z} incomplete={Boolean(gridPreflightError)} />
+    {!gridConfigurationError && <section className="generation-consequence-review" role="region" aria-label="Grid cost consequence review">
+      <strong>Provider cost review</strong>
+      <p>This grid can submit {preview.length} billable FAL request{preview.length === 1 ? "" : "s"} through {endpointId}. Exact charges are determined by FAL and may continue after this page closes.</p>
+      <label><input type="checkbox" checked={costReviewed} onChange={event => setCostReviewed(event.target.checked)} /> I reviewed the request count and billing consequence.</label>
+    </section>}
     {error && <div className="vela-notice vela-notice-error" role="alert"><strong>Cannot generate grid</strong><span>{error}</span></div>}
     <button className="vela-button vela-button-primary grid-generate" type="button" disabled={submitting || Boolean(gridPreflightError)} onClick={() => void generate()}>{submitting ? <><LoaderCircle className="vela-spin" size={15} /> Preparing grid...</> : <><Grid3X3 size={15} /> Generate grid</>}</button>
     {queuedId && <div className="vela-notice" role="status"><strong>Grid queued</strong><span><a href={`#/grid/${queuedId}`}>Open grid {queuedId}</a></span></div>}

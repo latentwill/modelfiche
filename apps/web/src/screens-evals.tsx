@@ -232,6 +232,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const [settingsValid, setSettingsValid] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
+  const [costReviewed, setCostReviewed] = useState(false);
   const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: project })}`, PROGRESS_POLL);
   const models = useResource<unknown>(project ? `/api/model-versions${query({ project_id: project })}` : null);
   const modelFamilies = useResource<unknown>(project ? `/api/models${query({ project_id: project })}` : null);
@@ -258,7 +259,7 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
   const readyPromptCount = prompts.reduce((count, prompt) => count + Number(Boolean(prompt.text.trim())), 0);
   const selectedProject = rows(projects.data).find(item => idOf(item) === project);
   const context: GenerationContext = modelId ? { kind: "model", projectId: project, modelId } : { kind: "project", projectId: project };
-  const evalPreflightError =
+  const evalConfigurationError =
     !project ? "Select a project." :
       !selectedModels.length ? "Select at least one model checkpoint." :
           selectedGenerationModels.length !== selectedModels.length ? "Wait for selected checkpoint details to load." :
@@ -268,6 +269,9 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
                   selectedPromptSetId && !rows(promptSet.data?.prompts).length ? "The selected prompt set version is empty." :
                     !readyPromptCount ? "Add at least one prompt." :
                       !settingsValid ? "Complete the endpoint-defined settings within their allowed bounds." : "";
+  const evalPreflightError = evalConfigurationError || (!costReviewed ? "Review and acknowledge the provider cost consequence." : "");
+  const evalSignature = JSON.stringify({ project, modelId, selectedModels, selectedPromptSetId, prompts, settingsRevision });
+  useEffect(() => setCostReviewed(false), [evalSignature]);
 
   useEffect(() => setSelectedModels(ids => ids.filter(id => generationModels.some(model => model.id === id))), [models.data, project, modelId]);
   useEffect(() => {
@@ -359,6 +363,11 @@ export function EvalsScreen({ projectId = "", initialModelVersionId = "" }: { pr
               <LoraScaleField schema={sharedEndpointSchema} onChange={() => setSettingsRevision(value => value + 1)} />
             </div>
           </div>
+          {!evalConfigurationError && <section className="generation-consequence-review" role="region" aria-label="Eval cost consequence review">
+            <strong>Provider cost review</strong>
+            <p>This evaluation can submit {readyPromptCount * selectedGenerationModels.length} billable FAL request{readyPromptCount * selectedGenerationModels.length === 1 ? "" : "s"} across {selectedGenerationModels.length} checkpoint{selectedGenerationModels.length === 1 ? "" : "s"}. Exact charges are determined by FAL.</p>
+            <label><input type="checkbox" checked={costReviewed} onChange={event => setCostReviewed(event.target.checked)} /> I reviewed the request count and billing consequence.</label>
+          </section>}
         </Form>
         {message && <div className="vela-notice" role="status"><strong>Eval queued</strong><span>{message}</span></div>}
       </Panel>
