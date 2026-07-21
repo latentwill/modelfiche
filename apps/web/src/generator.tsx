@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus } from "lucide-react";
-import { api, idOf, listOf, str } from "./api";
+import { api, idOf, jsonBody, listOf, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { pollWhileActive, useResource } from "./hooks";
 import { Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
@@ -261,10 +261,24 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
   </Page>;
 }
 
-export function GenerationQueue({ items, error, loading }: { items: Row[]; error?: string; loading?: boolean }) {
+export function GenerationQueue({ items, error, loading, onRetry }: { items: Row[]; error?: string; loading?: boolean; onRetry?: () => Promise<unknown> | unknown }) {
+  const [retrying, setRetrying] = useState("");
+  const [retryError, setRetryError] = useState("");
   const visibleItems = [...items].reverse();
-  return <Panel title="Queue"><Notice error={error} loading={loading} empty={!loading && !items.length} />
-    {!!visibleItems.length && <div className="table-wrap"><table><thead><tr><th>Recent</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th></tr></thead><tbody>{visibleItems.map((item, index) => {
+  async function retry(item: Row) {
+    if (!window.confirm("Retry this failed work? A successful retry can submit a new billable provider request.")) return;
+    setRetrying(idOf(item)); setRetryError("");
+    try {
+      await api(`/api/generation-queue/${idOf(item)}/retry`, jsonBody({}));
+      await onRetry?.();
+    } catch (reason) {
+      setRetryError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setRetrying("");
+    }
+  }
+  return <Panel title="Queue"><Notice error={retryError || error} loading={loading} empty={!loading && !items.length} />
+    {!!visibleItems.length && <div className="table-wrap"><table><thead><tr><th>Recent</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th>{onRetry && <th>Recovery</th>}</tr></thead><tbody>{visibleItems.map((item, index) => {
       const progress = item.progress && typeof item.progress === "object" ? item.progress as Row : {};
       const request = item.request && typeof item.request === "object" ? item.request as Row : {};
       const context = request.context && typeof request.context === "object" ? request.context as Row : {};
@@ -274,15 +288,16 @@ export function GenerationQueue({ items, error, loading }: { items: Row[]; error
       const modelLabel = str(model.name, str(item.model_id, ""));
       const checkpointLabel = str(model.checkpointLabel, "");
       const workflow = str(item.workflow);
+      const failed = str(item.status).toLowerCase() === "failed";
       const workflowLink = workflow === "eval" ? <a href={`#/eval-comparison/${idOf(item)}`}>Eval</a> : workflow === "grid" ? <a href={`#/grid/${idOf(item)}`}>Grid</a> : workflow;
-      return <tr key={idOf(item)}><td>{index + 1}</td><td>{workflowLink}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || Array.from(new Set(modelIds)).join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td></tr>;
+      return <tr key={idOf(item)}><td>{index + 1}</td><td>{workflowLink}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || Array.from(new Set(modelIds)).join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td>{onRetry && <td>{failed ? <button type="button" disabled={Boolean(retrying)} onClick={() => void retry(item)}>{retrying === idOf(item) ? "Retrying…" : "Retry failed work"}</button> : "—"}</td>}</tr>;
     })}</tbody></table></div>}
   </Panel>;
 }
 
 export function GenerationQueueScreen() {
   const queue = useResource<unknown>("/api/generation-queue", PROGRESS_POLL);
-  return <Page title="Queue" subtitle="One durable queue for Image, Eval, and Grid workflows."><GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} /></Page>;
+  return <Page title="Queue" subtitle="One durable queue for Image, Eval, and Grid workflows."><GenerationQueue items={rows(queue.data)} error={queue.error} loading={queue.loading} onRetry={queue.reload} /></Page>;
 }
 
 function optionalNumber(value: FormDataEntryValue | null) { if (value == null || value === "") return undefined; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
