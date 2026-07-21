@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, Clipboard, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
-import { ApiError, api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { Archive, Clipboard, Download, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
+import { ApiError, api, apiDownload, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -479,6 +479,27 @@ export function SettingsScreen() {
   const requestedSection = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("section") ?? "general";
   const section = ["general", "storage", "generation", "profiles", "diagnostics"].includes(requestedSection) ? requestedSection : "general";
   const agentCli = (health.data?.agent_cli ?? {}) as Row;
+  const databaseHealth = health.data?.database;
+  const assetHealth = health.data?.asset_store;
+  const backupHealth = health.data?.backup;
+  const databaseReady = typeof databaseHealth === "object" && databaseHealth !== null && "ok" in databaseHealth && databaseHealth.ok === true;
+  const assetsReady = typeof assetHealth === "object" && assetHealth !== null && "ok" in assetHealth && assetHealth.ok === true;
+  const backupReady = typeof backupHealth === "object" && backupHealth !== null && "configured" in backupHealth && backupHealth.configured === true;
+  async function downloadSupportBundle() {
+    setMessage("");
+    try {
+      const download = await apiDownload("/api/system/support-bundle");
+      const url = URL.createObjectURL(download.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = download.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage("Redacted support bundle downloaded.");
+    } catch (reason) {
+      setTestError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
   return <Page title="Settings" subtitle="One focused setup area at a time." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
     <Notice error={testError || settings.error || health.error || workspaces.error} loading={settings.loading || health.loading || workspaces.loading} />
     <nav className="settings-section-nav" aria-label="Settings sections">
@@ -565,12 +586,12 @@ export function SettingsScreen() {
       {section === "diagnostics" && <div className="settings-diagnostics">
         <Panel title="Runtime diagnostics">
           <div className="readiness-card-grid">
-            <div><strong>Database</strong><Status value={(health.data?.database as Row | undefined)?.ok ? "ready" : "attention"} /></div>
-            <div><strong>Assets</strong><Status value={(health.data?.asset_store as Row | undefined)?.ok ? "ready" : "attention"} /></div>
-            <div><strong>Backup</strong><Status value={(health.data?.backup as Row | undefined)?.configured ? "ready" : "attention"} /></div>
+            <div><strong>Database</strong><Status value={databaseReady ? "ready" : "attention"} /></div>
+            <div><strong>Assets</strong><Status value={assetsReady ? "ready" : "attention"} /></div>
+            <div><strong>Backup</strong><Status value={backupReady ? "ready" : "attention"} /></div>
             <div><strong>Agent CLI</strong><Status value={agentCli.configured ? "ready" : "attention"} /></div>
           </div>
-          <div className="actions"><a className="button vela-button" href="#/readiness">Open readiness checks</a></div>
+          <div className="actions"><button type="button" className="primary" onClick={() => void downloadSupportBundle()}><Download size={14} />Download redacted support bundle</button><a className="button vela-button" href="#/readiness">Open readiness checks</a></div>
         </Panel>
       </div>}
     </div>

@@ -261,6 +261,12 @@ export function ImageGeneratorScreen({ params }: { params: URLSearchParams }) {
   </Page>;
 }
 
+export function formatQueueTimestamp(value: unknown) {
+  const date = new Date(str(value, ""));
+  return Number.isNaN(date.valueOf()) ? "Time unavailable" : date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+}
+
+
 export function GenerationQueue({ items, error, loading, onRetry }: { items: Row[]; error?: string; loading?: boolean; onRetry?: () => Promise<unknown> | unknown }) {
   const [retrying, setRetrying] = useState("");
   const [retryError, setRetryError] = useState("");
@@ -278,19 +284,19 @@ export function GenerationQueue({ items, error, loading, onRetry }: { items: Row
     }
   }
   return <Panel title="Queue"><Notice error={retryError || error} loading={loading} empty={!loading && !items.length} />
-    {!!visibleItems.length && <div className="table-wrap"><table><thead><tr><th>Recent</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th>{onRetry && <th>Recovery</th>}</tr></thead><tbody>{visibleItems.map((item, index) => {
+    {!!visibleItems.length && <div className="table-wrap"><table><thead><tr><th>Submitted</th><th>Workflow</th><th>Context</th><th>Models</th><th>Status</th><th>Progress / result</th>{onRetry && <th>Recovery</th>}</tr></thead><tbody>{visibleItems.map(item => {
       const progress = item.progress && typeof item.progress === "object" ? item.progress as Row : {};
       const request = item.request && typeof item.request === "object" ? item.request as Row : {};
       const context = request.context && typeof request.context === "object" ? request.context as Row : {};
       const model = request.model && typeof request.model === "object" ? request.model as Row : {};
       const modelIds = Array.isArray(item.model_version_ids) ? item.model_version_ids.map(String) : [];
-      const projectLabel = str(context.projectTitle ?? context.projectName, str(item.project_id));
-      const modelLabel = str(model.name, str(item.model_id, ""));
+      const projectLabel = str(context.projectTitle ?? context.projectName, "Project unavailable");
+      const modelLabel = str(model.name, "");
       const checkpointLabel = str(model.checkpointLabel, "");
       const workflow = str(item.workflow);
       const failed = str(item.status).toLowerCase() === "failed";
       const workflowLink = workflow === "eval" ? <a href={`#/eval-comparison/${idOf(item)}`}>Eval</a> : workflow === "grid" ? <a href={`#/grid/${idOf(item)}`}>Grid</a> : workflow;
-      return <tr key={idOf(item)}><td>{index + 1}</td><td>{workflowLink}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || Array.from(new Set(modelIds)).join(", ")}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td>{onRetry && <td>{failed ? <button type="button" disabled={Boolean(retrying)} onClick={() => void retry(item)}>{retrying === idOf(item) ? "Retrying…" : "Retry failed work"}</button> : "—"}</td>}</tr>;
+      return <tr key={idOf(item)}><td><time dateTime={str(item.created_at, "")}>{formatQueueTimestamp(item.created_at)}</time></td><td>{workflowLink}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || `${modelIds.length} model${modelIds.length === 1 ? "" : "s"}`}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td>{onRetry && <td>{failed ? <button type="button" disabled={Boolean(retrying)} onClick={() => void retry(item)}>{retrying === idOf(item) ? "Retrying…" : "Retry failed work"}</button> : "—"}</td>}</tr>;
     })}</tbody></table></div>}
   </Panel>;
 }

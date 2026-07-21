@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { connectedFalGenerationModels, falAdapter, generationModelFromRow, generationModelUnavailableReason, generationReplayFromMetadata, generatorHref, normalizedParametersFromMetadata, pickerModeMultiple } from "./generation";
-import { EndpointFields, GenerationQueue, ImageGeneratorScreen, ModelCheckpointPicker, generationActivityTransition, parametersFromForm } from "./generator";
+import { EndpointFields, GenerationQueue, ImageGeneratorScreen, ModelCheckpointPicker, formatQueueTimestamp, generationActivityTransition, parametersFromForm } from "./generator";
 import { Form } from "./ui";
 import * as apiModule from "./api";
 
@@ -183,12 +183,15 @@ describe("shared generation contracts", () => {
   });
   it("shows the newest queued work first", () => {
     render(<GenerationQueue items={[
-      { id: "older", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "completed", progress: { completed: 1, total: 1 } },
-      { id: "newest", workflow: "image", project_id: "project", model_version_ids: ["v2"], status: "queued", progress: { completed: 0, total: 1 } },
+      { id: "older", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "completed", progress: { completed: 1, total: 1 }, created_at: "2026-07-20T01:02:03Z" },
+      { id: "newest", workflow: "image", project_id: "project", model_version_ids: ["v2"], status: "queued", progress: { completed: 0, total: 1 }, created_at: "2026-07-21T01:02:03Z" },
     ]} />);
     const rows = screen.getAllByRole("row");
-    expect(rows[1]).toHaveTextContent("v2");
-    expect(rows[2]).toHaveTextContent("v1");
+    expect(rows[1]).toHaveTextContent("2026-07-21 01:02:03 UTC");
+    expect(rows[2]).toHaveTextContent("2026-07-20 01:02:03 UTC");
+    expect(screen.getAllByText("Project unavailable")).toHaveLength(2);
+    expect(screen.queryByText("project")).not.toBeInTheDocument();
+    expect(formatQueueTimestamp("2026-07-21T01:02:03Z")).toBe("2026-07-21 01:02:03 UTC");
   });
   it("retries failed queue work only after an explicit billing warning", async () => {
     const reload = vi.fn();

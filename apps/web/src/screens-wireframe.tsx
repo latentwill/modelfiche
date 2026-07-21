@@ -64,14 +64,18 @@ export function TransfersScreen({ mode = "", params = new URLSearchParams() }: {
   const transfers = useResource<unknown>("/api/transfers");
   const [filter, setFilter] = useState("all");
   const [panel, setPanel] = useState(mode);
-  const importRows = rows(jobs.data).filter(job => String(job.kind).includes("import")).map(job => ({ ...job, direction: "import" }));
-  const exportRows = rows(transfers.data).map(job => ({ ...job, kind: "export.package", direction: "export" }));
+  const importRows = rows(jobs.data).filter(job => String(job.kind).includes("import")).map(job => {
+    const payload = job.payload && typeof job.payload === "object" ? job.payload as Row : {};
+    const prefix = str(payload.prefix, "S3 source");
+    return { ...job, name: `Import · ${prefix}`, direction: "import", direction_label: "Import", progress_label: `${Math.round(Number(job.progress ?? 0) * 100)}%` };
+  });
+  const exportRows = rows(transfers.data).map(job => ({ ...job, name: str(job.name, "Export package"), kind: "export.package", direction: "export", direction_label: "Export", progress_label: `${Math.round(Number(job.progress ?? 0) * 100)}%` }));
   const data = [...exportRows, ...importRows].filter(job => filter === "all" || job.direction === filter);
   return <Page title="Import / Export History" subtitle="Transfer training runs and DAM packages without overwriting existing work." actions={<><button aria-pressed={panel === "import"} onClick={() => setPanel(panel === "import" ? "" : "import")}><ArrowDownToLine size={16} /> Import</button><button className="primary" aria-pressed={panel === "export"} onClick={() => setPanel(panel === "export" ? "" : "export")}><ArrowUpFromLine size={16} /> Export</button></>}>
     {panel === "import" && <TransferImport params={params} />}
     {panel === "export" && <TransferExport onCreated={transfers.reload} params={params} />}
     <Panel><div className="tabs" role="tablist" aria-label="Transfer filters">{["all", "export", "import"].map(value => <button role="tab" aria-selected={filter === value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
-      <Notice error={jobs.error || transfers.error} loading={jobs.loading || transfers.loading} empty={!data.length} /><DataTable rows={data} columns={[["name", "Name"], ["direction", "Type"], ["state", "State"], ["progress", "Progress"], ["created_at", "Date"]]} onRow={job => { if (job.direction === "export" && job.download_ready) window.location.href = `/api/transfers/${idOf(job)}/download`; else location.hash = `jobs/${idOf(job)}?job=1`; }} />
+      <Notice error={jobs.error || transfers.error} loading={jobs.loading || transfers.loading} empty={!data.length} /><DataTable rows={data} columns={[["name", "Transfer"], ["direction_label", "Direction"], ["state", "Status"], ["progress_label", "Progress"], ["created_at", "Started"]]} onRow={job => { if (job.direction === "export" && job.download_ready) window.location.href = `/api/transfers/${idOf(job)}/download`; else location.hash = `jobs/${idOf(job)}?job=1`; }} />
     </Panel>
   </Page>;
 }
