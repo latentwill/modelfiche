@@ -54,6 +54,7 @@ def test_cli_install_creates_user_scoped_packaged_command(client, tmp_path, monk
     assert installed.resolve() == packaged_cli.resolve()
     doctor = client.get("/api/system/doctor").json()
     assert doctor["agent_cli"]["configured"] is True
+    assert doctor["version"] == "0.1.0"
     assert doctor["agent_cli"]["path"] == str(installed)
 
 

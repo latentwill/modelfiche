@@ -485,6 +485,8 @@ export function SettingsScreen() {
   const databaseReady = typeof databaseHealth === "object" && databaseHealth !== null && "ok" in databaseHealth && databaseHealth.ok === true;
   const assetsReady = typeof assetHealth === "object" && assetHealth !== null && "ok" in assetHealth && assetHealth.ok === true;
   const backupReady = typeof backupHealth === "object" && backupHealth !== null && "configured" in backupHealth && backupHealth.configured === true;
+  const latestBackup = typeof backupHealth === "object" && backupHealth !== null && "latest" in backupHealth ? str(backupHealth.latest, "") : "";
+  const rollbackCommand = latestBackup ? `mfiche backup restore ${JSON.stringify(latestBackup)} --confirm "RESTORE MODELFICHE BACKUP"` : "";
   async function downloadSupportBundle() {
     setMessage("");
     try {
@@ -592,6 +594,15 @@ export function SettingsScreen() {
             <div><strong>Agent CLI</strong><Status value={agentCli.configured ? "ready" : "attention"} /></div>
           </div>
           <div className="actions"><button type="button" className="primary" onClick={() => void downloadSupportBundle()}><Download size={14} />Download redacted support bundle</button><a className="button vela-button" href="#/readiness">Open readiness checks</a></div>
+        </Panel>
+        <Panel title="Update and rollback">
+          <p>Current version: <strong>{str(health.data?.version, "Unavailable")}</strong></p>
+          {latestBackup ? <>
+            <p>The latest verified pre-upgrade backup is <code>{latestBackup}</code>.</p>
+            <ol><li>Quit Modelfiche.</li><li>Reinstall the previous signed DMG.</li><li>Run the restore command below. Restore verifies the archive and rolls back automatically if the directory swap fails.</li></ol>
+            <pre>{rollbackCommand}</pre>
+            <div className="actions"><button type="button" onClick={() => void navigator.clipboard.writeText(rollbackCommand).then(() => setMessage("Rollback command copied."))}><Clipboard size={14} />Copy rollback command</button></div>
+          </> : <div className="vela-notice vela-notice-error" role="alert"><strong>No rollback snapshot</strong><span>Create and verify a backup before installing an update.</span></div>}
         </Panel>
       </div>}
     </div>

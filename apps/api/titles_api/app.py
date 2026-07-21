@@ -206,6 +206,7 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
         cli_path = str(user_cli) if user_cli.is_file() and os.access(user_cli, os.X_OK) else path_cli
         return {
             "ok": database_ok,
+            "version": __version__,
             "database": {"ok": database_ok, "url": "sqlite" if settings.database_url.startswith("sqlite") else "configured"},
             "asset_store": {"ok": settings.asset_root.exists(), "path": str(settings.asset_root)},
             "cache": {"ok": settings.cache_root.exists(), "path": str(settings.cache_root)},
