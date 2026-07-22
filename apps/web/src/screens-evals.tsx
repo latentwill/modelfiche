@@ -70,6 +70,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string; initialMod
       setBusy(false);
     }
   }
+  const selectedRun = runRows.find(run => str(run.run_id ?? run.generation_run_id) === runId);
   return <Page title="Eval assessment" subtitle="Assess a completed Grid generation run without creating a second generation plan.">
     <Notice error={projects.error || grids.error || assessments.error || error} loading={projects.loading || grids.loading || assessments.loading} />
     <Panel title="Project context"><Field label="Project"><Dropdown aria-label="Project" value={project} options={[{ value: "", label: "Select…" }, ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) }))]} onChange={value => { setProject(value); setRunId(""); setMessage(""); setError(""); attemptKeys.current = { create: crypto.randomUUID(), queue: crypto.randomUUID() }; }} /></Field><p className="vela-muted">Eval is project-scoped. It references an existing Grid generation run and never mutates its plan.</p></Panel>
@@ -208,10 +209,8 @@ export function EvalComparisonScreen({ id }: { id: string }) {
   const shownPrompts = filteredPrompts.slice(safePage * 12, safePage * 12 + 12);
   const context = request.context && typeof request.context === "object" ? request.context as Row : {};
   const projectId = str(resource.data?.project_id ?? context.projectId ?? context.project_id, "");
-  const promptSetId = str((request.prompt_set as Row | undefined)?.id, "");
   const returnParams = new URLSearchParams();
   if (projectId) returnParams.set("project", projectId);
-  if (promptSetId) returnParams.set("prompt_set", promptSetId);
   return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href={`#/evals${returnParams.size ? `?${returnParams}` : ""}`}><ArrowLeft size={15} /> Project Evals</a>}>
     <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !runs.length} emptyText="No comparison results yet" emptyHint="This comparison updates while queued checkpoint work completes." />
     {!!runs.length && <>

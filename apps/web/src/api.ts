@@ -71,7 +71,7 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename:
 export function listOf<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
   if (!value || typeof value !== "object") return [];
-  for (const key of ["items", "results", "data", "profiles", "projects", "datasets", "runs", "assets", "models", "prompt_sets", "eval_runs", "grids", "reviews", "comments", "sources", "objects", "samples", "checkpoints"]) {
+  for (const key of ["items", "results", "data", "profiles", "projects", "datasets", "runs", "assets", "models", "eval_runs", "grids", "reviews", "comments", "sources", "objects", "samples", "checkpoints"]) {
     const candidate = (value as Record<string, unknown>)[key];
     if (Array.isArray(candidate)) return candidate as T[];
   }
