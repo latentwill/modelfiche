@@ -32,6 +32,27 @@ def _project(db: Session, project_id: str) -> models.Project:
 
 
 def _hydrate_input(db: Session, project_id: str, raw: dict[str, Any]) -> dict[str, Any]:
+    reserved = {"loras", "registered_lora", "_server_hydrated", "provider_url", "fal_url", "fal_path", "url", "path"}
+
+    def reject(value: Any, location: str) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if str(key).lower() in reserved:
+                    raise HTTPException(status_code=422, detail=f"{location}.{key} is server-owned")
+                reject(nested, f"{location}.{key}")
+        elif isinstance(value, list):
+            for index, nested in enumerate(value):
+                reject(nested, f"{location}[{index}]")
+
+    reject(raw.get("shared_params", {}), "shared_params")
+    for axis_name, axis in (raw.get("axes") or {}).items():
+        if str(axis.get("name", "")).lower() in reserved:
+            raise HTTPException(status_code=422, detail=f"axes.{axis_name}.name is server-owned")
+        reject(axis, f"axes.{axis_name}")
+    for target in raw.get("targets", []):
+        if not isinstance(target, dict):
+            raise HTTPException(status_code=422, detail="target must be an object")
+        reject(target, "targets")
     hydrated = deepcopy(raw)
     for target in hydrated.get("targets", []):
         overrides = target.get("overrides", target.get("target_overrides", {}))
