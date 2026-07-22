@@ -561,6 +561,7 @@ class GridDefinition(UUIDMixin, TimestampMixin, Base):
     plan_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
     request_count: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost: Mapped[str] = mapped_column(String(32), default="0.000000")
     idempotency_key: Mapped[str | None] = mapped_column(String(200))
 
 

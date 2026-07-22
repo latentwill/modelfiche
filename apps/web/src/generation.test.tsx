@@ -141,11 +141,11 @@ describe("shared generation contracts", () => {
     const prompt = screen.getByRole("textbox", { name: "Prompt" });
     fireEvent.input(prompt, { target: { value: "A usable image prompt" } });
     expect(prompt).toHaveValue("A usable image prompt");
-    const review = await screen.findByRole("region", { name: "Generation consequence review" });
-    expect(review).toHaveTextContent("exact charge is determined by FAL");
-    expect(view.container.querySelector('button[type="submit"]')).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "I reviewed the provider and billing consequence." }));
-    expect(view.container.querySelector('button[type="submit"]')).toBeEnabled();
+    await waitFor(() => {
+      expect(view.container.querySelector('[aria-label="FAL endpoint"]')).toHaveTextContent("Krea 2 Turbo LoRA");
+      expect(view.container.querySelector('button[type="submit"]')).toBeEnabled();
+    });
+    expect(screen.queryByRole("region", { name: /consequence review/i })).toBeNull();
     view.unmount();
     vi.mocked(apiModule.api).mockImplementation(() => { throw new Error("network must not be called"); });
   });
@@ -198,18 +198,13 @@ describe("shared generation contracts", () => {
     expect(screen.queryByText("project")).not.toBeInTheDocument();
     expect(formatQueueTimestamp("2026-07-21T01:02:03Z")).toBe("2026-07-21 01:02:03 UTC");
   });
-  it("retries failed queue work only after an explicit billing warning", async () => {
+  it("retries failed queue work directly", async () => {
     const reload = vi.fn();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(apiModule.api).mockResolvedValueOnce({});
     render(<GenerationQueue onRetry={reload} items={[{ id: "failed-1", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "failed", error: "provider timeout" }]} />);
-
     fireEvent.click(screen.getByRole("button", { name: "Retry failed work" }));
-
     await waitFor(() => expect(apiModule.api).toHaveBeenCalledWith("/api/generation-queue/failed-1/retry", expect.objectContaining({ method: "POST" })));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("billable provider request"));
     expect(reload).toHaveBeenCalled();
-    confirm.mockRestore();
     vi.mocked(apiModule.api).mockImplementation(() => { throw new Error("network must not be called"); });
   });
 

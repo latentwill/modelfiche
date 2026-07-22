@@ -268,14 +268,16 @@ function ProjectTree({ project, section, activeId, activeProjectId }: { project:
   // every project made route navigation contend with dozens of sidebar calls.
   const datasets = useResource<unknown>(expanded ? `/api/datasets${query({ project_id: projectId })}` : null);
   const models = useResource<unknown>(expanded ? `/api/models${query({ project_id: projectId })}` : null);
-  const evals = useResource<unknown>(expanded ? `/api/eval-runs${query({ project_id: projectId })}` : null);
+  const evals = useResource<unknown>(expanded ? `/api/projects/${projectId}/evals` : null);
+  const grids = useResource<unknown>(expanded ? `/api/projects/${projectId}/grids` : null);
   return <div className={`vela-project-nav ${project.state === "archived" ? "is-archived" : ""}`}>
     <div className="vela-project-nav-root"><a className="vela-nav-item" aria-current={(activeProjectId === projectId || (section === "project" && activeId === projectId)) ? "page" : undefined} href={`#/project/${projectId}`}><span className="vela-nav-icon"><Folder size={15} /></span><span className="vela-nav-text">{str(project.title ?? project.name)}</span></a><button type="button" className="vela-icon-button" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${str(project.title)}`} aria-expanded={expanded}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button></div>
     {expanded && <div className="vela-project-tree">
       <ActiveTrainingNavigation projectId={projectId} />
       <NavBranch label="Models" href={`#/models?project=${projectId}`} items={rows(models.data)} itemRoute="model" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
       <NavBranch label="Datasets" href={`#/datasets?project=${projectId}`} items={rows(datasets.data)} itemRoute="dataset" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
-      <NavBranch label="Evals" href={`#/evals?project=${projectId}`} items={rows(evals.data)} itemRoute="eval" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
+      <NavBranch label="Evals" href={`#/evals?project=${projectId}`} items={rows(evals.data).filter(row => str(row.project_id, "") === projectId || "run_id" in row || "assessment" in row)} itemRoute="eval" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
+      <NavBranch label="Grids" href={`#/grids?project=${projectId}`} items={rows(grids.data).filter(row => str(row.project_id, "") === projectId || "plan" in row || "plan_digest" in row || "cells" in row)} itemRoute="grid" projectId={projectId} section={section} activeId={activeId} activeProjectId={activeProjectId} />
     </div>}
   </div>;
 }

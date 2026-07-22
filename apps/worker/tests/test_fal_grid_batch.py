@@ -33,17 +33,17 @@ class FakeSink:
         self.output = 0
         self.state = None
 
-    def provider_submitted(self, _eval_run_id, _request_id):
+    def provider_submitted(self, _eval_run_id, _request_id, grid_cell_id=None):
         self.state = "running"
 
     def ingest_outputs(self, _eval_run_id, _prompt_id, _response):
         self.output += 1
         return {"outputs": 1, "output_ids": [f"output-{self.output}"]}
 
-    def link_grid_cell(self, grid_id, output_id, x_index, y_index):
+    def link_grid_cell(self, grid_id, output_id, x_index, y_index, grid_cell_id=None):
         self.cells.add((grid_id, x_index, y_index, output_id))
 
-    def grid_cell_exists(self, grid_id, x_index, y_index):
+    def grid_cell_exists(self, grid_id, x_index, y_index, grid_cell_id=None):
         return any(cell[:3] == (grid_id, x_index, y_index) for cell in self.cells)
 
     def mark_succeeded(self, _eval_run_id):
@@ -84,9 +84,18 @@ def test_grid_batch_persists_each_cell_and_resumes_without_resubmission(tmp_path
         definition = models.EvalDefinition(project_id=project.id, name="Eval", endpoint="ideogram/v4/lora", model_version_id=version.id, prompt_set_id=prompt_set.id, parameters={"image_size": "square_hd"})
         db.add(definition)
         db.flush()
-        grid = models.GridDefinition(project_id=project.id, name="Scale", eval_definition_id=definition.id, x_axis={"parameter": "seed", "values": [1, 2]}, y_axis={"parameter": "lora_scale", "values": [0.8, 1.0]})
+        snapshot = {"contract_version": "2026-07-22.v1", "project_id": project.id, "plan_version": 1, "axes": {"x": {"name": "seed", "values": [1, 2]}, "y": {"name": "lora_scale", "values": [0.8, 1.0]}, "z": None}, "cases": [{"case_id": "case-a", "ordinal": 0, "input": {"prompt": "portrait"}}], "targets": [{"target_id": "target-a", "ordinal": 0, "provider": "fal", "endpoint_id": "ideogram/v4/lora", "model_version_id": version.id, "checkpoint_revision_id": None}]}
+        plan = models.ExperimentPlan(project_id=project.id, contract_version="2026-07-22.v1", plan_version=1, digest="a" * 64, snapshot=snapshot)
+        db.add(plan)
+        db.flush()
+        grid = models.GridDefinition(project_id=project.id, name="Scale", eval_definition_id=definition.id, x_axis={"parameter": "seed", "values": [1, 2]}, y_axis={"parameter": "lora_scale", "values": [0.8, 1.0]}, plan_id=plan.id, plan_version=1, plan_digest=plan.digest, plan_snapshot={**snapshot, "plan_id": plan.id, "digest": plan.digest})
         db.add(grid)
         db.flush()
+        ordinal = 0
+        for x_index, seed in enumerate((1, 2)):
+            for y_index, scale in enumerate((0.8, 1.0)):
+                db.add(models.GridCell(grid_definition_id=grid.id, ordinal=ordinal, x_index=x_index, y_index=y_index, coordinate={"x": x_index, "y": y_index, "z": None}, case_snapshot=snapshot["cases"][0], target_snapshot=snapshot["targets"][0], endpoint_id="ideogram/v4/lora", effective_params={"seed": seed, "lora_scale": scale}, status="pending"))
+                ordinal += 1
         job = models.Job(workspace_id=workspace.id, profile_id=profile.id, kind="fal.grid_batch", payload={"grid_definition_id": grid.id})
         db.add(job)
         db.flush()
@@ -103,7 +112,7 @@ def test_grid_batch_persists_each_cell_and_resumes_without_resubmission(tmp_path
     result = handler(JobContext(sessions, job_id), {"grid_definition_id": grid_id})
     assert result["completed_cells"] == 4
     assert len(client.submissions) == 4
-    assert {(item["parameters"]["seed"], item["lora_scale"]) for item in resolved} == {(1, 0.8), (1, 1.0), (2, 0.8), (2, 1.0)}
+    assert {(item[1]["seed"], item[1]["lora_scale"]) for item in client.submissions} == {(1, 0.8), (1, 1.0), (2, 0.8), (2, 1.0)}
     with sessions() as db:
         persisted = dict(db.get(models.Job, job_id).payload)
         assert persisted["eval_run_id"]

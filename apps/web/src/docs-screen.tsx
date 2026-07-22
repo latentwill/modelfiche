@@ -6,7 +6,7 @@ const REPOSITORY = "https://github.com/latentwill/modelfiche";
 const operatorWorkflows = [
   { title: "Import and organize", body: "Connect a verified S3 source or choose a local folder, preview the detected content, then create a durable import.", href: "#/transfers?mode=import", label: "Open imports" },
   { title: "Build a dataset", body: "Create a draft, edit captions and inclusion state, then publish an immutable dataset version.", href: "#/datasets", label: "Open datasets" },
-  { title: "Generate and compare", body: "Select a project checkpoint, review the request count and billing consequence, then queue Image, Eval, or Grid work.", href: "#/generate", label: "Open generation" },
+  { title: "Generate and compare", body: "Select a project checkpoint, resolve the request plan, then queue Image, Eval, or Grid work.", href: "#/generate", label: "Open generation" },
   { title: "Prepare training", body: "Verify signing and outbound storage, create a launch, and generate a checksummed AI Toolkit trainer packet.", href: "#/training-new", label: "Open training" },
 ];
 
@@ -42,7 +42,7 @@ mfiche <group> --help`}</code></pre>
       </Panel>
       <Panel title="Agent contract">
         <div className="docs-panel-heading"><Bot size={20} /><p>Agents should use explicit context and verify durable terminal state.</p></div>
-        <ol className="docs-steps"><li>Pass workspace and profile explicitly.</li><li>Preview billable or destructive work.</li><li>Use one request ID per logical mutation.</li><li>Persist returned job and queue IDs.</li><li>Read the resulting resource before reporting success.</li></ol>
+        <ol className="docs-steps"><li>Pass workspace and profile explicitly.</li><li>Review destructive work before submission.</li><li>Use one request ID per logical mutation.</li><li>Persist returned job and queue IDs.</li><li>Read the resulting resource before reporting success.</li></ol>
       </Panel>
     </div>
 

@@ -94,8 +94,8 @@ def _graph(tmp_path):
         )
         session.add(grid)
         session.flush()
-        cell = models.GridCell(grid_definition_id=grid.id, eval_output_id=eval_output.id, x_index=0, y_index=0)
-        sibling_cell = models.GridCell(grid_definition_id=grid.id, eval_output_id=sibling_eval_output.id, x_index=0, y_index=1)
+        cell = models.GridCell(grid_definition_id=grid.id, eval_output_id=eval_output.id, ordinal=0, x_index=0, y_index=0)
+        sibling_cell = models.GridCell(grid_definition_id=grid.id, eval_output_id=sibling_eval_output.id, ordinal=1, x_index=0, y_index=1)
         session.add_all([cell, sibling_cell])
         session.flush()
 

@@ -218,6 +218,12 @@ def downgrade() -> None:
         op.drop_index("ix_eval_assessments_run_id", table_name="eval_assessments")
         op.drop_index("ix_eval_assessments_project_id", table_name="eval_assessments")
         op.drop_table("eval_assessments")
+    if "generation_queue_children" in tables:
+        null_count = bind.execute(sa.text("SELECT COUNT(*) FROM generation_queue_children WHERE model_version_id IS NULL")).scalar_one()
+        if null_count:
+            raise RuntimeError("cannot downgrade generation_queue_children with endpoint-only rows")
+        with op.batch_alter_table("generation_queue_children") as batch:
+            batch.alter_column("model_version_id", nullable=False)
     for table, name in (
         ("grid_definitions", "ix_grid_definitions_plan_id"),
         ("eval_runs", "ix_eval_runs_plan_id"),

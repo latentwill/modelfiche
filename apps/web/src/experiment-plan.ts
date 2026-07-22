@@ -222,6 +222,14 @@ export function buildExperimentPlanPayload(plan: ExperimentPlan) {
   };
 }
 
+export function buildExperimentPreflightPayload(idempotencyKey: string, plan: ExperimentPlan) {
+  return { ...buildExperimentPlanPayload(plan), idempotency_key: idempotencyKey };
+}
+
+export function buildExperimentCreatePayload(name: string, idempotencyKey: string, plan: ExperimentPlan) {
+  return { name, idempotency_key: idempotencyKey, plan: buildExperimentPlanPayload(plan) };
+}
+
 export function buildExperimentQueuePayload(idempotencyKey: string, planVersion: unknown, planDigest: unknown, cells: Array<{ ordinal?: unknown }>) {
   return {
     idempotency_key: idempotencyKey,

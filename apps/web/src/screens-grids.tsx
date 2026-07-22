@@ -8,8 +8,9 @@ import { connectedFalGenerationModels, type GenerationModel } from "./generation
 import { EndpointFields, parametersFromForm } from "./generator";
 import {
   buildExperimentPlanPayload,
+  buildExperimentCreatePayload,
+  buildExperimentPreflightPayload,
   buildExperimentQueuePayload,
-  resolveExperimentCells,
   validateExperimentPlan,
   type ExperimentCase,
   type ExperimentPlan,
@@ -90,6 +91,8 @@ export function intersectFieldSchemas(definitions: Row[]): GridAxisSchema | unde
   if (minima.length) merged.min = Math.max(...minima);
   if (maxima.length) merged.max = Math.min(...maxima);
   if (merged.min !== undefined && merged.max !== undefined && Number(merged.min) > Number(merged.max)) return undefined;
+  const steps = definitions.map(definition => Number(definition.step)).filter(Number.isFinite);
+  if (steps.length) merged.step = Math.max(...steps);
   const customs = definitions.map(definition => definition.custom && typeof definition.custom === "object" ? definition.custom as Row : null);
   if (customs.some(custom => custom !== null)) {
     if (customs.some(custom => custom === null)) return undefined;
@@ -141,12 +144,11 @@ function axisHas(plan: ExperimentPlan, kind: "target" | "case"): boolean {
 }
 
 function TargetPicker({ targets, selected, axisActive, onChange }: { targets: ExperimentTarget[]; selected: string[]; axisActive: boolean; onChange: (values: string[]) => void }) {
-  const models = targets.filter(target => Boolean(target.model_version_id));
-  const endpoints = targets.filter(target => !target.model_version_id);
+  const groups = new Map<string, ExperimentTarget[]>();
+  for (const target of targets) groups.set(target.endpoint_id, [...(groups.get(target.endpoint_id) ?? []), target]);
   return <Field label={axisActive ? "Target axis selections" : "Fixed target"} hint={axisActive ? "Every selected target is represented exactly once in the Target axis." : "The fixed target is context, not a comparison dimension."}>
     <select className="vela-multi-select" aria-label={axisActive ? "Target axis targets" : "Fixed target"} multiple={axisActive} size={axisActive ? Math.min(8, Math.max(3, targets.length)) : undefined} value={selected} onChange={event => onChange(axisActive ? Array.from(event.target.selectedOptions, option => option.value) : event.target.value ? [event.target.value] : [])}>
-      {models.length > 0 && <optgroup label="Registered LoRA targets">{models.map(target => <option key={targetKey(target)} value={targetKey(target)}>{target.endpoint_id} · model {target.model_version_id}</option>)}</optgroup>}
-      {endpoints.length > 0 && <optgroup label="FAL base endpoints">{endpoints.map(target => <option key={targetKey(target)} value={targetKey(target)}>{target.endpoint_id} · no checkpoint</option>)}</optgroup>}
+      {Array.from(groups.entries()).map(([endpointId, endpointTargets]) => <optgroup label={endpointId} key={endpointId}>{endpointTargets.map(target => <option key={targetKey(target)} value={targetKey(target)}>{target.model_version_id ? `Registered LoRA · model ${target.model_version_id}` : "Base endpoint · no checkpoint"}</option>)}</optgroup>)}
     </select>
   </Field>;
 }
@@ -164,7 +166,6 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   const [fixedPrompt, setFixedPrompt] = useState("");
   const [shared, setShared] = useState<JsonObject>({});
   const [overrides, setOverrides] = useState<Record<string, JsonObject>>({});
-  const [billingAcknowledged, setBillingAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [queuedGridId, setQueuedGridId] = useState("");
@@ -190,13 +191,13 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
       if (!index) fields.forEach(field => common.add(field));
       else Array.from(common).filter(field => !fields.includes(field)).forEach(field => common.delete(field));
     });
-    return Array.from(new Set(["case", "prompt", "target", "seed", ...Array.from(common)]));
+    return Array.from(new Set(["case", "prompt", "target", "seed", ...Array.from(common).filter(field => field !== "model" && field !== "checkpoint_step")]));
   }, [targets]);
   const commonFields = useMemo(() => {
     if (!targets.length) return {};
     const firstSchema = targets[0].schema;
     const fieldNames = Object.keys(((firstSchema.fields && typeof firstSchema.fields === "object") ? firstSchema.fields : {}) as Row);
-    const omit = new Set([xField, yField, zField, "prompt", "sync_mode", "loras", "endpoint_id", "model_version_id", "checkpoint_revision_id"]);
+    const omit = new Set([xField, yField, zField, "prompt", "model", "checkpoint_step", "sync_mode", "loras", "endpoint_id", "model_version_id", "checkpoint_revision_id"]);
     const fields: Row = {};
     for (const field of fieldNames) {
       if (!omit.has(field)) {
@@ -237,7 +238,7 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   const parseError = [xField !== "target" && (xText.trim() || xField === "case" || xField === "prompt") && !xValues.length ? `Enter valid X ${xField} values.` : "", yField !== "target" && (yText.trim() || yField === "case" || yField === "prompt") && !yValues.length ? `Enter valid Y ${yField} values.` : "", zField && zField !== "target" && (zText.trim() || zField === "case" || zField === "prompt") && !zValues.length ? `Enter valid Z ${zField} values.` : ""].find(Boolean) ?? "";
   const configError = !project ? "Select a project." : !targets.length ? "Select a registered target or FAL base endpoint." : parseError || planErrors[0] || (!xValues.length || !yValues.length ? "Add values to both axes." : "");
   const preflightError = preflightData && preflightData.valid === false ? `Server preflight found ${rows(preflightData.schema_errors).length} schema error(s).` : "";
-  const error = configError || preflightError || (!preflightData ? "Run server preflight to resolve the grid." : !billingAcknowledged ? "Acknowledge FAL billing before queueing." : "");
+  const error = configError || preflightError || (!preflightData ? "Run server preflight to resolve the grid." : "");
   const planSignature = JSON.stringify(buildExperimentPlanPayload(plan));
   const previousPlanSignature = useRef(planSignature);
   useEffect(() => {
@@ -255,14 +256,13 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
     setPreflightData(null);
     setShared({});
     setOverrides({});
-    setBillingAcknowledged(false);
     setQueuedGridId("");
   };
   async function runPreflight() {
     if (configError || busy) return;
     setBusy(true); setMessage("");
     try {
-      const result = await api<Row>(`/api/projects/${encodeURIComponent(project)}/experiment-plans/preflight`, jsonBody({ ...buildExperimentPlanPayload(plan), idempotency_key: attemptKeys.current.preflight }));
+      const result = await api<Row>(`/api/projects/${encodeURIComponent(project)}/experiment-plans/preflight`, jsonBody(buildExperimentPreflightPayload(attemptKeys.current.preflight, plan)));
       setPreflightData(result);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : String(reason));
@@ -272,7 +272,7 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
     if (error || busy || !preflightData) return;
     setBusy(true); setMessage("");
     try {
-      const saved = await api<Row>(`/api/projects/${encodeURIComponent(project)}/grids`, jsonBody({ name: "Grid experiment", idempotency_key: attemptKeys.current.create, plan: buildExperimentPlanPayload(plan) }));
+      const saved = await api<Row>(`/api/projects/${encodeURIComponent(project)}/grids`, jsonBody(buildExperimentCreatePayload("Grid experiment", attemptKeys.current.create, plan)));
       const gridId = idOf(saved);
       const digest = str(preflightData.plan_digest ?? preflightData.digest ?? saved.plan_digest ?? saved.digest, "");
       const queued = await api<Row>(`/api/projects/${encodeURIComponent(project)}/grids/${encodeURIComponent(gridId)}/queue`, jsonBody(buildExperimentQueuePayload(attemptKeys.current.queue, saved.plan_version, digest, rows(preflightData.cells))));
@@ -287,14 +287,16 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   const loading = projects.loading || versions.loading || endpointRows.loading;
   const resourceError = projects.error || versions.error || endpointRows.error;
   const targetAxisActive = [xField, yField, zField].includes("target");
-  const endpointSpecificOmit = [...Object.keys(commonFields), xField, yField, zField, "prompt", "sync_mode", "loras", "endpoint_id", "model_version_id", "checkpoint_revision_id"];
-  return <Page title="Grid generator" subtitle="Build a deterministic project plan. Server preflight resolves the exact cells, request count, and estimated cost before anything is queued.">
+  const endpointSpecificOmit = [...Object.keys(commonFields), xField, yField, zField, "prompt", "model", "checkpoint_step", "sync_mode", "loras", "endpoint_id", "model_version_id", "checkpoint_revision_id"];
+  return <Page title="Grid generator" subtitle="Build a deterministic project plan. Server preflight resolves the exact cells before anything is queued.">
     <Notice error={resourceError} loading={loading} />
     <Panel title="Project context"><Field label="Project"><Dropdown aria-label="Project" value={project} options={[{ value: "", label: "Select…" }, ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) }))]} onChange={resetProject} /></Field>{project && <p className="vela-muted">All targets, cases, plans, cells, runs, and assessments stay inside this project.</p>}</Panel>
+    {project && <>
     <Panel title="Axes first"><div className="form-grid"><Field label="X axis"><Dropdown aria-label="X axis" value={xField} options={axisFields.map(field => ({ value: field, label: field === "target" ? "Target" : field === "case" || field === "prompt" ? "Prompt / Case" : field.replaceAll("_", " ") }))} onChange={setXField} /></Field><Field label="Y axis"><Dropdown aria-label="Y axis" value={yField} options={axisFields.filter(field => field !== xField).map(field => ({ value: field, label: field === "target" ? "Target" : field === "case" || field === "prompt" ? "Prompt / Case" : field.replaceAll("_", " ") }))} onChange={setYField} /></Field><Field label="Z axis (optional)"><Dropdown aria-label="Z axis" value={zField} options={[{ value: "", label: "None" }, ...axisFields.filter(field => field !== xField && field !== yField).map(field => ({ value: field, label: field === "target" ? "Target" : field === "case" || field === "prompt" ? "Prompt / Case" : field.replaceAll("_", " ") }))]} onChange={setZField} /></Field></div>{xField !== "target" && <Field label={`${xField === "case" || xField === "prompt" ? "X prompt values" : `X ${xField} values`}`} hint={xField === "case" || xField === "prompt" ? "One inline immutable case is created for each line." : xSchema ? `${str(xSchema.type, "string")} · bounds/options come from every selected endpoint.` : "This field is not shared by all targets."}><textarea aria-label="X values" value={xText} onChange={event => setXText(event.target.value)} /></Field>}{yField !== "target" && <Field label={`${yField === "case" || yField === "prompt" ? "Y prompt values" : `Y ${yField} values`}`}><textarea aria-label="Y values" value={yText} onChange={event => setYText(event.target.value)} /></Field>}{zField && zField !== "target" && <Field label={`${zField === "case" || zField === "prompt" ? "Z prompt values" : `Z ${zField} values`}`}><textarea aria-label="Z values" value={zText} onChange={event => setZText(event.target.value)} /></Field>}{!activeCaseAxis && <Field label="Fixed prompt" hint="Fixed prompt is shown only because Prompt / Case is not an axis."><textarea aria-label="Fixed prompt" value={fixedPrompt} onChange={event => setFixedPrompt(event.target.value)} /></Field>}<TargetPicker targets={availableTargets} selected={targetKeys} axisActive={targetAxisActive} onChange={setTargetKeys} /></Panel>
     <Panel title="Shared controls"><p className="vela-muted">Only controls with a safe type, option, and bounds intersection across every selected endpoint appear here.</p><form key={JSON.stringify(Object.keys(commonFields))} onInput={event => setShared(parametersFromForm(new FormData(event.currentTarget), commonSchema))}><EndpointFields schema={commonSchema} omit={[xField, yField, zField]} /></form>{targets.map(target => <form key={target.target_id} className="grid-target-overrides" onInput={event => setOverrides(current => ({ ...current, [target.target_id]: parametersFromForm(new FormData(event.currentTarget), target.schema) }))}><strong>{target.endpoint_id} · {target.model_version_id ? `registered model ${target.model_version_id}` : "base endpoint"}</strong><EndpointFields schema={target.schema} omit={endpointSpecificOmit} /></form>)}</Panel>
-    <Panel title="Server preflight"><div className={`vela-notice${error ? " vela-notice-error" : ""}`} role="status"><strong>{preflightData ? (preflightData.valid === false ? "Schema errors" : "Exact resolved plan") : "Preflight required"}</strong><span>{error || `${rows(preflightData?.cells).length} cells · ${str(preflightData?.request_count, "0")} requests · ${str(preflightData?.estimated_cost, "0.000000")} estimated cost`}</span></div>{preflightData && rows(preflightData.schema_errors).length > 0 && <ul className="vela-error-list">{rows(preflightData.schema_errors).slice(0, 5).map((item, index) => <li key={index}>{typeof item === "object" ? JSON.stringify(item) : String(item)}</li>)}</ul>}<button type="button" className="vela-button" disabled={Boolean(configError) || busy} onClick={() => void runPreflight()}>{busy ? <><LoaderCircle className="vela-spin" size={15} /> Running…</> : "Run server preflight"}</button>{preflightData && <GridBoard x={plan.axes.x.values} y={plan.axes.y.values} cells={rows(preflightData.cells)} />}</Panel>
-    <Panel title="Queue generation"><label className="vela-check"><input type="checkbox" checked={billingAcknowledged} onChange={event => setBillingAcknowledged(event.target.checked)} /> <span>I understand FAL may bill this run even if checkpoint fetch fails.</span></label><button className="vela-button vela-button-primary grid-generate" disabled={Boolean(error) || busy} onClick={() => void generate()}>{busy ? "Preparing…" : <><Grid3X3 size={15} /> Create and queue grid</>}</button>{queuedGridId && <a className="vela-button" href={`#/grid/${encodeURIComponent(queuedGridId)}?project=${encodeURIComponent(project)}`}><ExternalLink size={15} /> Open grid provenance</a>}{message && <div className="vela-notice" role="status">{message}</div>}</Panel>
+    <Panel title="Server preflight"><div className={`vela-notice${error ? " vela-notice-error" : ""}`} role="status"><strong>{preflightData ? (preflightData.valid === false ? "Schema errors" : "Exact resolved plan") : "Preflight required"}</strong><span>{error || `${rows(preflightData?.cells).length} cells · ${str(preflightData?.request_count, "0")} requests`}</span></div>{preflightData && rows(preflightData.schema_errors).length > 0 && <ul className="vela-error-list">{rows(preflightData.schema_errors).slice(0, 5).map((item, index) => <li key={index}>{typeof item === "object" ? JSON.stringify(item) : String(item)}</li>)}</ul>}<button type="button" className="vela-button" disabled={Boolean(configError) || busy} onClick={() => void runPreflight()}>{busy ? <><LoaderCircle className="vela-spin" size={15} /> Running…</> : "Run server preflight"}</button>{preflightData && <GridBoard x={plan.axes.x.values} y={plan.axes.y.values} cells={rows(preflightData.cells)} />}</Panel>
+    <Panel title="Queue generation"><button className="vela-button vela-button-primary grid-generate" disabled={Boolean(error) || busy} onClick={() => void generate()}>{busy ? "Preparing…" : <><Grid3X3 size={15} /> Create and queue grid</>}</button>{queuedGridId && <a className="vela-button" href={`#/grid/${encodeURIComponent(queuedGridId)}?project=${encodeURIComponent(project)}`}><ExternalLink size={15} /> Open grid provenance</a>}{message && <div className="vela-notice" role="status">{message}</div>}</Panel>
+    </>}
   </Page>;
 }
 

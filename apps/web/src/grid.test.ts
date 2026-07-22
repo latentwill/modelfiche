@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axisValues, compileGridPlan, parseGridAxisValues, type GridAxis, type GridAxisSchema } from "./grid";
 import type { GenerationModel } from "./generation";
-import { GridBoard, GridsScreen } from "./screens-grids";
+import { GridBoard, GridsScreen, intersectFieldSchemas } from "./screens-grids";
 
 const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelId: `family-${id}`, projectId: "project", name: `Model ${id}`,
   checkpointLabel: `step ${id}`, checkpointRevisionId: `revision-${id}`, provider: "fal", endpoint, providerModelUrl: `fal://${id}`, available: true });
@@ -11,6 +11,24 @@ const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelI
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("grid planner", () => {
+  it("shows only Project before selection, then reveals the composer", async () => {
+    vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem: vi.fn(), removeItem: vi.fn() });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async request => {
+      const url = typeof request === "string" ? request : String(request);
+      const body = url.includes("/api/projects?") ? [{ id: "project-a", title: "Project A" }] : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    render(createElement(GridsScreen, { params: new URLSearchParams() }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Project" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "X axis" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Y axis" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Target axis targets" })).toBeNull();
+    expect(screen.queryByText("Fixed prompt")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Project A" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "X axis" })).toBeTruthy());
+  });
+
   it("renders project-only context, axis controls, and resets targets on project change", async () => {
     vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem: vi.fn(), removeItem: vi.fn() });
     vi.spyOn(globalThis, "fetch").mockImplementation(async request => {
@@ -112,4 +130,19 @@ describe("grid planner", () => {
     expect(review.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Y ↓ / X →", "portrait"]);
     expect(review.getByRole("rowheader", { name: "7" })).toBeTruthy();
   });
+});
+
+it("intersects mixed endpoint option sets and bounds safely", () => {
+  expect(intersectFieldSchemas([
+    { type: "enum", parser: "enum", options: ["none", "regular", "high"] },
+    { type: "enum", parser: "enum", options: ["none", "regular"] },
+  ])).toMatchObject({ options: ["none", "regular"] });
+  expect(intersectFieldSchemas([
+    { type: "number", parser: "number", min: 0, max: 10 },
+    { type: "number", parser: "number", min: 2, max: 8 },
+  ])).toMatchObject({ min: 2, max: 8 });
+  expect(intersectFieldSchemas([
+    { type: "boolean", parser: "boolean" },
+    { type: "number", parser: "number" },
+  ])).toBeUndefined();
 });

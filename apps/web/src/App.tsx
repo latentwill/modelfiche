@@ -44,7 +44,7 @@ export function App() {
   let content;
   if (section === "image") content = <ImageReviewScreen id={id} />;
   else if (section === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
-  else if (section === "eval") content = <EvalScreen id={id} />;
+  else if (section === "eval") content = <EvalScreen id={id} projectId={params.get("project") ?? ""} />;
   else if (section === "eval-comparison") content = <EvalComparisonScreen id={id} />;
   else if (section === "grid") content = <GridScreen id={id} projectId={params.get("project") ?? ""} />;
   else content = <WorkbenchShell section={section} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}>{renderScreen(section, id, params)}</WorkbenchShell>;
@@ -73,7 +73,7 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "model": return <ModelScreen id={id} />;
     case "model-version": return <ModelVersionScreen id={id} />;
     case "evals": return <EvalsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
-    case "eval": return <EvalScreen id={id} />;
+    case "eval": return <EvalScreen id={id} projectId={projectId} />;
     case "eval-comparison": return <EvalComparisonScreen id={id} />;
     case "grids": return <GridsScreen params={params} />;
     case "grid": return <GridScreen id={id} projectId={projectId} />;

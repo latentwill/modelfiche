@@ -46,6 +46,10 @@ def _hydrate_input(db: Session, project_id: str, raw: dict[str, Any]) -> dict[st
 
     reject(raw.get("shared_params", {}), "shared_params")
     for axis_name, axis in (raw.get("axes") or {}).items():
+        if axis is None:
+            continue
+        if not isinstance(axis, dict):
+            raise HTTPException(status_code=422, detail=f"axes.{axis_name} must be an object")
         if str(axis.get("name", "")).lower() in reserved:
             raise HTTPException(status_code=422, detail=f"axes.{axis_name}.name is server-owned")
         reject(axis, f"axes.{axis_name}")
@@ -275,7 +279,7 @@ def queue_grid(project_id: str, grid_id: str, body: schemas.GridQueueRequest, db
     job = models.Job(workspace_id=current_workspace(db).id, kind="fal.grid_batch", profile_id=actor.id, idempotency_key=parent_key, payload={})
     db.add(job)
     db.flush()
-    queue_item = models.GenerationQueueItem(workspace_id=current_workspace(db).id, client_request_id=parent_key, workflow="grid", provider="fal", queue_owner="grid", project_id=project_id, model_id=version.model_id if version and singleton else None, model_version_ids=sorted({str((cell.target_snapshot or {})["model_version_id"]) for cell in cells if (cell.target_snapshot or {}).get("model_version_id")}), compiled_request_id=str(uuid4()), state="admitted", request_snapshot={"run_id": run.id, "plan": grid.plan_snapshot, "cells": [{"grid_cell_id": cell.id, "ordinal": cell.ordinal, "target": cell.target_snapshot, "effective_params": cell.effective_params, "coordinate": cell.coordinate} for cell in cells]}, job_id=job.id)
+    queue_item = models.GenerationQueueItem(workspace_id=current_workspace(db).id, client_request_id=parent_key, workflow="grid", provider="fal", queue_owner="grid", project_id=project_id, model_id=version.model_id if version and singleton else None, model_version_ids=sorted({str((cell.target_snapshot or {})["model_version_id"]) for cell in cells if (cell.target_snapshot or {}).get("model_version_id")}), compiled_request_id=str(uuid4()), state="admitted", request_snapshot={"run_id": run.id, "billing_acknowledgement": body.billing_acknowledgement, "plan": grid.plan_snapshot, "cells": [{"grid_cell_id": cell.id, "ordinal": cell.ordinal, "target": cell.target_snapshot, "effective_params": cell.effective_params, "coordinate": cell.coordinate} for cell in cells]}, job_id=job.id)
     db.add(queue_item)
     db.flush()
     child_admissions = []
@@ -285,9 +289,9 @@ def queue_grid(project_id: str, grid_id: str, body: schemas.GridQueueRequest, db
         db.flush()
         cell.status = "admitted"
         child_admissions.append({"ordinal": index, "cell_id": cell.id, "admission_id": child.id, "status": child.state})
-    job.payload = {"grid_definition_id": grid.id, "eval_run_id": run.id, "queue_item_id": queue_item.id, "admission_id": queue_item.id, "cell_ordinals": [cell.ordinal for cell in cells], "child_admissions": child_admissions, "expected_artifact_count": admission.expected_artifact_count}
+    job.payload = {"grid_definition_id": grid.id, "eval_run_id": run.id, "queue_item_id": queue_item.id, "admission_id": queue_item.id, "billing_acknowledgement": body.billing_acknowledgement, "cell_ordinals": [cell.ordinal for cell in cells], "child_admissions": child_admissions, "expected_artifact_count": admission.expected_artifact_count}
     grid.status = "queued"
-    record_activity(db, action="grid.queued", subject_type="grid_definition", subject_id=grid.id, profile_id=actor.id, project_id=project_id, details={"job_id": job.id, "admission_id": queue_item.id})
+    record_activity(db, action="grid.queued", subject_type="grid_definition", subject_id=grid.id, profile_id=actor.id, project_id=project_id, details={"job_id": job.id, "admission_id": queue_item.id, "billing_acknowledgement": body.billing_acknowledgement})
     db.commit()
     return {"grid_id": grid.id, "run_id": run.id, "admission_id": queue_item.id, "status": "queued", "plan_version": grid.plan_version, "plan_digest": grid.plan_digest, "request_count": len(cells), "child_admissions": child_admissions}
 
@@ -337,20 +341,3 @@ def get_eval(project_id: str, eval_id: str, db: DB):
     if assessment.project_id != project_id:
         raise HTTPException(status_code=404, detail="eval not found")
     return _assessment_response(db, assessment)
-
-
-@router.post("/projects/{project_id}/evals/{eval_id}/run", status_code=status.HTTP_202_ACCEPTED)
-def queue_eval(project_id: str, eval_id: str, body: schemas.EvalReferenceRunRequest, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    _project(db, project_id)
-    assessment = get_or_404(db, models.EvalAssessment, eval_id)
-    if assessment.project_id != project_id:
-        raise HTTPException(status_code=404, detail="eval not found")
-    run = get_or_404(db, models.EvalRun, assessment.run_id)
-    if run.status != "succeeded":
-        raise HTTPException(status_code=409, detail="assessment requires a completed generation run")
-    kind = str(assessment.assessment.get("kind") or "human_review")
-    if kind not in {"human_review", "image_quality"}:
-        raise HTTPException(status_code=422, detail={"code": "UNSUPPORTED_ASSESSMENT"})
-    assessment.status = "ready_for_review"
-    db.commit()
-    return {"eval_id": assessment.id, "run_id": assessment.run_id, "status": assessment.status, "job_id": None, "plan_version": assessment.plan_version, "plan_digest": assessment.plan_digest}

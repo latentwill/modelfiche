@@ -9,3 +9,8 @@
 ## Delegation
 
 - Keep delegated work scoped to non-overlapping files and verify agent-reported changes independently before claiming completion.
+
+## Product UI constraints
+
+- NEVER add user-facing billing acknowledgements, billing-review checkboxes, cost-review gates, or billing-warning confirmation dialogs to Modelfiche UI or CLI flows.
+- Provider billing and failure risk are system concerns; generation and queue actions MUST NOT require a user checkbox or acknowledgment phrase before submission.

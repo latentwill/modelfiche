@@ -1990,9 +1990,6 @@ def eval_show(ctx: typer.Context, project: str = typer.Option(..., "--project"),
 @eval_app.command("lineage")
 def eval_lineage(ctx: typer.Context, eval_id: str = typer.Argument(...)) -> None:
     call(ctx, lambda client: client.get("/api/lineage", subject_type="eval_run", subject_id=eval_id))
-@eval_app.command("run")
-def eval_run(ctx: typer.Context, project: str = typer.Option(..., "--project"), eval_id: str = typer.Argument(...), idempotency_key: str | None = typer.Option(None, "--idempotency-key")) -> None:
-    call(ctx, lambda client: client.post(f"/api/projects/{project}/evals/{eval_id}/run", {"idempotency_key": idempotency_key or str(uuid.uuid4())}))
 
 
 grid_app = typer.Typer(no_args_is_help=True)

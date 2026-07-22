@@ -252,39 +252,10 @@ def test_gallery_model_filter_uses_run_lineage_and_returns_rich_metadata(client:
     assert row["metadata"]["relationships"]["dataset"]["name"] == "Faces"
 
 
-def test_prompt_set_versions_load_with_ordered_metadata(client: TestClient):
+def test_prompt_set_writes_are_removed(client: TestClient):
     _profile, headers, project, _asset, _dataset = _seed(client)
-    created = client.post(
-        "/api/prompt-sets",
-        headers=headers,
-        json={
-            "project_id": project["id"],
-            "name": "Identity holdouts",
-            "prompts": [
-                {"prompt": "front portrait", "category": "identity"},
-                {"text": "profile portrait", "category": "angle"},
-            ],
-        },
-    )
-    assert created.status_code == 201, created.text
-
-    first = client.get(f"/api/prompt-sets/{created.json()['id']}")
-    assert first.status_code == 200, first.text
-    assert [(prompt["position"], prompt["text"]) for prompt in first.json()["prompts"]] == [
-        (0, "front portrait"),
-        (1, "profile portrait"),
-    ]
-    assert first.json()["prompts"][0]["metadata"] == {"category": "identity"}
-
-    version = client.post(
-        f"/api/prompt-sets/{created.json()['id']}/versions",
-        headers=headers,
-        json={"prompts": ["profile portrait", "front portrait"]},
-    )
-    assert version.status_code == 201, version.text
-    assert version.json()["version"] == 2
-    assert [prompt["text"] for prompt in version.json()["prompts"]] == ["profile portrait", "front portrait"]
-
+    response = client.post("/api/prompt-sets", headers=headers, json={"project_id": project["id"], "name": "Identity holdouts", "prompts": ["front portrait"]})
+    assert response.status_code == 405
 
 def test_fal_endpoint_schema_is_adapter_driven(client: TestClient):
     endpoints = client.get("/api/eval-endpoints").json()
@@ -304,7 +275,7 @@ def test_fal_endpoint_schema_is_adapter_driven(client: TestClient):
     assert krea["fields"]["acceleration"]["options"] == ["none", "regular"]
     assert krea["fields"]["enable_prompt_expansion"]["type"] == "boolean"
     assert set(krea["grid"]["axis_fields"]) == {
-        "prompt", "seed", "lora_scale", "checkpoint_step", "model",
+        "prompt", "seed", "lora_scale",
         "image_size", "acceleration", "enable_prompt_expansion",
     }
     assert "guidance_scale" not in krea["grid"]["axis_fields"]
@@ -323,6 +294,14 @@ def test_fal_endpoint_schema_is_adapter_driven(client: TestClient):
     assert klein["fields"]["guidance_scale"] == {"type": "number", "min": 0, "max": 20, "step": 0.1}
     assert klein["fields"]["negative_prompt"]["type"] == "string"
     assert klein["compatible_base_model_markers"] == ["klein"]
+
+def test_grid_adapter_contract_reserves_model_comparison_for_target_axis(client: TestClient):
+    endpoints = client.get("/api/eval-endpoints").json()
+    for endpoint in endpoints:
+        schema = client.get(f"/api/eval-endpoints/{endpoint['endpoint_id']}/schema").json()
+        axes = set(schema["grid"]["axis_fields"])
+        assert {"model", "checkpoint_step"}.isdisjoint(axes), endpoint["endpoint_id"]
+        assert {"model", "checkpoint_step"}.isdisjoint(schema["grid"]["fixed_fields"])
 
 
 def test_workspace_header_isolates_projects_models_assets_and_profiles(client: TestClient):

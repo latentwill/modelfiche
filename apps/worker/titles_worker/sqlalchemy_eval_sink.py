@@ -271,24 +271,14 @@ class SQLAlchemyEvalOutputSink:
         with self.session_factory.begin() as session:
             run = _required(session, models.EvalRun, eval_run_id)
             run.status = "succeeded"
-            if not run.plan_id:
-                return
-            for item in session.scalars(select(models.GenerationQueueItem)).all():
-                cells = list((item.request_snapshot or {}).get("cells") or [])
-                if not any(str(entry.get("run_id")) == str(run.id) for entry in cells if isinstance(entry, dict)):
-                    continue
+            items, selected_ids = self._selected_grid_scope(session, run)
+            for item in items:
                 children = session.scalars(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == item.id)).all()
                 if children and all(child.state == "succeeded" for child in children):
                     item.state = "succeeded"
                 elif any(child.state == "succeeded" for child in children):
                     item.state = "partial"
-            grid_ids = list(session.scalars(select(models.GridDefinition.id).where(models.GridDefinition.plan_id == run.plan_id)))
-            for grid_id in grid_ids:
-                cells = session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid_id)).all()
-                if cells and all(cell.status == "succeeded" and cell.eval_output_id for cell in cells):
-                    session.get(models.GridDefinition, grid_id).status = "succeeded"
-                elif any(cell.status == "succeeded" for cell in cells):
-                    session.get(models.GridDefinition, grid_id).status = "partial"
+            self._aggregate_grid_status(session, selected_ids)
 
     def mark_canceled(self, eval_run_id: str) -> None:
         with self.session_factory.begin() as session:
@@ -297,24 +287,55 @@ class SQLAlchemyEvalOutputSink:
             self._set_grid_status(session, run, "cancelled")
 
     @staticmethod
-    def _set_grid_status(session: Session, run: models.EvalRun, state: str, *, error: str | None = None) -> None:
-        if not run.plan_id:
+    def _selected_grid_scope(session: Session, run: models.EvalRun) -> tuple[list[models.GenerationQueueItem], set[str]]:
+        items = [
+            item for item in session.scalars(select(models.GenerationQueueItem)).all()
+            if str((item.request_snapshot or {}).get("run_id")) == str(run.id)
+        ]
+        selected_ids = {
+            str(entry["grid_cell_id"])
+            for item in items
+            for entry in ((item.request_snapshot or {}).get("cells") or [])
+            if isinstance(entry, dict) and entry.get("grid_cell_id")
+        }
+        return items, selected_ids
+
+    @staticmethod
+    def _aggregate_grid_status(session: Session, selected_ids: set[str], terminal_state: str | None = None) -> None:
+        if not selected_ids:
             return
-        grid_ids = list(session.scalars(select(models.GridDefinition.id).where(models.GridDefinition.plan_id == run.plan_id)))
-        for grid_id in grid_ids:
-            cells = session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid_id, models.GridCell.status.notin_({"succeeded"}))).all()
-            for cell in cells:
-                cell.status = state
-                if error:
-                    cell.output_snapshot = {**dict(cell.output_snapshot or {}), "error": error}
-        for item in session.scalars(select(models.GenerationQueueItem)).all():
-            if str((item.request_snapshot or {}).get("plan", {}).get("plan_id")) != str(run.plan_id):
-                continue
+        cells = session.scalars(select(models.GridCell).where(models.GridCell.id.in_(selected_ids))).all()
+        by_grid: dict[str, list[models.GridCell]] = {}
+        selected_by_grid: dict[str, list[models.GridCell]] = {}
+        for cell in cells:
+            by_grid.setdefault(cell.grid_definition_id, []).append(cell)
+            selected_by_grid.setdefault(cell.grid_definition_id, []).append(cell)
+        for grid_id in selected_by_grid:
+            all_cells = session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid_id)).all()
+            grid = session.get(models.GridDefinition, grid_id)
+            if all_cells and all(cell.status == "succeeded" and cell.eval_output_id for cell in all_cells):
+                grid.status = "succeeded"
+            elif terminal_state and all(cell.status == terminal_state for cell in selected_by_grid[grid_id]) and len(selected_by_grid[grid_id]) == len(all_cells):
+                grid.status = terminal_state
+            elif any(cell.status in {"succeeded", "failed", "cancelled"} for cell in selected_by_grid[grid_id]):
+                grid.status = "partial"
+
+    @staticmethod
+    def _set_grid_status(session: Session, run: models.EvalRun, state: str, *, error: str | None = None) -> None:
+        items, selected_ids = SQLAlchemyEvalOutputSink._selected_grid_scope(session, run)
+        if not selected_ids:
+            return
+        for cell in session.scalars(select(models.GridCell).where(models.GridCell.id.in_(selected_ids), models.GridCell.status.notin_({"succeeded"}))).all():
+            cell.status = state
+            if error:
+                cell.output_snapshot = {**dict(cell.output_snapshot or {}), "error": error}
+        for item in items:
             for child in session.scalars(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == item.id)).all():
                 if child.state not in {"succeeded"}:
                     child.state = state
                     if error:
                         child.error = error
+        SQLAlchemyEvalOutputSink._aggregate_grid_status(session, selected_ids, terminal_state=state)
 
     def link_grid_cell(self, grid_definition_id: str, output_id: str, x_index: int, y_index: int, grid_cell_id: str | None = None) -> None:
         with self.session_factory.begin() as session:

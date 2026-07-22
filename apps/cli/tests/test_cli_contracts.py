@@ -928,7 +928,7 @@ def test_two_targets_and_cases_require_axes() -> None:
 def test_grid_queue_requires_billing_acknowledgement(fake_client: FakeClient) -> None:
     rejected = runner.invoke(
         main.app,
-        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x"],
+        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x", "--idempotency-key", "queue-1"],
     )
     assert rejected.exit_code == 2
     assert "acknowledge-billing" in rejected.output
@@ -936,7 +936,14 @@ def test_grid_queue_requires_billing_acknowledgement(fake_client: FakeClient) ->
 
     accepted = runner.invoke(
         main.app,
-        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x", "--acknowledge-billing", "--idempotency-key", "queue-1"],
+        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x", "--idempotency-key", "queue-1", "--acknowledge-billing"],
     )
     assert accepted.exit_code == 0, accepted.output
     assert fake_client.calls[-1][3]["billing_acknowledgement"] == "I understand FAL may bill this run even if checkpoint fetch fails"
+
+
+def test_eval_help_has_no_removed_run_command() -> None:
+    result = runner.invoke(main.app, ["eval", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "create" in result.output
+    assert "run" not in result.output

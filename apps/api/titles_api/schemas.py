@@ -358,7 +358,7 @@ class AxisRequest(BaseModel):
 class PlanPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     contract_version: str = "2026-07-22.v1"
-    axes: dict[str, AxisRequest]
+    axes: dict[str, AxisRequest | None]
     cases: list[dict[str, Any]] = Field(min_length=1)
     targets: list[dict[str, Any]] = Field(min_length=1)
     fixed_case_id: str | None = None
@@ -367,8 +367,8 @@ class PlanPayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_axes(self):
-        if set(self.axes) - {"x", "y", "z"} or "x" not in self.axes or "y" not in self.axes:
-            raise ValueError("axes must contain x and y and may contain z")
+        if set(self.axes) - {"x", "y", "z"} or "x" not in self.axes or "y" not in self.axes or self.axes.get("x") is None or self.axes.get("y") is None:
+            raise ValueError("axes must contain non-null x and y and may contain z")
         return self
 
 
@@ -385,11 +385,11 @@ class GridCreateRequest(BaseModel):
 class GridQueueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     idempotency_key: str = Field(min_length=1, max_length=200)
+    billing_acknowledgement: Literal["I understand FAL may bill this run even if checkpoint fetch fails"]
     plan_version: int = Field(ge=1)
     plan_digest: str = Field(min_length=8, max_length=80)
     cell_ordinals: list[int] | None = None
 
-    billing_acknowledgement: Literal["I understand FAL may bill this run even if checkpoint fetch fails"]
 
 
 
@@ -399,8 +399,3 @@ class EvalCreateRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
     run_id: str = Field(min_length=1)
     assessment: dict[str, Any] = Field(default_factory=dict)
-
-
-class EvalReferenceRunRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    idempotency_key: str = Field(min_length=1, max_length=200)

@@ -31,7 +31,7 @@ ALEMBIC_ASSET_TIMESTAMP_HEAD = "0007_asset_origin_timestamps"
 ALEMBIC_CHECKPOINT_REVISION_HEAD = "0008_checkpoint_revisions"
 ALEMBIC_INLINE_PROMPTS_HEAD = "0009_inline_generation_prompts"
 ALEMBIC_GENERATION_QUEUE_HEAD = "0010_generation_queue"
-ALEMBIC_HEAD = "0020_worker_heartbeats"
+ALEMBIC_HEAD = "0021_grid_eval_redesign"
 ALEMBIC_POST_QUEUE_REVISIONS = frozenset(
     {
         "0011_generation_queue_children",

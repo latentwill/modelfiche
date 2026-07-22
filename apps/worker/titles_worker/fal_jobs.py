@@ -269,14 +269,9 @@ class FalEvalBatchHandler:
                 raise ValueError("eval run requires a checkpoint or model version")
             inline = sorted(list(definition.inline_prompts or []), key=lambda item: (int(item.get("position", 0)), str(item.get("id", ""))))
             prompts = [SimpleNamespace(id=str(item["id"]), text=str(item["text"]), output_prompt_id=None, metadata_=dict(item.get("metadata") or {})) for item in inline]
-            if not prompts and definition.prompt_set_id:
-                prompts = list(session.scalars(select(models.Prompt).where(models.Prompt.prompt_set_id == definition.prompt_set_id).order_by(models.Prompt.position, models.Prompt.id)))
             if not prompts:
-                raise ValueError("eval prompt set is empty")
+                raise ValueError("eval run requires immutable inline case snapshot; migration required")
             session.expunge(definition)
-            for prompt in prompts:
-                if isinstance(prompt, models.Prompt):
-                    session.expunge(prompt)
             return definition, checkpoint_id, prompts
 
     def _run_parameters(self, eval_run_id: str) -> dict[str, Any]:
@@ -384,6 +379,9 @@ class FalGridBatchHandler:
                         }
                         response.setdefault("_request_id", str(task["request_id"]))
                         response.setdefault("_endpoint_id", str(plan["endpoint_id"]))
+                        if plan.get("prompt_id") is None:
+                            response.setdefault("_inline_prompt_id", str(plan.get("case_id") or ""))
+                            response.setdefault("prompt", str(plan.get("prompt") or ""))
                         ingested = self.sink.ingest_outputs(eval_run_id, plan.get("prompt_id"), response)
                         for output_id in ingested.get("output_ids", []):
                             if plan.get("grid_cell_id") is None:
@@ -425,115 +423,47 @@ class FalGridBatchHandler:
     def _plan(self, grid_id: str, cell_ordinals: list[int] | None = None) -> list[dict[str, Any]]:
         with self.session_factory() as session:
             grid = _required(session, models.GridDefinition, grid_id)
-            if grid.plan_snapshot and grid.plan_id:
-                cells = list(session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid.id).order_by(models.GridCell.ordinal)))
-                if cell_ordinals is not None:
-                    requested = set(int(item) for item in cell_ordinals)
-                    cells = [cell for cell in cells if cell.ordinal in requested]
-                plans: list[dict[str, Any]] = []
-                for cell in cells:
-                    target = dict(cell.target_snapshot or {})
-                    case = dict(cell.case_snapshot or {})
-                    input_value = dict(case.get("input") or {})
-                    checkpoint_id = None
-                    version_id = target.get("model_version_id")
-                    if version_id:
-                        version = session.get(models.ModelVersion, str(version_id))
-                        checkpoint_id = version.checkpoint_id if version else None
-                    if target.get("checkpoint_revision_id") and not checkpoint_id:
-                        revision = session.get(models.CheckpointRevision, str(target["checkpoint_revision_id"]))
-                        checkpoint_id = revision.checkpoint_id if revision else None
-                    plans.append({
-                        "endpoint_id": cell.endpoint_id,
-                        "checkpoint_id": checkpoint_id,
-                        "prompt_id": case.get("case_id"),
-                        "prompt": str(input_value.get("prompt") or input_value.get("text") or ""),
-                        "parameters": dict(cell.effective_params or {}),
-                        "effective_params": dict(cell.effective_params or {}),
-                        "model_version_id": version_id,
-                        "checkpoint_revision_id": target.get("checkpoint_revision_id"),
-                        "grid_cell": True,
-                        "grid_cell_id": cell.id,
-                        "grid_definition_id": grid.id,
-                        "x_index": int(cell.x_index),
-                        "y_index": int(cell.y_index),
-                        "z_index": cell.z_index,
-                        "coordinates": dict(cell.coordinate or {}),
-                        "status": cell.status,
-                    })
-                return plans
-            definition = _required(session, models.EvalDefinition, grid.eval_definition_id)
-            if not definition.model_version_id:
-                raise ValueError("grid eval definition requires a model version")
-            version = _required(session, models.ModelVersion, definition.model_version_id)
-            base_checkpoint = _required(session, models.Checkpoint, version.checkpoint_id)
-            prompts = list(session.scalars(select(models.Prompt).where(models.Prompt.prompt_set_id == definition.prompt_set_id).order_by(models.Prompt.position, models.Prompt.id)))
-            if not prompts:
-                raise ValueError("grid prompt set is empty")
-            x_field = str(grid.x_axis.get("parameter") or grid.x_axis.get("field") or "")
-            y_field = str(grid.y_axis.get("parameter") or grid.y_axis.get("field") or "")
-            x_values, y_values = list(grid.x_axis.get("values") or []), list(grid.y_axis.get("values") or [])
-            if not x_field or not y_field or x_field == y_field or not x_values or not y_values:
-                raise ValueError("grid requires two different, non-empty axes")
+            if not grid.plan_snapshot or not grid.plan_id:
+                raise ValueError("grid lacks immutable experiment plan; migration required before worker execution")
+            cells = list(session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid.id).order_by(models.GridCell.ordinal)))
+            if cell_ordinals is not None:
+                requested = set(int(item) for item in cell_ordinals)
+                cells = [cell for cell in cells if cell.ordinal in requested]
             plans: list[dict[str, Any]] = []
-            for (x_index, x_value), (y_index, y_value) in product(enumerate(x_values), enumerate(y_values)):
-                prompt_id, prompt = prompts[0].id, prompts[0].text
-                checkpoint = base_checkpoint
-                parameters = dict(definition.parameters)
-                lora_scale = float(parameters.pop("lora_scale", 1.0))
-                for field, value in ((x_field, x_value), (y_field, y_value)):
-                    if field == "prompt":
-                        prompt_id, prompt = self._prompt(prompts, value)
-                    elif field == "checkpoint_step":
-                        checkpoint = session.scalar(select(models.Checkpoint).where(models.Checkpoint.run_id == base_checkpoint.run_id, models.Checkpoint.step == int(value)))
-                        if checkpoint is None:
-                            raise ValueError(f"checkpoint step is unavailable: {value}")
-                    elif field == "model":
-                        selected = session.get(models.ModelVersion, str(value))
-                        if selected is None:
-                            raise ValueError(f"model version is unavailable: {value}")
-                        checkpoint = _required(session, models.Checkpoint, selected.checkpoint_id)
-                    elif field == "lora_scale":
-                        lora_scale = float(value)
-                    else:
-                        parameters[field] = _axis_value(field, value)
-                parameters["lora_scale"] = lora_scale
+            for cell in cells:
+                target = dict(cell.target_snapshot or {})
+                case = dict(cell.case_snapshot or {})
+                input_value = dict(case.get("input") or {})
+                checkpoint_id = None
+                version_id = target.get("model_version_id")
+                if version_id:
+                    version = session.get(models.ModelVersion, str(version_id))
+                    checkpoint_id = version.checkpoint_id if version else None
+                if target.get("checkpoint_revision_id") and not checkpoint_id:
+                    revision = session.get(models.CheckpointRevision, str(target["checkpoint_revision_id"]))
+                    checkpoint_id = revision.checkpoint_id if revision else None
                 plans.append({
-                    "endpoint_id": definition.endpoint,
-                    "checkpoint_id": checkpoint.id,
-                    "prompt_id": prompt_id,
-                    "prompt": prompt,
-                    "parameters": parameters,
-                    "lora_scale": lora_scale,
+                    "endpoint_id": cell.endpoint_id,
+                    "checkpoint_id": checkpoint_id,
+                    "prompt_id": None,
+                    "case_id": case.get("case_id"),
+                    "prompt": str(input_value.get("prompt") or input_value.get("text") or ""),
+                    "effective_params": dict(cell.effective_params or {}),
+                    "model_version_id": version_id,
+                    "checkpoint_revision_id": target.get("checkpoint_revision_id"),
                     "grid_cell": True,
+                    "grid_cell_id": cell.id,
                     "grid_definition_id": grid.id,
-                    "x_index": x_index,
-                    "y_index": y_index,
-                    "coordinates": {x_field: x_value, y_field: y_value},
+                    "x_index": int(cell.x_index),
+                    "y_index": int(cell.y_index),
+                    "z_index": cell.z_index,
+                    "coordinates": dict(cell.coordinate or {}),
+                    "status": cell.status,
                 })
             return plans
 
-    @staticmethod
-    def _prompt(prompts: list[models.Prompt], value: Any) -> tuple[str | None, str]:
-        if isinstance(value, dict):
-            prompt_id = value.get("id")
-            text = value.get("text") or value.get("prompt")
-            if text:
-                return str(prompt_id) if prompt_id else None, str(text)
-        for prompt in prompts:
-            if str(value) in {prompt.id, prompt.text}:
-                return prompt.id, prompt.text
-        return None, str(value)
 
 
-def _axis_value(field: str, value: Any) -> Any:
-    if field == "seed":
-        return int(value)
-    if field == "enable_prompt_expansion":
-        if isinstance(value, bool):
-            return value
-        return str(value).lower() in {"1", "true", "yes", "on"}
-    return value
 
 
 

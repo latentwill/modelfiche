@@ -15,8 +15,6 @@ GRID_AXIS_BASE_SCHEMA: dict[str, dict[str, Any]] = {
     "prompt": {"label": "Prompt", "type": "string", "parser": "string", "default_values": []},
     "seed": {"label": "Seed", "type": "integer", "parser": "integer", "nullable": True, "default_values": [1, 2]},
     "lora_scale": {"label": "LoRA scale", "type": "number", "parser": "number", "min": 0, "max": 4, "step": 0.1, "default": 1, "default_values": [0.8, 1.0]},
-    "checkpoint_step": {"label": "Model / checkpoint", "type": "model_version", "parser": "model_version", "default_values": []},
-    "model": {"label": "Model / checkpoint", "type": "model_version", "parser": "model_version", "default_values": []},
 }
 GRID_NON_CONFIGURABLE_FIELDS = frozenset({"prompt", "loras", "sync_mode", "num_images"})
 
@@ -217,7 +215,7 @@ class IdeogramV4LoraAdapter(EndpointAdapter):
         "enable_safety_checker": True,
         "output_format": "jpeg",
     }
-    allowed_axes = frozenset({"prompt", "checkpoint_step", "lora_scale", "seed", "model", "expansion_model", "image_size", "rendering_speed", "acceleration"})
+    allowed_axes = frozenset({"prompt", "lora_scale", "seed", "expansion_model", "image_size", "rendering_speed", "acceleration"})
     allowed_request_fields = frozenset({"prompt", "expansion_model", "image_size", "rendering_speed", "acceleration", "num_images", "seed", "sync_mode", "enable_safety_checker", "output_format", "loras"})
     field_schema = {
         "expansion_model": {"type": "enum", "options": ["None", "Medium", "Large"]},
@@ -258,7 +256,7 @@ class Krea2TurboLoraAdapter(EndpointAdapter):
         "enable_safety_checker": True,
         "output_format": "png",
     }
-    allowed_axes = frozenset({"prompt", "checkpoint_step", "lora_scale", "seed", "model", "image_size", "acceleration", "enable_prompt_expansion"})
+    allowed_axes = frozenset({"prompt", "lora_scale", "seed", "image_size", "acceleration", "enable_prompt_expansion"})
     allowed_request_fields = frozenset({"prompt", "seed", "image_size", "num_images", "acceleration", "enable_prompt_expansion", "sync_mode", "enable_safety_checker", "output_format", "loras"})
     field_schema = {
         "seed": {"type": "integer", "nullable": True},
@@ -296,7 +294,7 @@ class ZImageTurboLoraAdapter(EndpointAdapter):
         "enable_safety_checker": True,
         "output_format": "png",
     }
-    allowed_axes = frozenset({"prompt", "checkpoint_step", "lora_scale", "seed", "model", "image_size", "acceleration", "enable_prompt_expansion", "num_inference_steps"})
+    allowed_axes = frozenset({"prompt", "lora_scale", "seed", "image_size", "acceleration", "enable_prompt_expansion", "num_inference_steps"})
     allowed_request_fields = frozenset({"prompt", "seed", "image_size", "num_images", "acceleration", "enable_prompt_expansion", "num_inference_steps", "sync_mode", "enable_safety_checker", "output_format", "loras"})
     field_schema = {
         "seed": {"type": "integer", "nullable": True},
@@ -333,7 +331,7 @@ class Flux2Klein9BBaseLoraAdapter(EndpointAdapter):
         "enable_safety_checker": True,
         "output_format": "png",
     }
-    allowed_axes = frozenset({"prompt", "checkpoint_step", "lora_scale", "seed", "model", "negative_prompt", "guidance_scale", "num_inference_steps", "image_size", "acceleration"})
+    allowed_axes = frozenset({"prompt", "lora_scale", "seed", "negative_prompt", "guidance_scale", "num_inference_steps", "image_size", "acceleration"})
     allowed_request_fields = frozenset({"prompt", "negative_prompt", "guidance_scale", "seed", "num_inference_steps", "image_size", "num_images", "acceleration", "sync_mode", "enable_safety_checker", "output_format", "loras"})
     field_schema = {
         "negative_prompt": {"type": "string"},

@@ -18,7 +18,7 @@ describe("Eval workflow contracts", () => {
     expect(generator).toContain("Completed generation run");
     expect(generator).toContain("run_id: runId");
     expect(generator).toContain("assessment");
-    expect(generator).toContain("/run");
+    expect(generator).not.toContain("/run");
     expect(generator).not.toContain("prompt_set");
     expect(generator).not.toContain("modelId");
     expect(generator).not.toContain("ModelCheckpointPicker");
