@@ -15,6 +15,7 @@ import { AssetImage } from "./asset-image";
 import { useResource, pollWhileActive } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { galleryOpenHref } from "./screens-assets";
+import type { JsonObject } from "./experiment-plan";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -43,7 +44,7 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string; initialMod
   const assessmentRows = rows(assessments.data);
   useEffect(() => {
     if (projectId) return;
-    setProject(\"\");
+    setProject("");
   }, [projectId]);
   async function create() {
     if (!project || !runId || !name.trim() || busy) return;
@@ -56,22 +57,25 @@ export function EvalsScreen({ projectId = "" }: { projectId?: string; initialMod
       setError(reason instanceof Error ? reason.message : "Parameters must be valid JSON.");
       return;
     }
-    setBusy(true); setError(\"\"); setMessage(\"\");
+    setBusy(true); setError(""); setMessage("");
     try {
       const created = await api<Row>(`/api/projects/${encodeURIComponent(project)}/evals`, jsonBody({ name: name.trim(), idempotency_key: attemptKeys.current.create, run_id: runId, assessment: { kind, parameters } }));
       const evaluated = await api<Row>(`/api/projects/${encodeURIComponent(project)}/evals/${encodeURIComponent(idOf(created))}/run`, jsonBody({ idempotency_key: attemptKeys.current.queue }));
       setMessage(`Assessment ${idOf(evaluated) || idOf(created)} is ready for review.`);
       attemptKeys.current = { create: crypto.randomUUID(), queue: crypto.randomUUID() };
       await assessments.reload();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(false); }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
   }
-  const selectedRun = runRows.find(run => str(run.run_id ?? run.generation_run_id) === runId);
-  return <Page title=\"Eval assessment\" subtitle=\"Assess a completed Grid generation run without creating a second generation plan.\">
+  return <Page title="Eval assessment" subtitle="Assess a completed Grid generation run without creating a second generation plan.">
     <Notice error={projects.error || grids.error || assessments.error || error} loading={projects.loading || grids.loading || assessments.loading} />
-    <Panel title=\"Project context\"><Field label=\"Project\"><Dropdown aria-label=\"Project\" value={project} options={[{ value: \"\", label: \"Select…\" }, ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) }))]} onChange={value => { setProject(value); setRunId(\"\"); setMessage(\"\"); setError(\"\"); attemptKeys.current = { create: crypto.randomUUID(), queue: crypto.randomUUID() }; }} /></Field><p className=\"vela-muted\">Eval is project-scoped. It references an existing Grid generation run and never mutates its plan.</p></Panel>
-    <Panel title=\"Completed Grid generation run\"><Field label=\"Completed run\"><Dropdown aria-label=\"Completed generation run\" value={runId} disabled={!project} options={[{ value: \"\", label: runRows.length ? \"Select a completed run…\" : \"No completed Grid runs\" }, ...runRows.map(run => ({ value: str(run.run_id ?? run.generation_run_id), label: `${str(run.grid_name, \"Grid\")} · ${str(run.run_id ?? run.generation_run_id)}` }))]} onChange={setRunId} /></Field>{selectedRun && <dl className=\"details\"><dt>Grid</dt><dd>{str(selectedRun.grid_name, \"Grid\")}</dd><dt>Run</dt><dd>{str(selectedRun.run_id ?? selectedRun.generation_run_id)}</dd><dt>Status</dt><dd><Status value={selectedRun.status} /></dd></dl>}</Panel>
-    <Panel title=\"Assessment\"><div className=\"form-grid\"><Field label=\"Name\"><input aria-label=\"Assessment name\" value={name} onChange={event => setName(event.target.value)} /></Field><Field label=\"Assessment kind\"><Dropdown aria-label=\"Assessment kind\" value={kind} options={[{ value: \"human_review\", label: \"Human review\" }, { value: \"image_quality\", label: \"Image quality\" }]} onChange={setKind} /></Field></div><Field label=\"Parameters\"><textarea aria-label=\"Assessment parameters JSON\" value={params} onChange={event => setParams(event.target.value)} /></Field><button type=\"button\" className=\"vela-button vela-button-primary\" disabled={!project || !runId || !name.trim() || busy} onClick={() => void create()}>{busy ? <><LoaderCircle className=\"vela-spin\" size={15} /> Creating…</> : \"Create assessment\"}</button>{message && <div className=\"vela-notice\" role=\"status\">{message}</div>}</Panel>
-    <Panel title=\"Project assessments\"><Notice empty={!assessments.loading && !assessmentRows.length} emptyText=\"No assessments yet\" emptyHint=\"Create an assessment from a completed Grid run.\" />{!!assessmentRows.length && <DataTable rows={assessmentRows} columns={[[\"name\", \"Name\"], [\"run_id\", \"Generation run\"], [\"assessment\", \"Assessment\"], [\"status\", \"Status\"]]} onRow={row => { location.hash = `eval/${idOf(row)}?project=${encodeURIComponent(project)}`; }} />}</Panel>
+    <Panel title="Project context"><Field label="Project"><Dropdown aria-label="Project" value={project} options={[{ value: "", label: "Select…" }, ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) }))]} onChange={value => { setProject(value); setRunId(""); setMessage(""); setError(""); attemptKeys.current = { create: crypto.randomUUID(), queue: crypto.randomUUID() }; }} /></Field><p className="vela-muted">Eval is project-scoped. It references an existing Grid generation run and never mutates its plan.</p></Panel>
+    <Panel title="Completed Grid generation run"><Field label="Completed run"><Dropdown aria-label="Completed generation run" value={runId} disabled={!project} options={[{ value: "", label: runRows.length ? "Select a completed run…" : "No completed Grid runs" }, ...runRows.map(run => ({ value: str(run.run_id ?? run.generation_run_id), label: `${str(run.grid_name, "Grid")} · ${str(run.run_id ?? run.generation_run_id)}` }))]} onChange={setRunId} /></Field>{selectedRun && <dl className="details"><dt>Grid</dt><dd>{str(selectedRun.grid_name, "Grid")}</dd><dt>Run</dt><dd>{str(selectedRun.run_id ?? selectedRun.generation_run_id)}</dd><dt>Status</dt><dd><Status value={selectedRun.status} /></dd></dl>}</Panel>
+    <Panel title="Assessment"><div className="form-grid"><Field label="Name"><input aria-label="Assessment name" value={name} onChange={event => setName(event.target.value)} /></Field><Field label="Assessment kind"><Dropdown aria-label="Assessment kind" value={kind} options={[{ value: "human_review", label: "Human review" }, { value: "image_quality", label: "Image quality" }]} onChange={setKind} /></Field></div><Field label="Parameters"><textarea aria-label="Assessment parameters JSON" value={params} onChange={event => setParams(event.target.value)} /></Field><button type="button" className="vela-button vela-button-primary" disabled={!project || !runId || !name.trim() || busy} onClick={() => void create()}>{busy ? <><LoaderCircle className="vela-spin" size={15} /> Creating…</> : "Create assessment"}</button>{message && <div className="vela-notice" role="status">{message}</div>}</Panel>
+    <Panel title="Project assessments"><Notice empty={!assessments.loading && !assessmentRows.length} emptyText="No assessments yet" emptyHint="Create an assessment from a completed Grid run." />{!!assessmentRows.length && <DataTable rows={assessmentRows} columns={[["name", "Name"], ["run_id", "Generation run"], ["assessment", "Assessment"], ["status", "Status"]]} onRow={row => { location.hash = `eval/${idOf(row)}?project=${encodeURIComponent(project)}`; }} />}</Panel>
   </Page>;
 }
 function EvalRunStrip({ runs }: { runs: Row[] }) {
@@ -120,7 +124,7 @@ export function EvalScreen({ id }: { id: string }) {
       <header className="viewer-topbar">
         <div>
           <h1>{str(resource.data?.name, "Eval viewer")}</h1>
-          {resource.data && <span>{resource.data.prompt_set_name ? `${str(resource.data.prompt_set_name)} · saved version` : `${str(resource.data.prompt_count, "0")} inline prompts`} · {str(resource.data.model_name, "Model")} / {str(resource.data.model_version_name, "Checkpoint")}</span>}
+          {resource.data && <span>{str(resource.data.plan_digest ?? resource.data.digest, "Inline plan")} · {str(resource.data.model_name, "Model")} / {str(resource.data.model_version_name, "Checkpoint")}</span>}
         </div>
         <div className="viewer-actions">
           <a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Project Evals</a>
