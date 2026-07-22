@@ -381,7 +381,7 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
     relationship_keys = (
         "dataset_id", "dataset_name", "dataset_version_id", "dataset_version_name",
         "run_id", "run_name", "model_id", "model_name", "model_version_id",
-        "model_version_name", "checkpoint_id", "checkpoint_name", "base_model",
+        "model_version_name", "checkpoint_id", "checkpoint_name", "checkpoint_revision_id", "base_model",
         "provider", "asset_type", "origin_type",
     )
     source_rank = {
@@ -497,7 +497,7 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         assign("dataset_version_name", dataset_version.name if dataset_version else None, "eval-sample")
         assign("checkpoint_id", checkpoint.id if checkpoint else None, "eval-sample")
         assign("checkpoint_name", f"step {checkpoint.step}" if checkpoint else None, "eval-sample")
-        metadata["checkpoint_revision_id"] = version.checkpoint_revision_id if version else None
+        assign("checkpoint_revision_id", version.checkpoint_revision_id if version else None, "eval-sample")
         assign("provider", output.provider_metadata.get("provider") if isinstance(output.provider_metadata, dict) else None, "eval-sample")
         metadata.update({key: value for key, value in {
             "generated_at": output.generated_at, "eval_name": definition.name if definition else None,

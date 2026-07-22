@@ -735,10 +735,6 @@ def test_cli_parity_mutations_use_supported_api_contracts(fake_client: FakeClien
             ("POST", "/api/dataset-drafts/draft-1/operations", {}, {"operation": "remove_word", "parameters": {"word": "obsolete"}, "item_ids": None, "tag": None, "included": None, "caption_format": None, "all": True}),
         ),
         (
-            ["grid", "cancel", "eval-run-1"],
-            ("POST", "/api/eval-runs/eval-run-1/cancel", {}, None),
-        ),
-        (
             ["asset", "delete", "asset-1", "--delete-content"],
             ("DELETE", "/api/assets/asset-1?report=true&delete_content=true", None, None),
         ),
@@ -761,10 +757,6 @@ def test_cli_parity_mutations_use_supported_api_contracts(fake_client: FakeClien
         (
             ["caption", "undo", "draft-1", "operation-1"],
             ("POST", "/api/dataset-drafts/draft-1/operations/operation-1/undo", {}, None),
-        ),
-        (
-            ["prompt-set", "generate", "--instruction", "Portrait prompts", "--count", "3", "--project", "project-1"],
-            ("POST", "/api/prompt-sets/generate", {}, {"instruction": "Portrait prompts", "count": 3, "context": {"project_id": "project-1"}}),
         ),
     ]
 
@@ -847,3 +839,104 @@ def test_lineage_path_follows_directed_edges(monkeypatch) -> None:
     payload = json.loads(result.output)
     assert payload["depth"] == 2
     assert payload["edges"] == [first, second]
+
+
+def test_plan_helpers_build_inline_cases_and_digest() -> None:
+    from titles_cli.main import build_plan
+
+    plan = build_plan(
+        project="project-1",
+        prompt=["a prompt"],
+        prompt_file=None,
+        target=['{"provider":"fal","endpoint_id":"ideogram/v4/lora"}'],
+        x_axis="guidance_scale",
+        x_value=["5", "7"],
+        y_axis="aspect_ratio",
+        shared=["num_images=1"],
+        y_value=["1:1"],
+        target_override=['{"seed":42}'],
+    )
+    assert plan["contract_version"] == "2026-07-22.v1"
+    assert plan["cases"][0]["input"]["prompt"] == "a prompt"
+    assert plan["cases"][0]["input_digest"].startswith("sha256:")
+    assert plan["targets"][0]["overrides"] == {"seed": 42}
+
+
+def test_grid_command_uses_project_scoped_preflight_route(fake_client: FakeClient) -> None:
+    result = runner.invoke(
+        main.app,
+        [
+            "--json", "grid", "preflight", "--project", "project-1",
+            "--prompt", "a prompt", "--target", "fal:ideogram/v4/lora",
+            "--x-axis", "guidance_scale", "--x-value", "5",
+            "--y-axis", "aspect_ratio", "--y-value", "1:1",
+            "--idempotency-key", "idem-1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    method, path, params, body = fake_client.calls[0]
+    assert method == "POST"
+    assert path == "/api/projects/project-1/experiment-plans/preflight"
+    assert params == {}
+    assert body["idempotency_key"] == "idem-1"
+    assert body["cases"][0]["input"]["prompt"] == "a prompt"
+    assert body["targets"][0]["endpoint_id"] == "ideogram/v4/lora"
+
+
+def test_prompt_set_new_writes_are_removed() -> None:
+    result = runner.invoke(main.app, ["prompt-set", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "list" in result.output
+    assert "show" in result.output
+    assert "create" not in result.output
+    assert "version" not in result.output
+
+
+def test_request_plan_strips_authoritative_schema_and_defaults() -> None:
+    from titles_cli.plan import request_plan
+
+    payload = request_plan({
+        "contract_version": "2026-07-22.v1",
+        "axes": {
+            "x": {"name": "target", "values": [{"value": "a", "digest": "sha256:x"}]},
+            "y": {"name": "prompt", "values": [{"value": "b", "digest": "sha256:y"}]},
+            "z": None,
+        },
+        "cases": [{"case_id": "c", "ordinal": 0, "input": {"prompt": "p"}, "input_digest": "sha256:z"}],
+        "targets": [{"target_id": "t", "ordinal": 0, "provider": "fal", "endpoint_id": "ideogram/v4/lora", "schema": {"type": "object"}, "schema_digest": "sha256:s", "target_overrides": {"seed": 4}}],
+        "shared_params": {"num_images": 1},
+        "endpoint_defaults": {"seed": 1},
+    })
+    assert payload["targets"][0]["overrides"] == {"seed": 4}
+    assert "schema" not in payload["targets"][0]
+    assert "schema_digest" not in payload["targets"][0]
+    assert "endpoint_defaults" not in payload
+
+
+def test_two_targets_and_cases_require_axes() -> None:
+    from titles_cli.main import build_plan
+
+    plan = build_plan(
+        project="p", prompt=["one", "two"], prompt_file=None,
+        target=["fal:ideogram/v4/lora", "fal:fal-ai/krea-2/turbo/lora"],
+        x_axis="target", x_value=["0", "1"], y_axis="prompt", y_value=["0", "1"],
+    )
+    assert len(plan["targets"]) == 2
+    assert len(plan["cases"]) == 2
+
+
+def test_grid_queue_requires_billing_acknowledgement(fake_client: FakeClient) -> None:
+    rejected = runner.invoke(
+        main.app,
+        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x"],
+    )
+    assert rejected.exit_code == 2
+    assert "acknowledge-billing" in rejected.output
+    assert fake_client.calls == []
+
+    accepted = runner.invoke(
+        main.app,
+        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x", "--acknowledge-billing", "--idempotency-key", "queue-1"],
+    )
+    assert accepted.exit_code == 0, accepted.output
+    assert fake_client.calls[-1][3]["billing_acknowledgement"] == "I understand FAL may bill this run even if checkpoint fetch fails"

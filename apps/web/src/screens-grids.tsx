@@ -1,409 +1,316 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ExternalLink, Grid3X3, LoaderCircle } from "lucide-react";
-import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { api, idOf, jsonBody, listOf, str } from "./api";
 import { AssetImage } from "./asset-image";
-import { pollWhileActive, useResource } from "./hooks";
-import { EndpointFields, GenerationQueue, ModelCheckpointPicker, parametersFromForm } from "./generator";
-import { compileGenerationChild, connectedFalGenerationModels, type GenerationContext, type GenerationModel } from "./generation";
-import { compileGridPlan, parseGridAxisValues, type GridAxis, type GridAxisField, type GridAxisSchema, type GridAxisValue, type GridCellPlan } from "./grid";
-import { galleryOpenHref } from "./screens-assets";
+import { useResource } from "./hooks";
 import { Dropdown, Field, Notice, Page, Panel, Status } from "./ui";
+import { connectedFalGenerationModels, type GenerationModel } from "./generation";
+import { EndpointFields, parametersFromForm } from "./generator";
+import {
+  buildExperimentPlanPayload,
+  buildExperimentQueuePayload,
+  resolveExperimentCells,
+  validateExperimentPlan,
+  type ExperimentCase,
+  type ExperimentPlan,
+  type ExperimentTarget,
+  type JsonObject,
+  type PlanAxis,
+} from "./experiment-plan";
+import { parseGridAxisValues, type GridAxisSchema } from "./grid";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
-const PROGRESS_POLL = { pollInterval: 1000, pollWhile: pollWhileActive };
-const modelAxisField = (field: GridAxisField) => field === "model" || field === "checkpoint_step";
+const CONTRACT_VERSION = "2026-07-22.v1" as const;
+const axis = (name: string, values: unknown[]): PlanAxis => ({ name, values: values.map(value => ({ value })) });
+
+function caseFromPrompt(prompt: string, ordinal: number): ExperimentCase {
+  return { case_id: `case-${ordinal}`, ordinal, input: { prompt } };
+}
+
+function targetFromModel(model: GenerationModel, schema: Row, ordinal: number): ExperimentTarget {
+  return {
+    target_id: `target-${model.id}`,
+    ordinal,
+    provider: model.provider ?? "fal",
+    endpoint_id: model.endpoint ?? "",
+    model_version_id: model.id,
+    checkpoint_revision_id: model.checkpointRevisionId ?? null,
+    schema_digest: str(schema.schema_digest ?? schema.digest, ""),
+    schema,
+    fixed_target: { provider: model.provider ?? "fal", endpoint_id: model.endpoint ?? "", model_version_id: model.id, checkpoint_revision_id: model.checkpointRevisionId ?? null },
+    shared_overrides: {},
+    target_overrides: {},
+  };
+}
+
+function targetFromEndpoint(endpoint: Row, ordinal: number): ExperimentTarget {
+  const endpointId = str(endpoint.endpoint_id ?? endpoint.id, "");
+  return {
+    target_id: `target-endpoint-${endpointId}`,
+    ordinal,
+    provider: "fal",
+    endpoint_id: endpointId,
+    model_version_id: null,
+    checkpoint_revision_id: null,
+    schema_digest: str(endpoint.schema_digest ?? endpoint.digest, ""),
+    schema: endpoint,
+    fixed_target: { provider: "fal", endpoint_id: endpointId, model_version_id: null, checkpoint_revision_id: null },
+    shared_overrides: {},
+    target_overrides: {},
+  };
+}
+
+function fieldDefinition(target: ExperimentTarget, field: string): Row | undefined {
+  const grid = target.schema.grid && typeof target.schema.grid === "object" ? target.schema.grid as Row : {};
+  const axisFields = grid.axis_fields && typeof grid.axis_fields === "object" ? grid.axis_fields as Row : {};
+  const fields = target.schema.fields && typeof target.schema.fields === "object" ? target.schema.fields as Row : {};
+  const fixedFields = grid.fixed_field_schema && typeof grid.fixed_field_schema === "object" ? grid.fixed_field_schema as Row : {};
+  const value = fields[field] ?? axisFields[field] ?? fixedFields[field];
+  return value && typeof value === "object" ? value as Row : undefined;
+}
+
+/** Return the values safe for every selected endpoint, or undefined when incompatible. */
+export function intersectFieldSchemas(definitions: Row[]): GridAxisSchema | undefined {
+  if (!definitions.length) return undefined;
+  const first = definitions[0];
+  const type = str(first.type ?? first.parser, "string");
+  const parser = str(first.parser ?? first.type, type);
+  if (definitions.some(definition => str(definition.type ?? definition.parser, "string") !== type || str(definition.parser ?? definition.type, type) !== parser)) return undefined;
+  const merged: Row = { ...first, type, parser };
+  const optionDefinitions = definitions.map(definition => Array.isArray(definition.options) ? definition.options : null);
+  if (optionDefinitions.some(options => options !== null)) {
+    if (optionDefinitions.some(options => options === null)) return undefined;
+    const common = (optionDefinitions[0] ?? []).filter(value => optionDefinitions.every(options => (options ?? []).some(candidate => JSON.stringify(candidate) === JSON.stringify(value))));
+    if (!common.length) return undefined;
+    merged.options = common;
+  }
+  const minima = definitions.map(definition => Number(definition.min)).filter(Number.isFinite);
+  const maxima = definitions.map(definition => Number(definition.max)).filter(Number.isFinite);
+  if (minima.length) merged.min = Math.max(...minima);
+  if (maxima.length) merged.max = Math.min(...maxima);
+  if (merged.min !== undefined && merged.max !== undefined && Number(merged.min) > Number(merged.max)) return undefined;
+  const customs = definitions.map(definition => definition.custom && typeof definition.custom === "object" ? definition.custom as Row : null);
+  if (customs.some(custom => custom !== null)) {
+    if (customs.some(custom => custom === null)) return undefined;
+    const customMin = customs.map(custom => Number(custom?.min)).filter(Number.isFinite);
+    const customMax = customs.map(custom => Number(custom?.max)).filter(Number.isFinite);
+    const customSteps = customs.map(custom => Number(custom?.step)).filter(Number.isFinite);
+    merged.custom = {
+      ...(customMin.length ? { min: Math.max(...customMin) } : {}),
+      ...(customMax.length ? { max: Math.min(...customMax) } : {}),
+      ...(customSteps.length ? { step: Math.max(...customSteps) } : {}),
+    };
+    const custom = merged.custom as Row;
+    if (custom.min !== undefined && custom.max !== undefined && Number(custom.min) > Number(custom.max)) return undefined;
+  }
+  return merged as GridAxisSchema;
+}
+
+function schemaFor(targets: ExperimentTarget[], field: string): GridAxisSchema | undefined {
+  const definitions = targets.map(target => fieldDefinition(target, field));
+  if (definitions.some(definition => !definition)) return undefined;
+  return intersectFieldSchemas(definitions as Row[]);
+}
+
+function targetKey(target: ExperimentTarget): string {
+  return target.model_version_id ? String(target.model_version_id) : `endpoint:${target.endpoint_id}`;
+}
+
+function axisContext(name: string, kind: "target" | "case") {
+  return kind === "target" ? name === "target" : name === "case" || name === "prompt";
+}
+
+function axisValuesFor(name: string, text: string, targets: ExperimentTarget[], cases: ExperimentCase[], targetKeys: string[], schema?: GridAxisSchema) {
+  if (name === "target") {
+    return targets.filter(target => targetKeys.includes(targetKey(target))).map(target => ({ value: target.target_id, label: `${target.endpoint_id}${target.model_version_id ? ` · ${target.model_version_id}` : " · base endpoint"}` }));
+  }
+  if (name === "case" || name === "prompt") {
+    return cases.map(item => ({ value: item.case_id, label: str(item.input.prompt ?? item.input.text, item.case_id) }));
+  }
+  if (!schema) return text.split(/\r?\n/).map(value => value.trim()).filter(Boolean).map(value => ({ value, label: value }));
+  try {
+    return parseGridAxisValues(text, schema).map(entry => ({ value: entry.value, label: entry.label }));
+  } catch {
+    return [];
+  }
+}
+
+function axisHas(plan: ExperimentPlan, kind: "target" | "case"): boolean {
+  return [plan.axes.x, plan.axes.y, plan.axes.z].some(axisValue => axisValue && axisContext(axisValue.name.toLowerCase(), kind));
+}
+
+function TargetPicker({ targets, selected, axisActive, onChange }: { targets: ExperimentTarget[]; selected: string[]; axisActive: boolean; onChange: (values: string[]) => void }) {
+  const models = targets.filter(target => Boolean(target.model_version_id));
+  const endpoints = targets.filter(target => !target.model_version_id);
+  return <Field label={axisActive ? "Target axis selections" : "Fixed target"} hint={axisActive ? "Every selected target is represented exactly once in the Target axis." : "The fixed target is context, not a comparison dimension."}>
+    <select className="vela-multi-select" aria-label={axisActive ? "Target axis targets" : "Fixed target"} multiple={axisActive} size={axisActive ? Math.min(8, Math.max(3, targets.length)) : undefined} value={selected} onChange={event => onChange(axisActive ? Array.from(event.target.selectedOptions, option => option.value) : event.target.value ? [event.target.value] : [])}>
+      {models.length > 0 && <optgroup label="Registered LoRA targets">{models.map(target => <option key={targetKey(target)} value={targetKey(target)}>{target.endpoint_id} · model {target.model_version_id}</option>)}</optgroup>}
+      {endpoints.length > 0 && <optgroup label="FAL base endpoints">{endpoints.map(target => <option key={targetKey(target)} value={targetKey(target)}>{target.endpoint_id} · no checkpoint</option>)}</optgroup>}
+    </select>
+  </Field>;
+}
 
 export function GridsScreen({ params }: { params: URLSearchParams }) {
-  const initialProject = params.get("project") ?? "";
-  const initialVersion = params.get("model_version") ?? "";
-  const [projectId, setProjectId] = useState(initialProject);
-  const [fixedModelId, setFixedModelId] = useState(initialVersion);
-  const [promptSetId, setPromptSetId] = useState(params.get("prompt_set") ?? "");
-  const [xField, setXField] = useState<GridAxisField>("");
-  const [yField, setYField] = useState<GridAxisField>("");
-  const [zEnabled, setZEnabled] = useState(false);
-  const [zField, setZField] = useState<GridAxisField>("");
-  const [xText, setXText] = useState("");
+  const initialModel = params.get("model_version") ?? "";
+  const [project, setProject] = useState(params.get("project") ?? "");
+  const [targetKeys, setTargetKeys] = useState<string[]>(initialModel ? [initialModel] : []);
+  const [xField, setXField] = useState("case");
+  const [yField, setYField] = useState("target");
+  const [zField, setZField] = useState("");
+  const [xText, setXText] = useState("A portrait\nA landscape");
   const [yText, setYText] = useState("");
   const [zText, setZText] = useState("");
-  const [xModels, setXModels] = useState<string[]>([]);
-  const [yModels, setYModels] = useState<string[]>([]);
-  const [zModels, setZModels] = useState<string[]>([]);
   const [fixedPrompt, setFixedPrompt] = useState("");
-  const [fixedRevision, setFixedRevision] = useState(0);
-  const [fixedFormValid, setFixedFormValid] = useState(false);
-  const [error, setError] = useState("");
-  const [queuedId, setQueuedId] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [costReviewed, setCostReviewed] = useState(false);
-  const attempt = useRef<{ parent: string; children: string[]; gridId?: string } | null>(null);
-  const fixedFormRef = useRef<HTMLFormElement>(null);
-  const initializedEndpoint = useRef("");
+  const [shared, setShared] = useState<JsonObject>({});
+  const [overrides, setOverrides] = useState<Record<string, JsonObject>>({});
+  const [billingAcknowledged, setBillingAcknowledged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [queuedGridId, setQueuedGridId] = useState("");
+  const [preflightData, setPreflightData] = useState<Row | null>(null);
+  const attemptKeys = useRef({ preflight: crypto.randomUUID(), create: crypto.randomUUID(), queue: crypto.randomUUID() });
   const projects = useResource<unknown>("/api/projects?limit=100");
-  const versions = useResource<unknown>(projectId ? `/api/model-versions?project_id=${encodeURIComponent(projectId)}` : null);
-  const promptSets = useResource<unknown>(projectId ? `/api/prompt-sets?project_id=${encodeURIComponent(projectId)}` : null);
-  const promptSet = useResource<Row>(promptSetId ? `/api/prompt-sets/${promptSetId}` : null);
-  const savedGrids = useResource<unknown>(projectId ? `/api/grids?project_id=${encodeURIComponent(projectId)}` : null);
-  const queue = useResource<unknown>(`/api/generation-queue${query({ project_id: projectId || undefined })}`, PROGRESS_POLL);
-  const generationModels = useMemo(() => connectedFalGenerationModels(rows(versions.data), projectId), [versions.data, projectId]);
-  const fixedModel = generationModels.find(model => model.id === fixedModelId);
-  const endpointId = fixedModel?.endpoint ?? "";
-  const endpointSchema = useResource<Row>(endpointId ? `/api/eval-endpoints/${endpointId}/schema` : null);
-  const gridContract = asRow(endpointSchema.data?.grid);
-  const axisFieldSchemas = asRow(gridContract.axis_fields) as Record<string, GridAxisSchema>;
-  const axisFields = Object.keys(axisFieldSchemas);
-  const defaultAxes = Array.isArray(gridContract.default_axes) ? gridContract.default_axes.map(String).filter(field => axisFields.includes(field)) : [];
-  const axisOptions = axisFields.map(field => ({ value: field, label: String(axisFieldSchemas[field]?.label ?? field) }));
-  const selectedPromptRows = rows(promptSet.data?.prompts);
-  const endpointModels = generationModels.filter(model => model.endpoint === endpointId);
-
-  useEffect(() => {
-    if (versions.data == null) return;
-    const valid = new Set(generationModels.map(model => model.id));
-    setFixedModelId(id => valid.has(id) ? id : "");
-    setXModels(ids => ids.filter(id => valid.has(id)));
-    setYModels(ids => ids.filter(id => valid.has(id)));
-    setZModels(ids => ids.filter(id => valid.has(id)));
-  }, [generationModels, versions.data]);
-  useEffect(() => {
-    if (!endpointId || !axisFields.length || initializedEndpoint.current === endpointId) return;
-    initializedEndpoint.current = endpointId;
-    const [nextX = "", nextY = "", nextZ = ""] = defaultAxes;
-    setXField(nextX);
-    setYField(nextY);
-    setZField(nextZ);
-    setXText(defaultAxisText(axisFieldSchemas[nextX]));
-    setYText(defaultAxisText(axisFieldSchemas[nextY]));
-    setZText(defaultAxisText(axisFieldSchemas[nextZ]));
-    setXModels([]);
-    setYModels([]);
-    setZModels([]);
-    setZEnabled(false);
-  }, [endpointId, endpointSchema.data]);
-  useEffect(() => {
-    if (!promptSetId || promptSets.loading) return;
-    if (!rows(promptSets.data).some(item => idOf(item) === promptSetId)) setPromptSetId("");
-  }, [promptSetId, promptSets.data, promptSets.loading]);
-
-  const usedAxisFields = [xField, yField, ...(zEnabled ? [zField] : [])].filter(Boolean);
-  const fixedSchema = useMemo(() => {
-    const fixedFields = Array.isArray(gridContract.fixed_fields) ? gridContract.fixed_fields.map(String).filter(field => !usedAxisFields.includes(field)) : [];
-    const fieldSchema = asRow(gridContract.fixed_field_schema);
-    const defaults = asRow(endpointSchema.data?.defaults);
-    return {
-      defaults: Object.fromEntries(fixedFields.filter(field => field in defaults || asRow(fieldSchema[field]).default !== undefined).map(field => [field, field in defaults ? defaults[field] : asRow(fieldSchema[field]).default])),
-      request_fields: fixedFields,
-      fields: Object.fromEntries(fixedFields.map(field => [field, asRow(fieldSchema[field])])),
-    } as Row;
-  }, [endpointSchema.data, xField, yField, zField, zEnabled]);
-  useEffect(() => {
-    setFixedFormValid(fixedFormRef.current?.checkValidity() ?? false);
-  }, [fixedSchema, fixedRevision]);
-
-  const fixedValues = parametersFromForm(fixedFormRef.current ? new FormData(fixedFormRef.current) : new FormData(), fixedSchema);
-  const fixedSeed = finiteNumber(fixedValues.seed);
-  const fixedLoraScale = finiteNumber(fixedValues.lora_scale);
-  const fixedExtra = Object.fromEntries(Object.entries(fixedValues).filter(([field]) => !["seed", "lora_scale", "sync_mode"].includes(field)));
-  const savedParameters = {
-    ...fixedExtra,
-    ...(fixedSeed === undefined ? {} : { seed: fixedSeed }),
-    ...(fixedLoraScale === undefined ? {} : { lora_scale: fixedLoraScale }),
-  };
-  const promptIsAxis = usedAxisFields.includes("prompt");
-  const effectiveFixedPrompt = promptIsAxis ? undefined : promptSetId ? str(selectedPromptRows[0]?.text, "") : fixedPrompt;
-
-  let x: GridAxis = { field: xField, values: [] };
-  let y: GridAxis = { field: yField, values: [] };
-  let z: GridAxis | undefined;
-  let preview: GridCellPlan[] = [];
-  let previewError = "";
-  try {
-    x = gridAxis(xField, xText, xModels, endpointModels, axisFieldSchemas[xField], promptSetId ? selectedPromptRows : []);
-    y = gridAxis(yField, yText, yModels, endpointModels, axisFieldSchemas[yField], promptSetId ? selectedPromptRows : []);
-    z = zEnabled ? gridAxis(zField, zText, zModels, endpointModels, axisFieldSchemas[zField], promptSetId ? selectedPromptRows : []) : undefined;
-    preview = compileGridPlan({
-      x,
-      y,
-      z,
-      availableModels: endpointModels,
-      defaultModel: fixedModel,
-      fixedPrompt: effectiveFixedPrompt,
-      base: { numImages: 1, seed: fixedSeed, loraScale: fixedLoraScale, extra: fixedExtra },
+  const versions = useResource<unknown>(project ? `/api/model-versions?project_id=${encodeURIComponent(project)}` : null);
+  const endpointRows = useResource<unknown>("/api/eval-endpoints");
+  const models = useMemo(() => connectedFalGenerationModels(rows(versions.data), project), [versions.data, project]);
+  const endpointMap = useMemo(() => new Map(rows(endpointRows.data).map(row => [str(row.endpoint_id ?? row.id), row])), [endpointRows.data]);
+  const targets = useMemo(() => targetKeys.map(key => key.startsWith("endpoint:") ? targetFromEndpoint(endpointMap.get(key.slice("endpoint:".length)) ?? {}, 0) : (() => { const model = models.find(item => item.id === key); return model ? targetFromModel(model, endpointMap.get(str(model.endpoint)) ?? {}, 0) : null; })()).filter((item): item is ExperimentTarget => Boolean(item)).map((target, ordinal) => ({ ...target, ordinal })), [targetKeys, models, endpointMap]);
+  const allTargetOptions = useMemo(() => [
+    ...models.map(model => ({ key: model.id, target: targetFromModel(model, endpointMap.get(str(model.endpoint)) ?? {}, 0) })),
+    ...rows(endpointRows.data).map((row, ordinal) => ({ key: `endpoint:${str(row.endpoint_id ?? row.id)}`, target: targetFromEndpoint(row, ordinal) })),
+  ], [models, endpointRows.data, endpointMap]);
+  const availableTargets = allTargetOptions.map(item => item.target);
+  const axisFields = useMemo(() => {
+    const common = new Set<string>();
+    targets.forEach((target, index) => {
+      const grid = target.schema.grid && typeof target.schema.grid === "object" ? target.schema.grid as Row : {};
+      const axisDefinitions = grid.axis_fields && typeof grid.axis_fields === "object" ? grid.axis_fields as Row : {};
+      const fields = Object.keys(axisDefinitions);
+      if (!index) fields.forEach(field => common.add(field));
+      else Array.from(common).filter(field => !fields.includes(field)).forEach(field => common.delete(field));
     });
-  } catch (reason) {
-    previewError = reason instanceof Error ? reason.message : String(reason);
-  }
-  const duplicateAxis = new Set(usedAxisFields).size !== usedAxisFields.length;
-  const gridConfigurationError =
-    !projectId ? "Select a project." :
-      versions.loading ? "Loading registered checkpoints." :
-        !fixedModel ? "Select a fixed model / checkpoint to establish the endpoint schema." :
-          !endpointId ? "The selected checkpoint has no registered endpoint." :
-            endpointSchema.error ? endpointSchema.error :
-              endpointSchema.loading || !endpointSchema.data ? "Loading the selected endpoint schema." :
-                axisFields.length < 2 ? `Endpoint ${endpointId} does not define enough Grid axes.` :
-                  !xField || !yField || zEnabled && !zField ? "Choose every enabled axis." :
-                    usedAxisFields.some(field => !axisFields.includes(field)) ? `The selected endpoint does not support ${usedAxisFields.find(field => !axisFields.includes(field))}.` :
-                      duplicateAxis ? "Each Grid axis must use a different endpoint field." :
-                      !promptSetId ? "Select a saved prompt set version." :
-                        promptSetId && promptSet.loading ? "Loading the selected prompt set version." :
-                          promptSet.error ? promptSet.error :
-                            promptSetId && !selectedPromptRows.length ? "The selected prompt set version is empty." :
-                              !fixedFormValid ? "Complete the endpoint-defined fixed fields within their allowed bounds." :
-                                previewError || !preview.length ? previewError || "Add axis values to compose a grid." :
-                                  preview.some(cell => !cell.model.available || cell.model.provider !== "fal" || cell.model.endpoint !== endpointId) ? `Every cell must use a usable ${endpointId} checkpoint.` : "";
-  const gridPreflightError = gridConfigurationError || (!costReviewed ? "Review and acknowledge the provider cost consequence." : "");
-  const uniqueCheckpointCount = new Set(preview.map(cell => cell.model.id)).size;
-  const planSignature = JSON.stringify({ projectId, endpointId, promptSetId, x, y, z, fixedRevision, fixedPrompt, models: preview.map(cell => cell.model.id) });
-  useEffect(() => { attempt.current = null; setCostReviewed(false); }, [planSignature]);
-
-  async function generate() {
-    if (submitting) return;
-    setError("");
-    if (gridPreflightError) { setError(gridPreflightError); return; }
-    setSubmitting(true);
-    try {
-      if (!attempt.current || attempt.current.children.length !== preview.length) attempt.current = { parent: crypto.randomUUID(), children: preview.map(() => crypto.randomUUID()) };
-      const ids = attempt.current;
-      const context: GenerationContext = { kind: "project", projectId };
-      const compiled = [];
-      for (const cell of preview) {
-        const child = await compileGenerationChild({ workflow: "grid", context, model: cell.model, parameters: cell.parameters, clientRequestId: ids.children[cell.ordinal] });
-        compiled.push({ model_version_id: child.modelVersionId, compiled_request_id: child.compiledRequestId, admission_id: child.admissionId });
+    return Array.from(new Set(["case", "prompt", "target", "seed", ...Array.from(common)]));
+  }, [targets]);
+  const commonFields = useMemo(() => {
+    if (!targets.length) return {};
+    const firstSchema = targets[0].schema;
+    const fieldNames = Object.keys(((firstSchema.fields && typeof firstSchema.fields === "object") ? firstSchema.fields : {}) as Row);
+    const omit = new Set([xField, yField, zField, "prompt", "sync_mode", "loras", "endpoint_id", "model_version_id", "checkpoint_revision_id"]);
+    const fields: Row = {};
+    for (const field of fieldNames) {
+      if (!omit.has(field)) {
+        const definition = schemaFor(targets, field);
+        if (definition) fields[field] = definition;
       }
-      const uniqueModels = Array.from(new Set(preview.map(cell => cell.model.id)));
-      if (!attempt.current.gridId) {
-        const savedGrid = await api<Row>("/api/grids", jsonBody({
-          name: `${str(promptSet.data?.name, "Prompt set")} · ${axisFieldSchemas[x.field]?.label ?? x.field} × ${axisFieldSchemas[y.field]?.label ?? y.field}`,
-          model_version_id: fixedModel!.id,
-          prompt_set_id: promptSetId,
-          endpoint: endpointId,
-          x_axis: { field: x.field, values: x.values.map(value => value.value) },
-          y_axis: { field: y.field, values: y.values.map(value => value.value) },
-          parameters: savedParameters,
-        }));
-        attempt.current.gridId = idOf(savedGrid);
-      }
-      const project = rows(projects.data).find(item => idOf(item) === projectId);
-      const queued = await api<Row>("/api/generation-queue", jsonBody({
-        workflow: "grid", provider: "fal", context: { kind: "project", project_id: projectId }, model_version_ids: uniqueModels,
-        compiled_request_id: ids.parent, client_request_id: ids.parent,
-        request: {
-          workflow: "grid", endpoint_id: endpointId,
-          context: { ...context, projectTitle: str(project?.title ?? project?.name, projectId) },
-          models: uniqueModels.map(id => generationModels.find(model => model.id === id)),
-          prompt_set: promptSetId ? { id: promptSetId, name: str(promptSet.data?.name), version: promptSet.data?.version } : null,
-          grid_definition_id: attempt.current.gridId,
-          axes: { x, y, z: z ?? null },
-          cells: preview.map(cell => ({ id: cell.id, ordinal: cell.ordinal, x_index: cell.xIndex, y_index: cell.yIndex, z_index: cell.zIndex, x: cell.x, y: cell.y, z: cell.z, model_version_id: cell.model.id, parameters: cell.parameters })),
-        },
-        children: compiled,
-      }));
-      setQueuedId(idOf(queued));
-      attempt.current = null;
-      await queue.reload();
-      await savedGrids.reload();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSubmitting(false);
     }
-  }
-
-  const changeField = (setter: (field: GridAxisField) => void, selectedSetter: (ids: string[]) => void, textSetter: (text: string) => void, field: GridAxisField) => {
-    setter(field);
-    selectedSetter([]);
-    textSetter(defaultAxisText(axisFieldSchemas[field]));
+    return fields;
+  }, [targets, xField, yField, zField]);
+  const commonSchema = useMemo<Row>(() => ({ fields: commonFields, request_fields: Object.keys(commonFields), defaults: Object.fromEntries(Object.keys(commonFields).map(field => [field, fieldDefinition(targets[0], field)?.default])) }), [commonFields, targets]);
+  const activeCaseAxis = [xField, yField, zField].some(name => name === "case" || name === "prompt");
+  const caseText = xField === "case" || xField === "prompt" ? xText : yField === "case" || yField === "prompt" ? yText : zText;
+  const casePrompts = activeCaseAxis ? caseText.split(/\r?\n/).map(value => value.trim()).filter(Boolean) : [fixedPrompt.trim()];
+  const cases = useMemo(() => casePrompts.map((prompt, ordinal) => caseFromPrompt(prompt, ordinal)), [casePrompts]);
+  const xSchema = schemaFor(targets, xField);
+  const ySchema = schemaFor(targets, yField);
+  const zSchema = zField ? schemaFor(targets, zField) : undefined;
+  const xValues = axisValuesFor(xField, xText, availableTargets, cases, targetKeys, xSchema);
+  const yValues = axisValuesFor(yField, yText, availableTargets, cases, targetKeys, ySchema);
+  const zValues = zField ? axisValuesFor(zField, zText, availableTargets, cases, targetKeys, zSchema) : [];
+  const plan = useMemo<ExperimentPlan>(() => {
+    const xAxis = axis(xField, xValues.map(item => item.value));
+    const yAxis = axis(yField, yValues.map(item => item.value));
+    const zAxis = zField ? axis(zField, zValues.map(item => item.value)) : null;
+    return {
+      contract_version: CONTRACT_VERSION,
+      project_id: project,
+      axes: { x: xAxis, y: yAxis, z: zAxis },
+      cases,
+      targets: targets.map(target => ({ ...target, target_overrides: overrides[target.target_id] ?? {} })),
+      fixed_case_id: activeCaseAxis ? undefined : cases[0]?.case_id,
+      fixed_target_id: axisHas({ axes: { x: xAxis, y: yAxis, z: zAxis }, cases, targets, shared_params: shared, endpoint_defaults: {}, contract_version: CONTRACT_VERSION, project_id: project }, "target") ? undefined : targets[0]?.target_id,
+      shared_params: shared,
+      endpoint_defaults: {},
+    };
+  }, [project, xField, yField, zField, xValues, yValues, zValues, cases, targets, overrides, activeCaseAxis, shared]);
+  const planErrors = validateExperimentPlan(plan);
+  const parseError = [xField !== "target" && (xText.trim() || xField === "case" || xField === "prompt") && !xValues.length ? `Enter valid X ${xField} values.` : "", yField !== "target" && (yText.trim() || yField === "case" || yField === "prompt") && !yValues.length ? `Enter valid Y ${yField} values.` : "", zField && zField !== "target" && (zText.trim() || zField === "case" || zField === "prompt") && !zValues.length ? `Enter valid Z ${zField} values.` : ""].find(Boolean) ?? "";
+  const configError = !project ? "Select a project." : !targets.length ? "Select a registered target or FAL base endpoint." : parseError || planErrors[0] || (!xValues.length || !yValues.length ? "Add values to both axes." : "");
+  const preflightError = preflightData && preflightData.valid === false ? `Server preflight found ${rows(preflightData.schema_errors).length} schema error(s).` : "";
+  const error = configError || preflightError || (!preflightData ? "Run server preflight to resolve the grid." : !billingAcknowledged ? "Acknowledge FAL billing before queueing." : "");
+  const planSignature = JSON.stringify(buildExperimentPlanPayload(plan));
+  const previousPlanSignature = useRef(planSignature);
+  useEffect(() => {
+    if (previousPlanSignature.current !== planSignature) {
+      previousPlanSignature.current = planSignature;
+      attemptKeys.current = { preflight: crypto.randomUUID(), create: crypto.randomUUID(), queue: crypto.randomUUID() };
+      setPreflightData(null);
+      setQueuedGridId("");
+      setMessage("");
+    }
+  }, [planSignature]);
+  const resetProject = (value: string) => {
+    setProject(value);
+    setTargetKeys([]);
+    setPreflightData(null);
+    setShared({});
+    setOverrides({});
+    setBillingAcknowledged(false);
+    setQueuedGridId("");
   };
-  return <Page title="Grid generator" subtitle="Compose deterministic endpoint-valid X/Y columns and rows with an optional Z subgrid.">
-    <Notice error={projects.error || versions.error || promptSets.error || queue.error} loading={projects.loading || versions.loading || promptSets.loading} />
-    <Panel title="Fixed / global settings">
-      <div className="form-grid">
-        <Field label="Project"><Dropdown aria-label="Project" value={projectId} placeholder="Select..." options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} onChange={value => { setProjectId(value); setFixedModelId(""); setPromptSetId(""); initializedEndpoint.current = ""; }} /></Field>
-        <ModelCheckpointPicker mode="fixed" models={generationModels} selected={fixedModelId ? [fixedModelId] : []} onChange={ids => { setFixedModelId(ids[0] ?? ""); initializedEndpoint.current = ""; }} label="Fixed model / checkpoint" />
-        <Field label="Prompt set version">
-          <Dropdown aria-label="Prompt set version" value={promptSetId} disabled={!projectId} options={[{ value: "", label: "Select saved version…" }, ...rows(promptSets.data).map(item => ({ value: idOf(item), label: `${str(item.name)} · v${str(item.version, "1")} · ${str(item.prompt_count, "0")} prompts` }))]} onChange={setPromptSetId} />
-        </Field>
-        <Field label="Fixed prompt"><textarea value={effectiveFixedPrompt ?? ""} disabled={promptIsAxis || Boolean(promptSetId)} onChange={event => setFixedPrompt(event.target.value)} /></Field>
-      </div>
-      {fixedModel && <p className="vela-meta">Endpoint schema: {endpointId}</p>}
-      <Notice error={endpointSchema.error || promptSet.error} loading={endpointSchema.loading || promptSet.loading} />
-      <form ref={fixedFormRef} className="grid-fixed-fields" onInput={() => setFixedRevision(value => value + 1)} onChange={() => setFixedRevision(value => value + 1)}>
-        <div className="form-grid"><EndpointFields key={`${endpointId}:${usedAxisFields.join(":")}`} schema={fixedSchema} onChange={() => setFixedRevision(value => value + 1)} /></div>
-      </form>
-    </Panel>
-    <div className="grid-axis-layout">
-      <AxisEditor title="X axis · columns" field={xField} onField={field => changeField(setXField, setXModels, setXText, field)} text={xText} onText={setXText} selectedModels={xModels} onModels={setXModels} models={endpointModels} options={axisOptions} schema={axisFieldSchemas[xField]} promptSet={promptSetId ? promptSet.data : null} />
-      <AxisEditor title="Y axis · rows" field={yField} onField={field => changeField(setYField, setYModels, setYText, field)} text={yText} onText={setYText} selectedModels={yModels} onModels={setYModels} models={endpointModels} options={axisOptions} schema={axisFieldSchemas[yField]} promptSet={promptSetId ? promptSet.data : null} />
-    </div>
-    <Panel title="Z axis · optional subgrids">
-      <label className="grid-z-toggle"><input type="checkbox" checked={zEnabled} disabled={!zField} onChange={event => setZEnabled(event.target.checked)} /> Enable Z axis</label>
-      {zEnabled && <AxisEditor title="Z axis · subgrids" field={zField} onField={field => changeField(setZField, setZModels, setZText, field)} text={zText} onText={setZText} selectedModels={zModels} onModels={setZModels} models={endpointModels} options={axisOptions} schema={axisFieldSchemas[zField]} promptSet={promptSetId ? promptSet.data : null} embedded />}
-      {!zEnabled && <p className="vela-meta">One X/Y grid is shown. Enable Z to compose one ordered subgrid per endpoint-supported value.</p>}
-    </Panel>
-    <div className={`vela-notice${gridPreflightError ? " vela-notice-error" : ""}`} role="status"><strong>{gridPreflightError ? "Grid incomplete" : "Grid preflight"}</strong><span>{gridPreflightError || `${endpointId} accepts ${preview.length} cell${preview.length === 1 ? "" : "s"} across ${uniqueCheckpointCount} checkpoint${uniqueCheckpointCount === 1 ? "" : "s"}.`}</span></div>
-    <GridPreview cells={preview} x={x} y={y} z={z} incomplete={Boolean(gridPreflightError)} />
-    {!gridConfigurationError && <section className="generation-consequence-review" role="region" aria-label="Grid cost consequence review">
-      <strong>Provider cost review</strong>
-      <p>This grid can submit {preview.length} billable FAL request{preview.length === 1 ? "" : "s"} through {endpointId}. Exact charges are determined by FAL and may continue after this page closes.</p>
-      <label><input type="checkbox" checked={costReviewed} onChange={event => setCostReviewed(event.target.checked)} /> I reviewed the request count and billing consequence.</label>
-    </section>}
-    {error && <div className="vela-notice vela-notice-error" role="alert"><strong>Cannot generate grid</strong><span>{error}</span></div>}
-    <button className="vela-button vela-button-primary grid-generate" type="button" disabled={submitting || Boolean(gridPreflightError)} onClick={() => void generate()}>{submitting ? <><LoaderCircle className="vela-spin" size={15} /> Preparing grid...</> : <><Grid3X3 size={15} /> Generate grid</>}</button>
-    {queuedId && <div className="vela-notice" role="status"><strong>Grid queued</strong><span><a href={`#/grid/${queuedId}`}>Open grid {queuedId}</a></span></div>}
-    <GenerationQueue items={rows(queue.data).filter(row => row.workflow === "grid")} error={queue.error} loading={queue.loading} />
-    <Panel title="Saved grids"><Notice error={savedGrids.error} loading={savedGrids.loading} empty={!savedGrids.loading && !rows(savedGrids.data).length} emptyText="No saved grids in this project" emptyHint="Queued Grid results and historical definitions appear here." />{!!rows(savedGrids.data).length && <div className="saved-grid-list">{rows(savedGrids.data).map(grid => <a key={idOf(grid)} href={`#/grid/${idOf(grid)}`}><strong>{str(grid.name, "Saved grid")}</strong><span>{str(grid.endpoint_adapter, "Endpoint unavailable")}</span><Status value={grid.status} /></a>)}</div>}</Panel>
+  async function runPreflight() {
+    if (configError || busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const result = await api<Row>(`/api/projects/${encodeURIComponent(project)}/experiment-plans/preflight`, jsonBody({ ...buildExperimentPlanPayload(plan), idempotency_key: attemptKeys.current.preflight }));
+      setPreflightData(result);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally { setBusy(false); }
+  }
+  async function generate() {
+    if (error || busy || !preflightData) return;
+    setBusy(true); setMessage("");
+    try {
+      const saved = await api<Row>(`/api/projects/${encodeURIComponent(project)}/grids`, jsonBody({ name: "Grid experiment", idempotency_key: attemptKeys.current.create, plan: buildExperimentPlanPayload(plan) }));
+      const gridId = idOf(saved);
+      const digest = str(preflightData.plan_digest ?? preflightData.digest ?? saved.plan_digest ?? saved.digest, "");
+      const queued = await api<Row>(`/api/projects/${encodeURIComponent(project)}/grids/${encodeURIComponent(gridId)}/queue`, jsonBody(buildExperimentQueuePayload(attemptKeys.current.queue, saved.plan_version, digest, rows(preflightData.cells))));
+      const resultId = idOf(queued) || gridId;
+      setQueuedGridId(gridId);
+      setMessage(`Grid queued as ${resultId}. Open provenance to follow each cell.`);
+      attemptKeys.current = { preflight: crypto.randomUUID(), create: crypto.randomUUID(), queue: crypto.randomUUID() };
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally { setBusy(false); }
+  }
+  const loading = projects.loading || versions.loading || endpointRows.loading;
+  const resourceError = projects.error || versions.error || endpointRows.error;
+  const targetAxisActive = [xField, yField, zField].includes("target");
+  const endpointSpecificOmit = [...Object.keys(commonFields), xField, yField, zField, "prompt", "sync_mode", "loras", "endpoint_id", "model_version_id", "checkpoint_revision_id"];
+  return <Page title="Grid generator" subtitle="Build a deterministic project plan. Server preflight resolves the exact cells, request count, and estimated cost before anything is queued.">
+    <Notice error={resourceError} loading={loading} />
+    <Panel title="Project context"><Field label="Project"><Dropdown aria-label="Project" value={project} options={[{ value: "", label: "Select…" }, ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) }))]} onChange={resetProject} /></Field>{project && <p className="vela-muted">All targets, cases, plans, cells, runs, and assessments stay inside this project.</p>}</Panel>
+    <Panel title="Axes first"><div className="form-grid"><Field label="X axis"><Dropdown aria-label="X axis" value={xField} options={axisFields.map(field => ({ value: field, label: field === "target" ? "Target" : field === "case" || field === "prompt" ? "Prompt / Case" : field.replaceAll("_", " ") }))} onChange={setXField} /></Field><Field label="Y axis"><Dropdown aria-label="Y axis" value={yField} options={axisFields.filter(field => field !== xField).map(field => ({ value: field, label: field === "target" ? "Target" : field === "case" || field === "prompt" ? "Prompt / Case" : field.replaceAll("_", " ") }))} onChange={setYField} /></Field><Field label="Z axis (optional)"><Dropdown aria-label="Z axis" value={zField} options={[{ value: "", label: "None" }, ...axisFields.filter(field => field !== xField && field !== yField).map(field => ({ value: field, label: field === "target" ? "Target" : field === "case" || field === "prompt" ? "Prompt / Case" : field.replaceAll("_", " ") }))]} onChange={setZField} /></Field></div>{xField !== "target" && <Field label={`${xField === "case" || xField === "prompt" ? "X prompt values" : `X ${xField} values`}`} hint={xField === "case" || xField === "prompt" ? "One inline immutable case is created for each line." : xSchema ? `${str(xSchema.type, "string")} · bounds/options come from every selected endpoint.` : "This field is not shared by all targets."}><textarea aria-label="X values" value={xText} onChange={event => setXText(event.target.value)} /></Field>}{yField !== "target" && <Field label={`${yField === "case" || yField === "prompt" ? "Y prompt values" : `Y ${yField} values`}`}><textarea aria-label="Y values" value={yText} onChange={event => setYText(event.target.value)} /></Field>}{zField && zField !== "target" && <Field label={`${zField === "case" || zField === "prompt" ? "Z prompt values" : `Z ${zField} values`}`}><textarea aria-label="Z values" value={zText} onChange={event => setZText(event.target.value)} /></Field>}{!activeCaseAxis && <Field label="Fixed prompt" hint="Fixed prompt is shown only because Prompt / Case is not an axis."><textarea aria-label="Fixed prompt" value={fixedPrompt} onChange={event => setFixedPrompt(event.target.value)} /></Field>}<TargetPicker targets={availableTargets} selected={targetKeys} axisActive={targetAxisActive} onChange={setTargetKeys} /></Panel>
+    <Panel title="Shared controls"><p className="vela-muted">Only controls with a safe type, option, and bounds intersection across every selected endpoint appear here.</p><form key={JSON.stringify(Object.keys(commonFields))} onInput={event => setShared(parametersFromForm(new FormData(event.currentTarget), commonSchema))}><EndpointFields schema={commonSchema} omit={[xField, yField, zField]} /></form>{targets.map(target => <form key={target.target_id} className="grid-target-overrides" onInput={event => setOverrides(current => ({ ...current, [target.target_id]: parametersFromForm(new FormData(event.currentTarget), target.schema) }))}><strong>{target.endpoint_id} · {target.model_version_id ? `registered model ${target.model_version_id}` : "base endpoint"}</strong><EndpointFields schema={target.schema} omit={endpointSpecificOmit} /></form>)}</Panel>
+    <Panel title="Server preflight"><div className={`vela-notice${error ? " vela-notice-error" : ""}`} role="status"><strong>{preflightData ? (preflightData.valid === false ? "Schema errors" : "Exact resolved plan") : "Preflight required"}</strong><span>{error || `${rows(preflightData?.cells).length} cells · ${str(preflightData?.request_count, "0")} requests · ${str(preflightData?.estimated_cost, "0.000000")} estimated cost`}</span></div>{preflightData && rows(preflightData.schema_errors).length > 0 && <ul className="vela-error-list">{rows(preflightData.schema_errors).slice(0, 5).map((item, index) => <li key={index}>{typeof item === "object" ? JSON.stringify(item) : String(item)}</li>)}</ul>}<button type="button" className="vela-button" disabled={Boolean(configError) || busy} onClick={() => void runPreflight()}>{busy ? <><LoaderCircle className="vela-spin" size={15} /> Running…</> : "Run server preflight"}</button>{preflightData && <GridBoard x={plan.axes.x.values} y={plan.axes.y.values} cells={rows(preflightData.cells)} />}</Panel>
+    <Panel title="Queue generation"><label className="vela-check"><input type="checkbox" checked={billingAcknowledged} onChange={event => setBillingAcknowledged(event.target.checked)} /> <span>I understand FAL may bill this run even if checkpoint fetch fails.</span></label><button className="vela-button vela-button-primary grid-generate" disabled={Boolean(error) || busy} onClick={() => void generate()}>{busy ? "Preparing…" : <><Grid3X3 size={15} /> Create and queue grid</>}</button>{queuedGridId && <a className="vela-button" href={`#/grid/${encodeURIComponent(queuedGridId)}?project=${encodeURIComponent(project)}`}><ExternalLink size={15} /> Open grid provenance</a>}{message && <div className="vela-notice" role="status">{message}</div>}</Panel>
   </Page>;
 }
 
-function AxisEditor({ title, field, onField, text, onText, selectedModels, onModels, models, options, schema, promptSet, embedded = false }: {
-  title: string;
-  field: GridAxisField;
-  onField: (field: GridAxisField) => void;
-  text: string;
-  onText: (text: string) => void;
-  selectedModels: string[];
-  onModels: (ids: string[]) => void;
-  models: GenerationModel[];
-  options: Array<{ value: string; label: string }>;
-  schema?: GridAxisSchema;
-  promptSet?: Row | null;
-  embedded?: boolean;
-}) {
-  const bounds = schema?.min !== undefined || schema?.max !== undefined ? ` Bounds: ${schema.min ?? "−∞"} to ${schema.max ?? "∞"}.` : "";
-  const choices = schema?.options?.length ? ` Allowed values: ${schema.options.map(String).join(", ")}.` : "";
-  const body = <>
-    <Field label="Parameter"><Dropdown className="grid-axis-select" aria-label="Parameter" value={field} disabled={!options.length} options={options} onChange={value => onField(value as GridAxisField)} /></Field>
-    {modelAxisField(field)
-      ? <ModelCheckpointPicker mode="axis" models={models} selected={selectedModels} onChange={onModels} label="Axis model / checkpoints" />
-      : field === "prompt" && promptSet
-        ? <div className="grid-prompt-source"><strong>{str(promptSet.name, "Prompt set")} · v{str(promptSet.version, "1")}</strong><span>{rows(promptSet.prompts).length} ordered prompts populate this axis.</span></div>
-        : <Field label="Values" hint={`One value per line.${choices}${bounds}`}><textarea aria-label={`${title} values`} value={text} onChange={event => onText(event.target.value)} /></Field>}
-  </>;
-  return embedded ? <div className="grid-axis-editor">{body}</div> : <Panel title={title}>{body}</Panel>;
+export function GridBoard({ x, y, cells, incomplete = false, completed = false }: { x: Array<{ value: unknown; label?: string }>; y: Array<{ value: unknown; label?: string }>; cells: Array<Row | { coordinate?: { x: number; y: number }; target?: ExperimentTarget }>; incomplete?: boolean; completed?: boolean }) {
+  return <Panel title={completed ? "Generated Grid outputs" : "Resolved cell preview"}><table className={`grid-board ${completed ? "grid-board-completed" : "grid-board-preview"}`}><caption>{completed ? "Generated Grid outputs" : "Server-resolved grid cells"}</caption><thead><tr><th scope="col">Y ↓ / X →</th>{x.map((entry, index) => <th scope="col" key={index}>{String(entry.label ?? entry.value)}</th>)}</tr></thead><tbody>{y.map((entry, yi) => <tr key={yi}><th scope="row">{String(entry.label ?? entry.value)}</th>{x.map((_, xi) => { const cell = cells.find(item => { const row = item as Row; const coordinateValue = item && typeof item === "object" && "coordinate" in item ? item.coordinate : undefined; const coordinate = coordinateValue && typeof coordinateValue === "object" ? coordinateValue as Row : {}; return Number(row.x_index ?? coordinate.x) === xi && Number(row.y_index ?? coordinate.y) === yi; }); const row = cell as Row | undefined; const target = cell && typeof cell === "object" && "target" in cell ? cell.target : undefined; const assetId = str(row?.asset_revision_id ?? row?.asset_id, ""); return <td key={xi}><div className="grid-cell">{incomplete ? "—" : completed && assetId ? <AssetImage assetRevisionId={assetId} alt="Grid output" /> : completed ? str(row?.status, "pending") : <div className="grid-cell-plan"><b>{str(row?.status, "admissible")}</b><small>{str(row?.target_id ?? (target && typeof target === "object" && "target_id" in target ? target.target_id : undefined), "")}</small></div>}</div></td>; })}</tr>)}</tbody></table></Panel>;
 }
 
-
-function gridAxis(field: GridAxisField, text: string, selected: string[], models: GenerationModel[], schema?: GridAxisSchema, promptRows: Row[] = []): GridAxis {
-  if (!field || !schema) throw new Error("Wait for the selected endpoint axis schema.");
-  if (modelAxisField(field)) return { field, values: selected.map(id => { const model = models.find(item => item.id === id); return { id: `model-${id}`, label: model ? `${model.name} · ${model.checkpointLabel}` : id, value: id }; }) };
-  if (field === "prompt" && promptRows.length) return { field, values: promptRows.map((prompt, index) => ({ id: idOf(prompt) || `prompt-${index}`, label: str(prompt.text), value: str(prompt.text) })) };
-  return { field, values: parseGridAxisValues(text, schema) };
-}
-
-function asRow(value: unknown): Row {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
-}
-
-function finiteNumber(value: unknown): number | undefined {
-  const number = Number(value);
-  return value === "" || value == null || !Number.isFinite(number) ? undefined : number;
-}
-
-function defaultAxisText(schema?: GridAxisSchema): string {
-  return (schema?.default_values ?? []).map(value => {
-    if (value && typeof value === "object" && "width" in value && "height" in value) return `${value.width}×${value.height}`;
-    return String(value);
-  }).join("\n");
-}
-
-function GridPreview({ cells, x, y, z, incomplete }: { cells: GridCellPlan[]; x: GridAxis; y: GridAxis; z?: GridAxis; incomplete: boolean }) {
-  const groups = z ? Array.from(new Set(cells.map(cell => cell.zIndex))) : [0];
-  return <Panel title="Composed grid preview"><div className="grid-preview-tools"><span>X · {x.field} · columns</span><span>Y · {y.field} · rows</span><span>{z ? `Z · ${z.field} · ${groups.length} subgrids` : "One X/Y grid"}</span><span>{cells.length} cells</span></div>{incomplete ? <div className="vela-empty" role="status">Complete the fixed settings and axis values to preview composed cells.</div> : <div className="grid-subgrids">{groups.map(zIndex => { const group = cells.filter(cell => cell.zIndex === zIndex); return <section key={zIndex}>{z && <h3>{group[0]?.z?.label}</h3>}<GridBoard x={x.values} y={y.values} cells={group} /></section>; })}</div>}</Panel>;
-}
-
-export function GridBoard({ x, y, cells, completed = false }: { x: GridAxisValue[]; y: GridAxisValue[]; cells: Array<GridCellPlan | Row>; completed?: boolean }) {
-  const region = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
-  const [fit, setFit] = useState(false);
-  const pan = (horizontal: number, vertical: number) => region.current?.scrollBy({ left: horizontal * (region.current?.clientWidth ?? 0) * 0.75, top: vertical * (region.current?.clientHeight ?? 0) * 0.75, behavior: "smooth" });
-  const reset = () => {
-    setZoom(1);
-    setFit(false);
-    region.current?.scrollTo({ left: 0, top: 0, behavior: "smooth" });
-  };
-  return <div className="grid-board-frame">
-    <div className="grid-board-tools" role="toolbar" aria-label="Grid view controls">
-      <button type="button" className="vela-button" aria-pressed={fit} onClick={() => setFit(value => !value)}>Fit</button>
-      <button type="button" className="vela-button" aria-label="Zoom out" disabled={fit || zoom <= 0.5} onClick={() => setZoom(value => Math.max(0.5, value - 0.25))}>−</button>
-      <span aria-live="polite">{fit ? "Fit width" : `${Math.round(zoom * 100)}%`}</span>
-      <button type="button" className="vela-button" aria-label="Zoom in" disabled={fit || zoom >= 2} onClick={() => setZoom(value => Math.min(2, value + 0.25))}>+</button>
-      <button type="button" className="vela-button" onClick={reset}>Reset</button>
-      <button type="button" className="vela-button" aria-label="Pan left" onClick={() => pan(-1, 0)}>←</button>
-      <button type="button" className="vela-button" aria-label="Pan right" onClick={() => pan(1, 0)}>→</button>
-      <button type="button" className="vela-button" aria-label="Pan up" onClick={() => pan(0, -1)}>↑</button>
-      <button type="button" className="vela-button" aria-label="Pan down" onClick={() => pan(0, 1)}>↓</button>
-    </div>
-    <div
-      ref={region}
-      className={`grid-board-region${completed ? " grid-board-completed" : " grid-board-preview"}`}
-      role="region"
-      aria-label={`Grid table with ${y.length} rows and ${x.length} columns. Use arrow keys to pan.`}
-      tabIndex={0}
-      onKeyDown={event => {
-        if (event.key === "ArrowLeft") { event.preventDefault(); pan(-1, 0); }
-        if (event.key === "ArrowRight") { event.preventDefault(); pan(1, 0); }
-        if (event.key === "ArrowUp") { event.preventDefault(); pan(0, -1); }
-        if (event.key === "ArrowDown") { event.preventDefault(); pan(0, 1); }
-        if (event.key === "Home") { event.preventDefault(); reset(); }
-      }}
-      style={{ "--grid-zoom": zoom } as CSSProperties}
-      data-fit={fit}
-    >
-      <table className="grid-board">
-        <caption>{completed ? "Generated Grid outputs" : "Planned Grid cells"}</caption>
-        <thead><tr><th scope="col">Y ↓ / X →</th>{x.map((entry, index) => <th scope="col" key={`x-${index}-${entry.id}`}>{entry.label}</th>)}</tr></thead>
-        <tbody>{y.map((entry, yIndex) => <tr key={`y-${yIndex}-${entry.id}`}><th scope="row">{entry.label}</th>{x.map((xEntry, xIndex) => {
-          const cell = cells.find(item => Number((item as Row).x_index ?? (item as GridCellPlan).xIndex) === xIndex && Number((item as Row).y_index ?? (item as GridCellPlan).yIndex) === yIndex);
-          const row = cell as Row | undefined;
-          const assetId = completed ? str(row?.asset_id ?? row?.asset_revision_id, "") : "";
-          const plan = completed ? undefined : cell as GridCellPlan | undefined;
-          const status = str(row?.status, assetId ? "completed" : "pending");
-          return <td key={`cell-${yIndex}-${xIndex}`} data-x-label={xEntry.label} data-y-label={entry.label}><div className="grid-cell">{assetId ? <AssetImage assetRevisionId={assetId} loading="lazy" alt={`${xEntry.label} by ${entry.label}`} /> : completed ? <span className="grid-cell-status">{status === "failed" ? str(row?.error, "Failed") : status}</span> : <span className="grid-cell-plan"><b>{xIndex + 1} × {yIndex + 1}</b><small>{plan?.parameters.prompt || plan?.model.checkpointLabel || "Configured cell"}</small></span>}</div></td>;
-        })}</tr>)}</tbody>
-      </table>
-    </div>
-    <p className="vela-meta grid-scan-help">Tab to the named Grid region, then use Arrow keys to scan. Fit and zoom preserve row/column relationships.</p>
-  </div>;
-}
-
-export function GridScreen({ id }: { id: string }) {
-  const queue = useResource<Row>(`/api/generation-queue/${id}/grid-results`, PROGRESS_POLL);
-  const legacy = useResource<Row>(queue.error ? `/api/grids/${id}` : null);
-  const isLegacy = !queue.data && Boolean(legacy.data);
-  const data = queue.data ?? legacy.data;
-  const request = queue.data?.request as Row | undefined;
-  const axes = request?.axes as Row | undefined;
-  const legacyX = legacyAxis(legacy.data?.x_axis, "prompt");
-  const legacyY = legacyAxis(legacy.data?.y_axis, "seed");
-  const x = (axes?.x as GridAxis | undefined) ?? legacyX;
-  const y = (axes?.y as GridAxis | undefined) ?? legacyY;
+export function GridScreen({ id, projectId = "" }: { id: string; projectId?: string }) {
+  const resource = useResource<Row>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/grids/${encodeURIComponent(id)}` : null);
+  const data = resource.data;
   const cells = rows(data?.cells);
-  const zValues = Array.isArray((axes?.z as Row | undefined)?.values) ? (axes?.z as Row).values as GridAxisValue[] : [{ id: "default", label: isLegacy ? "Historical grid" : "Grid", value: "" }];
-  const error = queue.error && legacy.error ? `Queue lookup: ${queue.error}. Historical grid lookup: ${legacy.error}.` : "";
-  const projectId = str(data?.project_id ?? asRow(request?.context).projectId ?? asRow(request?.context).project_id, "");
-  const promptSetId = str(asRow(request?.prompt_set).id, "");
-  const completedCount = cells.filter(cell => cell.asset_id || cell.asset_revision_id).length;
-  const returnParams = new URLSearchParams();
-  if (projectId) returnParams.set("project", projectId);
-  if (promptSetId) returnParams.set("prompt_set", promptSetId);
-  const returnHref = `#/grids${returnParams.size ? `?${returnParams}` : ""}`;
-  return <div className="comparison-viewer vela-route-stage">
-    <header className="viewer-topbar"><div><h1>{str(data?.name, "Grid results")}</h1><span>{data ? `${isLegacy ? "Historical · read only" : str(data.status, "Queued")} · ${completedCount} completed of ${cells.length} defined cells` : "Loading Grid results"}</span></div><div className="viewer-actions"><a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Grid generator</a></div></header>
-    <main className="vela-main">
-      <Notice error={error} loading={queue.loading || Boolean(queue.error) && legacy.loading} empty={!queue.loading && !legacy.loading && !error && !data} emptyText="Grid result unavailable" emptyHint="Return to the project Grid generator to inspect saved definitions and queue history." />
-      {data && <>
-        {isLegacy && <div className="vela-notice"><strong>Historical grid</strong><span>This saved GridDefinition remains available for review. New runs use the shared Grid generator and queue.</span></div>}
-        <Panel title="Grid review"><Status value={isLegacy ? "saved" : str(data.status, "queued")} /><div className="grid-subgrids">{zValues.map((z, zIndex) => <section key={`${z.id}-${zIndex}`}><h3>{z.label}</h3><GridBoard x={x.values} y={y.values} cells={cells.filter(cell => Number(cell.z_index ?? 0) === zIndex)} completed /></section>)}</div><div className="grid-result-links">{cells.filter(cell => cell.asset_id || cell.asset_revision_id).map(cell => { const cellX = asRow(cell.x); const cellY = asRow(cell.y); return <a key={str(cell.id)} className="vela-button" href={galleryOpenHref({ ...cell, project_id: projectId, origin_type: "EVAL" })}><ExternalLink size={15} /> Open {str(cellX.label ?? cell.x_value, "cell")} × {str(cellY.label ?? cell.y_value, "cell")}</a>; })}</div></Panel>
-      </>}
-    </main>
-  </div>;
-}
-
-function legacyAxis(value: unknown, fallback: GridAxisField): GridAxis {
-  const axis = value && typeof value === "object" ? value as Row : {};
-  const field = str(axis.parameter ?? axis.field, fallback) as GridAxisField;
-  const values = Array.isArray(axis.values) ? axis.values : [];
-  return { field, values: values.map((entry, index) => ({ id: `legacy-${field}-${index}`, label: str(entry), value: typeof entry === "number" ? entry : str(entry) })) };
+  const plan = data?.plan && typeof data.plan === "object" ? data.plan as Row : data;
+  const axes = plan?.axes && typeof plan.axes === "object" ? plan.axes as Row : {};
+  const x = rows((axes.x as Row | undefined)?.values).map(value => ({ value: value.value ?? value }));
+  const y = rows((axes.y as Row | undefined)?.values).map(value => ({ value: value.value ?? value }));
+  const z = rows((axes.z as Row | undefined)?.values).map(value => ({ value: value.value ?? value }));
+  const returnHref = `#/grids${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`;
+  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><h1>{str(data?.name, "Grid results")}</h1><span>{str(data?.status, "Loading")} · project {projectId || "unknown"}</span></div><a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Grid generator</a></header><main className="vela-main"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data} emptyText="Grid result unavailable" /><Panel title="Grid provenance"><dl className="details"><dt>Project</dt><dd>{projectId || "Unknown"}</dd><dt>Plan</dt><dd>{str(data?.plan_id, "unknown")}</dd><dt>Plan version</dt><dd>{str(data?.plan_version, "unknown")}</dd><dt>Digest</dt><dd>{str(data?.plan_digest ?? data?.digest, "unknown")}</dd><dt>Requests</dt><dd>{str(data?.request_count, "0")}</dd><dt>Estimated cost</dt><dd>{str(data?.estimated_cost, "0.000000")}</dd></dl><Status value={data?.status} />{z.length ? z.map((entry, index) => <section key={index} className="grid-z-slice"><h3>Z {String(entry.value)}</h3><GridBoard x={x} y={y} cells={cells.filter(cell => { const coordinate = cell.coordinate && typeof cell.coordinate === "object" ? cell.coordinate as Row : {}; return Number(coordinate.z ?? -1) === index; })} completed /></section>) : <GridBoard x={x} y={y} cells={cells} completed />}</Panel>{rows(data?.runs).map(run => <a key={idOf(run)} className="vela-button" href={`#/evals?project=${encodeURIComponent(projectId)}&run_id=${encodeURIComponent(str(run.run_id, ""))}`}><ExternalLink size={15} /> Generation run {str(run.run_id)}</a>)}</main></div>;
 }

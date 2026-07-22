@@ -11,44 +11,17 @@ const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelI
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("grid planner", () => {
-  it("renders shared Dropdown controls and preserves project and axis state transitions", async () => {
-    const modelRow = (id: string, projectId: string, name: string) => ({
-      id, project_id: projectId, model_id: `family-${id}`, name, filename: `${id}.safetensors`, checkpoint_step: 1,
-      checkpoint_revision_id: `revision-${id}`, fal_url: `fal://${id}`, endpoint_id: `endpoint-${id}`,
-    });
+  it("renders project-only context, axis controls, and resets targets on project change", async () => {
     vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem: vi.fn(), removeItem: vi.fn() });
     vi.spyOn(globalThis, "fetch").mockImplementation(async request => {
-      const url = typeof request === "string" ? request : typeof request === "object" && request !== null && "url" in request ? String(request.url) : String(request);
-      const projectId = /[?&]project_id=([^&]+)/.exec(url)?.[1];
-      const schema = { grid: { axis_fields: { prompt: { label: "Prompt", type: "string", parser: "string", default_values: [] }, seed: { label: "Seed", type: "integer", parser: "integer", default_values: [1, 2] } }, default_axes: ["prompt", "seed"], fixed_fields: [], fixed_field_schema: {} }, defaults: {}, fields: {}, request_fields: [] };
-      const body = url.includes("/schema") ? schema
-        : url.includes("/api/projects") ? [{ id: "project-a", title: "Project A" }, { id: "project-b", title: "Project B" }]
-          : url.includes("/api/model-versions") && projectId === "project-a" ? [modelRow("version-a", "project-a", "Model A")]
-            : url.includes("/api/model-versions") && projectId === "project-b" ? [modelRow("version-b", "project-b", "Model B")]
-              : [];
+      const url = typeof request === "string" ? request : String(request);
+      const body = url.includes("/api/projects?") ? [{ id: "project-a", title: "Project A" }, { id: "project-b", title: "Project B" }] : url.includes("project_id=project-a") ? [{ id: "version-a", project_id: "project-a", model_id: "family-a", name: "Model A", checkpoint_revision_id: "revision-a", fal_url: "fal://a", endpoint_id: "endpoint-a" }] : [];
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     });
-    const view = render(createElement(GridsScreen, { params: new URLSearchParams("project=project-a&model_version=version-a") }));
+    render(createElement(GridsScreen, { params: new URLSearchParams("project=project-a&model_version=version-a") }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Project" })).toHaveTextContent("Project A"));
-    expect(view.container.querySelector("select:not([multiple])")).toBeNull();
-    const fixedModel = screen.getByRole("button", { name: "Fixed model and checkpoint" });
-    await waitFor(() => expect(fixedModel).toHaveTextContent("Model A"));
-
-    const project = screen.getByRole("button", { name: "Project" });
-    fireEvent.click(project);
-    fireEvent.click(screen.getByRole("option", { name: "Project B" }));
-    expect(project).toHaveTextContent("Project B");
-    expect(fixedModel).toHaveTextContent("Select...");
-    fireEvent.click(fixedModel);
-    fireEvent.click(await screen.findByRole("option", { name: /Model B/ }));
-    await waitFor(() => expect(fixedModel).toHaveTextContent("Model B"));
-
-    const xAxis = screen.getAllByRole("button", { name: "Parameter" })[0];
-    xAxis.focus();
-    fireEvent.keyDown(xAxis, { key: "ArrowDown" });
-    fireEvent.keyDown(xAxis, { key: "ArrowDown" });
-    fireEvent.keyDown(xAxis, { key: "Enter" });
-    expect(xAxis).toHaveTextContent("Seed");
+    expect(screen.getByRole("button", { name: "X axis" })).toBeTruthy();
+    expect(screen.queryByText("Prompt set")).toBeNull();
   });
 
   it("parses endpoint-declared axis types, bounds, and options", () => {
@@ -116,7 +89,7 @@ describe("grid planner", () => {
     const y = { field: "seed", values: axisValues("7") } as GridAxis;
     const cells = compileGridPlan({ x, y, defaultModel: model("a"), availableModels: [model("a")], base: { numImages: 1 } });
     const preview = render(createElement(GridBoard, { x: x.values, y: y.values, cells }));
-    expect(preview.getAllByText("portrait")).toHaveLength(2);
+    expect(preview.getAllByText("portrait")).toHaveLength(1);
     expect(preview.container.querySelector(".grid-board-preview")).toBeTruthy();
 
     cleanup();

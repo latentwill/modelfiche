@@ -13,29 +13,22 @@ describe("Eval workflow contracts", () => {
     expect(prompts.map(item => item.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("uses the shared model/checkpoint picker and Generate Eval action with square previews", () => {
-    const generator = evalSource.slice(evalSource.indexOf("export function EvalsScreen"), evalSource.indexOf("export function EvalScreen"));
-    expect(generator).toContain("Ordered manual prompts");
-    expect(generator).toContain('<ModelCheckpointPicker mode="multiple" models={generationModels}');
-    expect(evalSource).not.toContain("multiple={false}");
-    expect(generator).toContain("submit=\"Generate Eval\"");
-    expect(evalSource).toContain("className=\"comparison-image\"");
-    expect(generator).toContain("children: compiled.map");
-    for (const removed of ["Billing acknowledgement", "Model readiness", "Provider / endpoint", "Prompt Source", "Succeeded"])
-      expect(generator).not.toContain(removed);
-    const comparison = evalSource.slice(evalSource.indexOf("export function EvalComparisonScreen"), evalSource.indexOf("function RatingControl"));
-    expect(comparison).toContain("Comparison filters");
-    expect(comparison).toContain("Prompt contains");
-    expect(comparison).toContain("Model checkpoints");
+  it("uses project-only completed-run assessment creation without generation selectors", () => {
+    const generator = evalSource.slice(evalSource.indexOf("export function EvalsScreen"), evalSource.indexOf("function EvalRunStrip"));
+    expect(generator).toContain("Completed generation run");
+    expect(generator).toContain("run_id: runId");
+    expect(generator).toContain("assessment");
+    expect(generator).toContain("/run");
+    expect(generator).not.toContain("prompt_set");
+    expect(generator).not.toContain("modelId");
+    expect(generator).not.toContain("ModelCheckpointPicker");
   });
 
-  it("uses Dropdown for single-value evaluation controls while retaining listboxes", () => {
-    expect(evalSource).not.toMatch(/<select(?![^>]*\bmultiple\b)/);
-    expect(evalSource).toContain('aria-label="Saved set"');
-    expect(evalSource).not.toContain('aria-label="Scope"');
-    expect(evalSource).toContain('name="rating"');
-    expect(evalSource).toContain('name="decision"');
-    expect(evalSource).toContain("<select multiple value={visibleModels}");
+  it("removes Prompt Set and model selector controls from assessment flow", () => {
+    expect(evalSource).not.toContain("aria-label=\"Saved set\"");
+    expect(evalSource).not.toContain("prompt-sets");
+    expect(evalSource).not.toContain("ModelCheckpointPicker");
+    expect(evalSource).toContain("Completed generation run");
   });
 
   it("uses bounded composite rating and decision keyboard controls", async () => {

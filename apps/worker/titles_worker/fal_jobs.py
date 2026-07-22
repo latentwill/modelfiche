@@ -15,7 +15,7 @@ from .runner import JobContext, RetryJob
 
 
 class EvalOutputSink(Protocol):
-    def provider_submitted(self, eval_run_id: str, request_id: str) -> None: ...
+    def provider_submitted(self, eval_run_id: str, request_id: str, grid_cell_id: str | None = None) -> None: ...
 
     def ingest_outputs(self, eval_run_id: str, prompt_id: str | None, response: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -24,10 +24,9 @@ class EvalOutputSink(Protocol):
     def mark_succeeded(self, eval_run_id: str) -> None: ...
 
     def mark_canceled(self, eval_run_id: str) -> None: ...
+    def link_grid_cell(self, grid_definition_id: str, output_id: str, x_index: int, y_index: int, grid_cell_id: str | None = None) -> None: ...
 
-    def link_grid_cell(self, grid_definition_id: str, output_id: str, x_index: int, y_index: int) -> None: ...
-
-    def grid_cell_exists(self, grid_definition_id: str, x_index: int, y_index: int) -> bool: ...
+    def grid_cell_exists(self, grid_definition_id: str, x_index: int, y_index: int, grid_cell_id: str | None = None) -> bool: ...
 
 
 class RequestResolver(Protocol):
@@ -321,21 +320,28 @@ class FalGridBatchHandler:
         if not payload.get("eval_run_id"):
             payload["eval_run_id"] = eval_run_id
             context.checkpoint(eval_run_id=eval_run_id)
-        plans = self._plan(grid_id)
+        plans = self._plan(grid_id, payload.get("cell_ordinals"))
         tasks: dict[str, dict[str, Any]] = dict(payload.get("grid_tasks") or {})
         completed = 0
         total = max(len(plans), 1)
         try:
             for plan in plans:
                 x_index, y_index = int(plan["x_index"]), int(plan["y_index"])
-                key = f"{y_index}:{x_index}"
-                if self.sink.grid_cell_exists(grid_id, x_index, y_index):
+                key = str(plan.get("grid_cell_id") or f"{plan.get('z_index', -1)}:{y_index}:{x_index}")
+                if plan.get("status") == "succeeded" or self.sink.grid_cell_exists(
+                    grid_id,
+                    x_index,
+                    y_index,
+                    **({"grid_cell_id": plan["grid_cell_id"]} if plan.get("grid_cell_id") is not None else {}),
+                ):
                     tasks[key] = {**tasks.get(key, {}), "state": "completed"}
                     completed += 1
                     continue
                 task = dict(tasks.get(key) or {})
                 if not task.get("request_id"):
-                    request = self.request_resolver(plan)
+                    request = dict(plan.get("effective_params") or {})
+                    if not request:
+                        request = self.request_resolver(plan)
                     submission = self.client.submit(str(plan["endpoint_id"]), request)
                     task = {
                         "request_id": submission.request_id,
@@ -346,7 +352,10 @@ class FalGridBatchHandler:
                     }
                     tasks[key] = task
                     context.checkpoint(grid_tasks=tasks)
-                    self.sink.provider_submitted(eval_run_id, submission.request_id)
+                    if plan.get("grid_cell_id") is None:
+                        self.sink.provider_submitted(eval_run_id, submission.request_id)
+                    else:
+                        self.sink.provider_submitted(eval_run_id, submission.request_id, grid_cell_id=plan["grid_cell_id"])
                 while True:
                     if context.cancellation_requested():
                         if task.get("cancel_url"):
@@ -358,10 +367,29 @@ class FalGridBatchHandler:
                     context.progress((completed + _progress(provider)) / total)
                     if state == "COMPLETED":
                         response = self.client.result(str(task["response_url"]))
+                        response["_grid_metadata"] = {
+                            "parameters": {
+                                **dict(plan.get("effective_params") or plan.get("parameters") or {}),
+                                **({"lora_scale": plan["lora_scale"]} if plan.get("lora_scale") is not None else {}),
+                            },
+                            "checkpoint_id": plan.get("checkpoint_id"),
+                            "model_version_id": plan.get("model_version_id"),
+                            "checkpoint_revision_id": plan.get("checkpoint_revision_id"),
+                            "grid_cell_id": plan.get("grid_cell_id"),
+                            "grid_definition_id": grid_id,
+                            "x_index": x_index,
+                            "y_index": y_index,
+                            "z_index": plan.get("z_index"),
+                            "coordinates": dict(plan.get("coordinates") or {}),
+                        }
                         response.setdefault("_request_id", str(task["request_id"]))
+                        response.setdefault("_endpoint_id", str(plan["endpoint_id"]))
                         ingested = self.sink.ingest_outputs(eval_run_id, plan.get("prompt_id"), response)
                         for output_id in ingested.get("output_ids", []):
-                            self.sink.link_grid_cell(grid_id, str(output_id), x_index, y_index)
+                            if plan.get("grid_cell_id") is None:
+                                self.sink.link_grid_cell(grid_id, str(output_id), x_index, y_index)
+                            else:
+                                self.sink.link_grid_cell(grid_id, str(output_id), x_index, y_index, grid_cell_id=plan["grid_cell_id"])
                         task.update(state="completed", output_ids=ingested.get("output_ids", []))
                         tasks[key] = task
                         context.checkpoint(grid_tasks=tasks)
@@ -389,16 +417,51 @@ class FalGridBatchHandler:
             if definition.model_version_id:
                 version = _required(session, models.ModelVersion, definition.model_version_id)
                 checkpoint_id = version.checkpoint_id
-            if not checkpoint_id:
-                raise ValueError("grid requires a model version with a checkpoint")
             run = models.EvalRun(definition_id=definition.id, checkpoint_id=checkpoint_id, status="queued", parameters_snapshot=dict(definition.parameters))
             session.add(run)
             session.flush()
             return run.id
 
-    def _plan(self, grid_id: str) -> list[dict[str, Any]]:
+    def _plan(self, grid_id: str, cell_ordinals: list[int] | None = None) -> list[dict[str, Any]]:
         with self.session_factory() as session:
             grid = _required(session, models.GridDefinition, grid_id)
+            if grid.plan_snapshot and grid.plan_id:
+                cells = list(session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid.id).order_by(models.GridCell.ordinal)))
+                if cell_ordinals is not None:
+                    requested = set(int(item) for item in cell_ordinals)
+                    cells = [cell for cell in cells if cell.ordinal in requested]
+                plans: list[dict[str, Any]] = []
+                for cell in cells:
+                    target = dict(cell.target_snapshot or {})
+                    case = dict(cell.case_snapshot or {})
+                    input_value = dict(case.get("input") or {})
+                    checkpoint_id = None
+                    version_id = target.get("model_version_id")
+                    if version_id:
+                        version = session.get(models.ModelVersion, str(version_id))
+                        checkpoint_id = version.checkpoint_id if version else None
+                    if target.get("checkpoint_revision_id") and not checkpoint_id:
+                        revision = session.get(models.CheckpointRevision, str(target["checkpoint_revision_id"]))
+                        checkpoint_id = revision.checkpoint_id if revision else None
+                    plans.append({
+                        "endpoint_id": cell.endpoint_id,
+                        "checkpoint_id": checkpoint_id,
+                        "prompt_id": case.get("case_id"),
+                        "prompt": str(input_value.get("prompt") or input_value.get("text") or ""),
+                        "parameters": dict(cell.effective_params or {}),
+                        "effective_params": dict(cell.effective_params or {}),
+                        "model_version_id": version_id,
+                        "checkpoint_revision_id": target.get("checkpoint_revision_id"),
+                        "grid_cell": True,
+                        "grid_cell_id": cell.id,
+                        "grid_definition_id": grid.id,
+                        "x_index": int(cell.x_index),
+                        "y_index": int(cell.y_index),
+                        "z_index": cell.z_index,
+                        "coordinates": dict(cell.coordinate or {}),
+                        "status": cell.status,
+                    })
+                return plans
             definition = _required(session, models.EvalDefinition, grid.eval_definition_id)
             if not definition.model_version_id:
                 raise ValueError("grid eval definition requires a model version")
@@ -434,6 +497,7 @@ class FalGridBatchHandler:
                         lora_scale = float(value)
                     else:
                         parameters[field] = _axis_value(field, value)
+                parameters["lora_scale"] = lora_scale
                 plans.append({
                     "endpoint_id": definition.endpoint,
                     "checkpoint_id": checkpoint.id,

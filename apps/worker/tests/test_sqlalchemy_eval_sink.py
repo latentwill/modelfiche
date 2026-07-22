@@ -49,6 +49,7 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
             "seed": 17,
             "generated_at": "2026-03-01T00:00:00Z",
             "_history": {"sent_at": "2026-04-01T00:00:00Z", "ended_at": "2026-05-01T12:30:00Z"},
+            "_grid_metadata": {"parameters": {"lora_scale": 0.75}, "grid_cell_id": "cell-1", "x_index": 2, "y_index": 1},
             "timings": {"inference": 1.2},
             "images": [{"url": "https://fal.media/files/output.png", "content_type": "image/png", "width": 640, "height": 480, "file_size": 5}],
         },
@@ -60,9 +61,12 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         asset = session.get(models.Asset, output.asset_id)
         assert asset.project_id == project.id
         assert asset.metadata_["caption"] == "a cinematic portrait"
-        assert asset.metadata_["parameters"] == {"guidance_scale": 4.0}
+        assert asset.metadata_["parameters"] == {"lora_scale": 0.75}
+        assert asset.metadata_["fal_request_input"] == {"lora_scale": 0.75}
+        assert asset.metadata_["grid_cell_id"] == "cell-1"
         assert output.provider_metadata["source_url"] == "https://fal.media/files/output.png"
         assert output.provider_metadata["request_ids"] == ["request-123"]
+        assert output.provider_metadata["_request_input"] == {"lora_scale": 0.75}
         assert output.provider_metadata["response"]["timings"] == {"inference": 1.2}
         assert output.generated_at == datetime(2026, 5, 1, 12, 30, tzinfo=timezone.utc)
         location = session.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset.id))

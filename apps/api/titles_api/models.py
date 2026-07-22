@@ -480,20 +480,40 @@ class Prompt(UUIDMixin, TimestampMixin, Base):
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
 
 
+class ExperimentPlan(UUIDMixin, TimestampMixin, Base):
+    """Immutable, project-owned generation plan shared by grids and evals."""
+    __tablename__ = "experiment_plans"
+    __table_args__ = (
+        UniqueConstraint("project_id", "digest", name="uq_experiment_plan_project_digest"),
+        UniqueConstraint("project_id", "idempotency_key", name="uq_experiment_plan_project_idempotency"),
+    )
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    contract_version: Mapped[str] = mapped_column(String(32), default="2026-07-22.v1")
+    plan_version: Mapped[int] = mapped_column(Integer, default=1)
+    digest: Mapped[str] = mapped_column(String(80), index=True)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200))
+
+
 class EvalDefinition(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "eval_definitions"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(240))
-    endpoint: Mapped[str] = mapped_column(String(240))
+    endpoint: Mapped[str] = mapped_column(String(240), default="")
     model_version_id: Mapped[str | None] = mapped_column(ForeignKey("model_versions.id", ondelete="SET NULL"))
     prompt_set_id: Mapped[str | None] = mapped_column(ForeignKey("prompt_sets.id", ondelete="RESTRICT"))
     inline_prompts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     parameters: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-
+    plan_id: Mapped[str | None] = mapped_column(ForeignKey("experiment_plans.id", ondelete="SET NULL"), index=True)
+    plan_version: Mapped[int | None] = mapped_column(Integer)
+    plan_digest: Mapped[str | None] = mapped_column(String(80), index=True)
 
 class EvalRun(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "eval_runs"
     definition_id: Mapped[str] = mapped_column(ForeignKey("eval_definitions.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[str | None] = mapped_column(ForeignKey("experiment_plans.id", ondelete="SET NULL"), index=True)
+    plan_version: Mapped[int | None] = mapped_column(Integer)
+    plan_digest: Mapped[str | None] = mapped_column(String(80), index=True)
     checkpoint_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoints.id", ondelete="SET NULL"), index=True)
     checkpoint_revision_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
@@ -511,21 +531,66 @@ class EvalOutput(UUIDMixin, TimestampMixin, Base):
     generated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
 
 
-class GridDefinition(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "grid_definitions"
+class EvalAssessment(UUIDMixin, TimestampMixin, Base):
+    """Assessment only; generation configuration lives in the referenced plan/run."""
+    __tablename__ = "eval_assessments"
+    __table_args__ = (UniqueConstraint("project_id", "idempotency_key", name="uq_eval_assessment_project_idempotency"),)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(240))
-    eval_definition_id: Mapped[str] = mapped_column(ForeignKey("eval_definitions.id", ondelete="CASCADE"))
-    x_axis: Mapped[dict[str, Any]] = mapped_column(JSON)
-    y_axis: Mapped[dict[str, Any]] = mapped_column(JSON)
+    run_id: Mapped[str] = mapped_column(ForeignKey("eval_runs.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[str] = mapped_column(ForeignKey("experiment_plans.id", ondelete="RESTRICT"), index=True)
+    plan_version: Mapped[int] = mapped_column(Integer)
+    plan_digest: Mapped[str] = mapped_column(String(80), index=True)
+    assessment: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="ready_for_review", index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200))
+
+
+class GridDefinition(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "grid_definitions"
+    __table_args__ = (UniqueConstraint("project_id", "idempotency_key", name="uq_grid_definition_project_idempotency"),)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(240))
+    eval_definition_id: Mapped[str | None] = mapped_column(ForeignKey("eval_definitions.id", ondelete="CASCADE"))
+    x_axis: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    y_axis: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    z_axis: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    plan_id: Mapped[str | None] = mapped_column(ForeignKey("experiment_plans.id", ondelete="RESTRICT"), index=True)
+    plan_version: Mapped[int | None] = mapped_column(Integer)
+    plan_digest: Mapped[str | None] = mapped_column(String(80), index=True)
+    plan_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200))
 
 
 class GridCell(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "grid_cells"
+    __table_args__ = (
+        UniqueConstraint("grid_definition_id", "ordinal", name="uq_grid_cell_ordinal"),
+        UniqueConstraint("grid_definition_id", "x_index", "y_index", "z_index", name="uq_grid_cell_coordinate"),
+    )
     grid_definition_id: Mapped[str] = mapped_column(ForeignKey("grid_definitions.id", ondelete="CASCADE"), index=True)
-    eval_output_id: Mapped[str] = mapped_column(ForeignKey("eval_outputs.id", ondelete="CASCADE"))
+    eval_output_id: Mapped[str | None] = mapped_column(ForeignKey("eval_outputs.id", ondelete="SET NULL"))
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
     x_index: Mapped[int] = mapped_column(Integer)
     y_index: Mapped[int] = mapped_column(Integer)
+    z_index: Mapped[int] = mapped_column(Integer, default=-1, server_default="-1")
+    coordinate: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    case_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    target_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    endpoint_id: Mapped[str] = mapped_column(String(240), default="")
+    endpoint_adapter: Mapped[str] = mapped_column(String(64), default="fal")
+    schema_digest: Mapped[str] = mapped_column(String(80), default="")
+    effective_params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    output_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    request_count: Mapped[int] = mapped_column(Integer, default=1)
+    estimated_cost: Mapped[str] = mapped_column(String(32), default="0.000000")
+    idempotency_key: Mapped[str | None] = mapped_column(String(200))
+
+
+
 
 
 class ImportSource(UUIDMixin, TimestampMixin, Base):
@@ -959,7 +1024,7 @@ class GenerationQueueChild(UUIDMixin, TimestampMixin, Base):
     )
     queue_item_id: Mapped[str] = mapped_column(ForeignKey("generation_queue_items.id", ondelete="CASCADE"), index=True)
     ordinal: Mapped[int] = mapped_column(Integer)
-    model_version_id: Mapped[str] = mapped_column(ForeignKey("model_versions.id", ondelete="RESTRICT"), index=True)
+    model_version_id: Mapped[str | None] = mapped_column(ForeignKey("model_versions.id", ondelete="SET NULL"), index=True)
     compiled_request_id: Mapped[str] = mapped_column(String(36), index=True)
     admission_id: Mapped[str | None] = mapped_column(ForeignKey("fal_admissions.id", ondelete="SET NULL"), index=True)
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), index=True)

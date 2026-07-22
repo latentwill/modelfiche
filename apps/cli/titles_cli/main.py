@@ -1791,12 +1791,6 @@ def prompt_list(ctx: typer.Context, project: str | None = None) -> None:
     call(ctx, lambda client: client.get("/api/prompt-sets", project_id=project))
 
 
-@prompt_app.command("create")
-def prompt_create(ctx: typer.Context, project: str = typer.Option(...), name: str = typer.Option(...), file: Path | None = None) -> None:
-    body = {"project_id": project, "name": name}
-    if file:
-        body["prompts"] = read_json(file)
-    call(ctx, lambda client: client.post("/api/prompt-sets", body))
 
 
 @prompt_app.command("show")
@@ -1804,76 +1798,88 @@ def prompt_show(ctx: typer.Context, prompt_set: str) -> None:
     call(ctx, lambda client: client.get(f"/api/prompt-sets/{prompt_set}"))
 
 
-@prompt_app.command("version")
-def prompt_version(ctx: typer.Context, prompt_set: str, file: Path = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.post(f"/api/prompt-sets/{prompt_set}/versions", {"prompts": read_json(file)}))
 
 
-@prompt_app.command("generate")
-def prompt_generate(
-    ctx: typer.Context,
-    instruction: str = typer.Option(...),
-    count: int = typer.Option(6, min=1, max=50),
-    project: str | None = typer.Option(None),
-) -> None:
-    call(ctx, lambda client: client.post("/api/prompt-sets/generate", {"instruction": instruction, "count": count, "context": {"project_id": project} if project else {}}))
 
 
+from .plan import CONTRACT_VERSION, digest, load_prompts, normalize_cases, parse_axis, parse_json_object, request_plan, validate_cardinality
+
+GRID_PREFLIGHT_ROUTE = "/api/projects/{project_id}/experiment-plans/preflight"
+
+
+def parse_target(value: str, ordinal: int) -> dict[str, Any]:
+    try:
+        target = json.loads(value)
+    except json.JSONDecodeError:
+        parts = value.split(":")
+        if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+            raise typer.BadParameter("target must be JSON or provider:endpoint[:model_version[:checkpoint]]")
+        target = {"provider": parts[0], "endpoint_id": parts[1]}
+        if len(parts) > 2 and parts[2]:
+            target["model_version_id"] = parts[2]
+        if len(parts) > 3 and parts[3]:
+            target["checkpoint_revision_id"] = parts[3]
+    if not isinstance(target, dict):
+        raise typer.BadParameter("target must be a JSON object")
+    if not str(target.get("provider") or "").strip() or not str(target.get("endpoint_id") or "").strip():
+        raise typer.BadParameter("target requires provider and endpoint_id")
+    target = {
+        key: target[key]
+        for key in ("target_id", "ordinal", "provider", "endpoint_id", "model_version_id", "checkpoint_revision_id", "overrides")
+        if key in target
+    }
+    target.setdefault("target_id", f"target-{ordinal}")
+    target.setdefault("ordinal", ordinal)
+    target.setdefault("overrides", {})
+    return target
+
+
+def build_plan(
+    *,
+    project: str,
+    prompt: list[str],
+    prompt_file: Path | None,
+    target: list[str],
+    x_axis: str,
+    x_value: list[str],
+    y_axis: str,
+    y_value: list[str],
+    z_axis: str | None = None,
+    z_value: list[str] | None = None,
+    shared: list[str] | None = None,
+    target_override: list[str] | None = None,
+) -> dict[str, Any]:
+    cases = normalize_cases(prompt) if prompt else []
+    if prompt_file is not None:
+        cases.extend(load_prompts(prompt_file))
+    if not cases:
+        raise typer.BadParameter("at least one --prompt or --prompt-file is required")
+    cases = [{**case, "ordinal": index, "case_id": f"case-{index}", "input_digest": digest(case["input"])} for index, case in enumerate(cases)]
+    targets = [parse_target(value, index) for index, value in enumerate(target)]
+    if not targets:
+        raise typer.BadParameter("at least one --target is required")
+    overrides = [parse_json_object(value, "--target-override") for value in (target_override or [])]
+    if overrides and len(overrides) not in {1, len(targets)}:
+        raise typer.BadParameter("--target-override requires one object or one object per target")
+    for index, item in enumerate(overrides):
+        targets[index if len(overrides) > 1 else 0]["overrides"] = item
+    plan = {
+        "contract_version": CONTRACT_VERSION,
+        "axes": {"x": parse_axis(x_axis, x_value), "y": parse_axis(y_axis, y_value), "z": parse_axis(z_axis, z_value or []) if z_axis else None},
+        "cases": cases,
+        "targets": targets,
+        "shared_params": parse_params(shared or []),
+    }
+    try:
+        validate_cardinality(plan)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return plan
 FAL_BILLING_ACKNOWLEDGEMENT = "I understand FAL may bill this run even if checkpoint fetch fails"
 
 
-def fal_eval_projection(client: TitlesClient, *, model_version: str, prompt_set: str, endpoint: str, parameters: dict[str, Any]) -> dict[str, Any]:
-    version = client.get(f"/api/model-versions/{model_version}")
-    project_id = str(version.get("project_id") or "")
-    checkpoint_revision_id = str(version.get("checkpoint_revision_id") or "")
-    if not project_id or not checkpoint_revision_id:
-        raise ApiError("Model version has no immutable checkpoint revision", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
-    prompt_set_row = client.get(f"/api/prompt-sets/{prompt_set}")
-    prompts = [
-        {"prompt_id": str(item.get("id") or f"prompt-{index}"), "prompt": str(item.get("text") or item.get("prompt") or "")}
-        for index, item in enumerate(prompt_set_row.get("prompts", []))
-    ]
-    prompts = [item for item in prompts if item["prompt"]]
-    if not prompts:
-        raise ApiError("Prompt set is empty", status_code=422, code="PROMPT_SET_EMPTY")
-    client.post(
-        "/api/eval-definitions",
-        {
-            "project_id": project_id,
-            "name": f"{version.get('name') or 'Model'} / {prompt_set_row.get('name') or 'Prompt set'}",
-            "endpoint": endpoint,
-            "model_version_id": model_version,
-            "prompt_set_id": prompt_set,
-            "parameters": parameters,
-        },
-    )
-    body = {
-        "kind": "eval",
-        "mode": "single" if len(prompts) == 1 else "prompt_batch",
-        "project_id": project_id,
-        "model_version_id": model_version,
-        "checkpoint_revision_id": checkpoint_revision_id,
-        "prompts": prompts,
-        "parameters": {**parameters, "endpoint_id": endpoint},
-        "client_request_id": str(uuid.uuid4()),
-    }
-    return client.post("/api/fal-admissions", body)
 
 
-def fal_grid_projection(client: TitlesClient, *, grid_id: str) -> dict[str, Any]:
-    grid = client.get(f"/api/grids/{grid_id}")
-    body = {
-        "kind": "grid",
-        "project_id": str(grid.get("project_id") or ""),
-        "model_version_id": str(grid.get("model_version_id") or ""),
-        "checkpoint_revision_id": str(grid.get("checkpoint_revision_id") or ""),
-        "grid_definition_id": grid_id,
-        "parameters": {**(grid.get("parameters") or {}), "endpoint_id": str(grid.get("endpoint_adapter") or "")},
-        "client_request_id": str(uuid.uuid4()),
-    }
-    if not all(body[key] for key in ("project_id", "model_version_id", "checkpoint_revision_id")) or not body["parameters"].get("endpoint_id"):
-        raise ApiError("Grid has no immutable model checkpoint revision or endpoint", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
-    return client.post("/api/fal-admissions", body)
 
 
 def fal_image_projection(
@@ -1952,125 +1958,130 @@ def eval_schema(ctx: typer.Context, endpoint: str) -> None:
     call(ctx, lambda client: client.get(f"/api/eval-endpoints/{endpoint}/schema"))
 
 
-@eval_app.command("preview")
-def eval_preview(
-    ctx: typer.Context,
-    model_version: str = typer.Option(...),
-    prompt_set: str = typer.Option(...),
-    endpoint: str = typer.Option(...),
-    param: list[str] = typer.Option([], "--param"),
-) -> None:
-    call(ctx, lambda client: fal_eval_projection(client, model_version=model_version, prompt_set=prompt_set, endpoint=endpoint, parameters=parse_params(param)))
-
-
 @eval_app.command("create")
 def eval_create(
     ctx: typer.Context,
-    model_version: str = typer.Option(...),
-    prompt_set: str = typer.Option(...),
-    endpoint: str = typer.Option(...),
-    param: list[str] = typer.Option([], "--param"),
-    dry_run: bool = False,
-    wait: bool = False,
+    project: str = typer.Option(..., "--project"),
+    name: str = typer.Option(..., "--name"),
+    run_id: str = typer.Option(..., "--run-id"),
+    assessment_kind: str = typer.Option(..., "--assessment-kind"),
+    assessment_param: list[str] = typer.Option([], "--assessment-param"),
+    idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
 ) -> None:
-    def operation(client: TitlesClient):
-        parameters = parse_params(param)
-        projection = fal_eval_projection(client, model_version=model_version, prompt_set=prompt_set, endpoint=endpoint, parameters=parameters)
-        if dry_run or projection.get("kind") != "projection":
-            return projection
-        admission = projection.get("admission") or {}
-        if admission.get("state") != "ready":
-            return projection
-        accepted = client.post(
-            f"/api/fal-admissions/{admission['id']}/admit",
-            {"expected_version": admission["version"], "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT},
-        )
-        if accepted.get("eval_run_id"):
-            run = client.get(f"/api/eval-runs/{accepted['eval_run_id']}")
-            accepted["job_id"] = run.get("job_id")
-        return accepted
 
-    result = call(ctx, operation)
-    if wait and isinstance(result, dict) and result.get("job_id"):
-        wait_for_job(ctx, result["job_id"])
+
+    body = {"name": name, "idempotency_key": idempotency_key or str(uuid.uuid4()), "run_id": run_id,
+            "assessment": {"kind": assessment_kind, "parameters": parse_params(assessment_param)}}
+    call(ctx, lambda client: client.post(f"/api/projects/{project}/evals", body))
+
+
+@eval_app.command("list")
+def eval_list(ctx: typer.Context, project: str = typer.Option(..., "--project")) -> None:
+    call(ctx, lambda client: client.get(f"/api/projects/{project}/evals"))
 
 
 @eval_app.command("show")
-def eval_show(ctx: typer.Context, eval_run: str) -> None:
-    call(ctx, lambda client: client.get(f"/api/eval-runs/{eval_run}"))
+def eval_show(ctx: typer.Context, project: str = typer.Option(..., "--project"), eval_id: str = typer.Argument(...)) -> None:
+    call(ctx, lambda client: client.get(f"/api/projects/{project}/evals/{eval_id}"))
 
 
-@eval_app.command("outputs")
-def eval_outputs(ctx: typer.Context, eval_run: str) -> None:
-    call(ctx, lambda client: client.get(f"/api/eval-runs/{eval_run}/outputs"))
-
-
-@eval_app.command("cancel")
-def eval_cancel(ctx: typer.Context, eval_run: str) -> None:
-    call(ctx, lambda client: client.post(f"/api/eval-runs/{eval_run}/cancel"))
 
 
 @eval_app.command("lineage")
-def eval_lineage(ctx: typer.Context, eval_run: str) -> None:
-    call(ctx, lambda client: client.get("/api/lineage", subject_type="eval_run", subject_id=eval_run))
+def eval_lineage(ctx: typer.Context, eval_id: str = typer.Argument(...)) -> None:
+    call(ctx, lambda client: client.get("/api/lineage", subject_type="eval_run", subject_id=eval_id))
+@eval_app.command("run")
+def eval_run(ctx: typer.Context, project: str = typer.Option(..., "--project"), eval_id: str = typer.Argument(...), idempotency_key: str | None = typer.Option(None, "--idempotency-key")) -> None:
+    call(ctx, lambda client: client.post(f"/api/projects/{project}/evals/{eval_id}/run", {"idempotency_key": idempotency_key or str(uuid.uuid4())}))
 
 
 grid_app = typer.Typer(no_args_is_help=True)
 app.add_typer(grid_app, name="grid")
 
 
+def grid_plan_from_options(
+    project: str, prompt: list[str], prompt_file: Path | None, target: list[str],
+    x_axis: str, x_value: list[str], y_axis: str, y_value: list[str],
+    z_axis: str | None, z_value: list[str], shared: list[str], target_override: list[str],
+) -> dict[str, Any]:
+    return build_plan(project=project, prompt=prompt, prompt_file=prompt_file, target=target, x_axis=x_axis, x_value=x_value, y_axis=y_axis, y_value=y_value, z_axis=z_axis, z_value=z_value, shared=shared, target_override=target_override)
+
+
+@grid_app.command("preflight")
+def grid_preflight(
+    ctx: typer.Context,
+    project: str = typer.Option(..., "--project"),
+    prompt: list[str] = typer.Option([], "--prompt"),
+    prompt_file: Path | None = typer.Option(None, "--prompt-file"),
+    target: list[str] = typer.Option([], "--target"),
+    x_axis: str = typer.Option(..., "--x-axis"),
+    x_value: list[str] = typer.Option([], "--x-value"),
+    y_axis: str = typer.Option(..., "--y-axis"),
+    y_value: list[str] = typer.Option([], "--y-value"),
+    z_axis: str | None = typer.Option(None, "--z-axis"),
+    z_value: list[str] = typer.Option([], "--z-value"),
+    shared: list[str] = typer.Option([], "--shared"),
+    target_override: list[str] = typer.Option([], "--target-override"),
+    idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
+) -> None:
+    plan = grid_plan_from_options(project, prompt, prompt_file, target, x_axis, x_value, y_axis, y_value, z_axis, z_value, shared, target_override)
+    body = {**request_plan(plan), "idempotency_key": idempotency_key or str(uuid.uuid4())}
+    call(ctx, lambda client: client.post(GRID_PREFLIGHT_ROUTE.format(project_id=project), body))
+
+
 @grid_app.command("create")
 def grid_create(
     ctx: typer.Context,
-    model_version: str = typer.Option(...),
-    prompt_set: str = typer.Option(...),
-    endpoint: str = typer.Option(...),
-    x_axis: str = typer.Option(...),
+    project: str = typer.Option(..., "--project"),
+    name: str = typer.Option(..., "--name"),
+    prompt: list[str] = typer.Option([], "--prompt"),
+    prompt_file: Path | None = typer.Option(None, "--prompt-file"),
+    target: list[str] = typer.Option([], "--target"),
+    x_axis: str = typer.Option(..., "--x-axis"),
     x_value: list[str] = typer.Option([], "--x-value"),
-    y_axis: str = typer.Option(...),
+    y_axis: str = typer.Option(..., "--y-axis"),
     y_value: list[str] = typer.Option([], "--y-value"),
-    param: list[str] = typer.Option([], "--param"),
+    z_axis: str | None = typer.Option(None, "--z-axis"),
+    z_value: list[str] = typer.Option([], "--z-value"),
+    shared: list[str] = typer.Option([], "--shared"),
+    target_override: list[str] = typer.Option([], "--target-override"),
+    idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
 ) -> None:
-    call(ctx, lambda client: client.post("/api/grids", {"model_version_id": model_version, "prompt_set_id": prompt_set, "endpoint": endpoint, "x_axis": {"field": x_axis, "values": x_value}, "y_axis": {"field": y_axis, "values": y_value}, "parameters": parse_params(param)}))
+    plan = grid_plan_from_options(project, prompt, prompt_file, target, x_axis, x_value, y_axis, y_value, z_axis, z_value, shared, target_override)
+    call(ctx, lambda client: client.post(f"/api/projects/{project}/grids", {"name": name, "idempotency_key": idempotency_key or str(uuid.uuid4()), "plan": request_plan(plan)}))
+
+
+@grid_app.command("list")
+def grid_list(ctx: typer.Context, project: str = typer.Option(..., "--project")) -> None:
+    call(ctx, lambda client: client.get(f"/api/projects/{project}/grids"))
 
 
 @grid_app.command("show")
-def grid_show(ctx: typer.Context, grid: str) -> None:
-    call(ctx, lambda client: client.get(f"/api/grids/{grid}"))
+def grid_show(ctx: typer.Context, project: str = typer.Option(..., "--project"), grid_id: str = typer.Argument(...)) -> None:
+    call(ctx, lambda client: client.get(f"/api/projects/{project}/grids/{grid_id}"))
 
 
-@grid_app.command("run")
-def grid_run(ctx: typer.Context, grid: str, dry_run: bool = False, wait: bool = False) -> None:
-    def operation(client: TitlesClient):
-        projection = fal_grid_projection(client, grid_id=grid)
-        if dry_run or projection.get("kind") != "projection":
-            return projection
-        admission = projection.get("admission") or {}
-        if admission.get("state") != "ready":
-            return projection
-        accepted = client.post(
-            f"/api/fal-admissions/{admission['id']}/admit",
-            {"expected_version": admission["version"], "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT},
-        )
-        if accepted.get("eval_run_id"):
-            run = client.get(f"/api/eval-runs/{accepted['eval_run_id']}")
-            accepted["job_id"] = run.get("job_id")
-        return accepted
-
-    result = call(ctx, operation)
-    if wait and isinstance(result, dict) and result.get("job_id"):
-        wait_for_job(ctx, result["job_id"])
-
-
-@grid_app.command("cancel")
-def grid_cancel(ctx: typer.Context, grid_run: str) -> None:
-    """Cancel the Eval run created for an admitted grid."""
-    call(ctx, lambda client: client.post(f"/api/eval-runs/{grid_run}/cancel"))
-
-
-@grid_app.command("cells")
-def grid_cells(ctx: typer.Context, grid_run: str) -> None:
-    call(ctx, lambda client: client.get(f"/api/grid-runs/{grid_run}/cells"))
+@grid_app.command("queue")
+def grid_queue(
+    ctx: typer.Context,
+    project: str = typer.Option(..., "--project"),
+    grid_id: str = typer.Argument(...),
+    plan_version: int = typer.Option(..., "--plan-version"),
+    plan_digest: str = typer.Option(..., "--plan-digest"),
+    cell_ordinal: list[int] = typer.Option([], "--cell-ordinal"),
+    idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
+    acknowledge_billing: bool = typer.Option(False, "--acknowledge-billing"),
+) -> None:
+    if not acknowledge_billing:
+        raise typer.BadParameter("--acknowledge-billing is required before queueing provider work")
+    body = {
+        "idempotency_key": idempotency_key or str(uuid.uuid4()),
+        "plan_version": plan_version,
+        "plan_digest": plan_digest,
+        "cell_ordinals": cell_ordinal,
+        "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT,
+    }
+    call(ctx, lambda client: client.post(f"/api/projects/{project}/grids/{grid_id}/queue", body))
 
 
 gallery_app = typer.Typer(no_args_is_help=True)

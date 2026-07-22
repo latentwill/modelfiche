@@ -846,24 +846,6 @@ def cancel_job(job_id: str, db: DB, x_profile_id: Annotated[str | None, Header(a
     return dump(job)
 
 
-@router.post("/prompt-sets", status_code=status.HTTP_201_CREATED)
-def create_prompt_set(body: schemas.PromptSetCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    get_or_404(db, models.Project, body.project_id)
-    prompt_set = models.PromptSet(project_id=body.project_id, name=body.name)
-    db.add(prompt_set)
-    db.flush()
-    for index, value in enumerate(body.prompts):
-        if isinstance(value, dict):
-            text = value.get("prompt") or value.get("text")
-            if not isinstance(text, str) or not text.strip():
-                raise HTTPException(status_code=422, detail=f"prompt at index {index} requires prompt or text")
-            metadata = {key: item for key, item in value.items() if key not in {"prompt", "text"}}
-        else:
-            text, metadata = value, {}
-        db.add(models.Prompt(prompt_set_id=prompt_set.id, text=text, position=index, metadata_=metadata))
-    record_activity(db, action="prompt_set.created", subject_type="prompt_set", subject_id=prompt_set.id, profile_id=active_profile(db, x_profile_id).id, project_id=body.project_id, details={"prompts": len(body.prompts)})
-    db.commit()
-    return dump(prompt_set)
 
 
 @router.get("/prompt-sets")
@@ -891,55 +873,10 @@ def prompt_set_detail(prompt_set_id: str, db: DB):
     return {**dump(prompt_set), "prompts": [prompt_projection(prompt) for prompt in prompts]}
 
 
-@router.put("/prompt-sets/{prompt_set_id}")
-def update_prompt_set(prompt_set_id: str, body: schemas.PromptSetUpdate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    previous = get_or_404(db, models.PromptSet, prompt_set_id)
-    new = models.PromptSet(project_id=previous.project_id, name=body.name or previous.name, version=previous.version + 1)
-    db.add(new)
-    db.flush()
-    texts = body.prompts
-    if texts is None:
-        texts = list(db.scalars(select(models.Prompt.text).where(models.Prompt.prompt_set_id == previous.id).order_by(models.Prompt.position)))
-    for position, value in enumerate(texts):
-        if isinstance(value, dict):
-            text = value.get("prompt") or value.get("text")
-            if not isinstance(text, str) or not text.strip():
-                raise HTTPException(status_code=422, detail=f"prompt at index {position} requires prompt or text")
-            metadata = {key: item for key, item in value.items() if key not in {"prompt", "text"}}
-        else:
-            text, metadata = value, {}
-        db.add(models.Prompt(prompt_set_id=new.id, text=text, position=position, metadata_=metadata))
-    record_activity(db, action="prompt_set.versioned", subject_type="prompt_set", subject_id=new.id, profile_id=active_profile(db, x_profile_id).id, project_id=new.project_id, details={"previous_id": previous.id, "version": new.version})
-    db.commit()
-    return prompt_set_detail(new.id, db)
 
 
-@router.post("/prompt-sets/{prompt_set_id}/versions", status_code=status.HTTP_201_CREATED)
-def version_prompt_set(prompt_set_id: str, body: schemas.PromptSetUpdate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    return update_prompt_set(prompt_set_id, body, db, x_profile_id)
 
 
-@router.post("/eval-definitions", status_code=status.HTTP_201_CREATED)
-def create_eval_definition(body: schemas.EvalDefinitionCreate, db: DB):
-    try:
-        from ..integrations.fal.adapters import get_adapter
-        get_adapter(body.endpoint)
-    except KeyError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    get_or_404(db, models.Project, body.project_id)
-    if body.prompt_set_id:
-        prompt_set = get_or_404(db, models.PromptSet, body.prompt_set_id)
-        if prompt_set.project_id != body.project_id:
-            raise HTTPException(status_code=409, detail="prompt set belongs to another project")
-    if body.model_version_id:
-        version = get_or_404(db, models.ModelVersion, body.model_version_id)
-        model = get_or_404(db, models.Model, version.model_id)
-        if model.project_id != body.project_id:
-            raise HTTPException(status_code=409, detail="model version belongs to another project")
-    definition = models.EvalDefinition(**body.model_dump())
-    db.add(definition)
-    db.commit()
-    return dump(definition)
 
 
 @router.get("/eval-definitions")
@@ -957,52 +894,6 @@ def eval_definition(definition_id: str, db: DB):
     return dump(get_or_404(db, models.EvalDefinition, definition_id))
 
 
-@router.post("/eval-runs", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
-def create_eval_run(body: schemas.EvalRunCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    if not body.dry_run:
-        raise HTTPException(status_code=409, detail={"code": "FAL_ADMISSION_REQUIRED", "message": "Create and admit a FAL admission before provider work."})
-    if body.definition_id:
-        definition = get_or_404(db, models.EvalDefinition, body.definition_id)
-    else:
-        endpoint = body.endpoint or body.endpoint_adapter
-        try:
-            from ..integrations.fal.adapters import get_adapter
-            get_adapter(str(endpoint))
-        except KeyError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        version = get_or_404(db, models.ModelVersion, str(body.model_version_id))
-        model = get_or_404(db, models.Model, version.model_id)
-        prompt_set = get_or_404(db, models.PromptSet, str(body.prompt_set_id))
-        if prompt_set.project_id != model.project_id:
-            raise HTTPException(status_code=400, detail="model version and prompt set belong to different projects")
-        definition = db.scalar(select(models.EvalDefinition).where(
-            models.EvalDefinition.project_id == model.project_id,
-            models.EvalDefinition.endpoint == endpoint,
-            models.EvalDefinition.model_version_id == version.id,
-            models.EvalDefinition.prompt_set_id == prompt_set.id,
-            models.EvalDefinition.parameters == body.parameters,
-        ))
-        if definition is None:
-            definition = models.EvalDefinition(project_id=model.project_id, name=f"{model.name} / {prompt_set.name}", endpoint=str(endpoint), model_version_id=version.id, prompt_set_id=prompt_set.id, parameters=body.parameters)
-            db.add(definition)
-            db.flush()
-    checkpoint_id = body.checkpoint_id
-    if checkpoint_id:
-        get_or_404(db, models.Checkpoint, checkpoint_id)
-    elif definition.model_version_id:
-        checkpoint_id = get_or_404(db, models.ModelVersion, definition.model_version_id).checkpoint_id
-    actor = active_profile(db, x_profile_id)
-    run = models.EvalRun(definition_id=definition.id, checkpoint_id=checkpoint_id, status="preview" if body.dry_run else "queued", parameters_snapshot={**definition.parameters, **body.parameters})
-    db.add(run)
-    db.flush()
-    if body.dry_run:
-        db.commit()
-        return {**dump(run), "definition_id": definition.id, "dry_run": True, "job_id": None}
-    job = models.Job(workspace_id=current_workspace(db).id, kind="fal.eval_batch", profile_id=actor.id, payload={"eval_run_id": run.id})
-    db.add(job)
-    record_activity(db, action="eval.queued", subject_type="eval_run", subject_id=run.id, profile_id=actor.id, project_id=definition.project_id, details={"job_id": job.id})
-    db.commit()
-    return {**dump(run), "job_id": job.id}
 
 
 @router.get("/eval-runs/{run_id}")
@@ -1110,17 +1001,6 @@ def cancel_eval_run(run_id: str, db: DB, x_profile_id: Annotated[str | None, Hea
     return dump(run)
 
 
-@router.post("/grid-definitions", status_code=status.HTTP_201_CREATED)
-def create_grid_definition(body: schemas.GridDefinitionCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    definition = get_or_404(db, models.EvalDefinition, body.eval_definition_id)
-    if definition.project_id != body.project_id:
-        raise HTTPException(status_code=400, detail="eval definition belongs to another project")
-    grid = models.GridDefinition(**body.model_dump())
-    db.add(grid)
-    db.flush()
-    record_activity(db, action="grid.created", subject_type="grid_definition", subject_id=grid.id, profile_id=active_profile(db, x_profile_id).id, project_id=grid.project_id)
-    db.commit()
-    return dump(grid)
 
 
 @router.get("/grid-definitions")
@@ -1152,16 +1032,3 @@ def grid_definition(grid_id: str, db: DB):
         })
     definition = db.get(models.EvalDefinition, grid.eval_definition_id)
     return {**dump(grid), "endpoint_adapter": definition.endpoint if definition else None, "model_version_id": definition.model_version_id if definition else None, "prompt_set_id": definition.prompt_set_id if definition else None, "parameters": definition.parameters if definition else {}, "checkpoint_revision_id": (db.get(models.ModelVersion, definition.model_version_id).checkpoint_revision_id if definition and definition.model_version_id and db.get(models.ModelVersion, definition.model_version_id) else None), "cells": cell_rows, "jobs": [dump(job) for job in jobs]}
-
-
-@router.post("/grid-definitions/{grid_id}/runs", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
-def enqueue_grid(grid_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
-    raise HTTPException(status_code=409, detail={"code": "FAL_ADMISSION_REQUIRED", "message": "Create and admit a FAL admission before provider work."})
-    grid = get_or_404(db, models.GridDefinition, grid_id)
-    actor = active_profile(db, x_profile_id)
-    job = models.Job(workspace_id=current_workspace(db).id, kind="fal.grid_batch", profile_id=actor.id, payload={"grid_definition_id": grid.id})
-    db.add(job)
-    db.flush()
-    record_activity(db, action="grid.queued", subject_type="grid_definition", subject_id=grid.id, profile_id=actor.id, project_id=grid.project_id, details={"job_id": job.id})
-    db.commit()
-    return {"grid_definition_id": grid.id, "job_id": job.id, "state": job.state.value}

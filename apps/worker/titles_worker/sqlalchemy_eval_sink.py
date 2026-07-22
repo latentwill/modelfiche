@@ -31,12 +31,18 @@ class SQLAlchemyEvalOutputSink:
         self.cache = cache
         self.artifact_transport = artifact_transport or SafeHttpTransport()
 
-    def provider_submitted(self, eval_run_id: str, request_id: str) -> None:
+    def provider_submitted(self, eval_run_id: str, request_id: str, grid_cell_id: str | None = None) -> None:
         with self.session_factory.begin() as session:
             run = _required(session, models.EvalRun, eval_run_id)
             if request_id not in run.provider_job_ids:
                 run.provider_job_ids = [*run.provider_job_ids, request_id]
             run.status = "running"
+            if run.plan_id and grid_cell_id:
+                grid_ids = list(session.scalars(select(models.GridDefinition.id).where(models.GridDefinition.plan_id == run.plan_id)))
+                for grid_id in grid_ids:
+                    cell = session.scalar(select(models.GridCell).where(models.GridCell.id == grid_cell_id, models.GridCell.grid_definition_id == grid_id).limit(1))
+                    if cell and cell.status in {"pending", "admitted"}:
+                        cell.status = "running"
 
     def ingest_outputs(self, eval_run_id: str, prompt_id: str | None, response: dict[str, Any]) -> dict[str, Any]:
         images = response.get("images") or []
@@ -49,7 +55,11 @@ class SQLAlchemyEvalOutputSink:
             prompt = session.get(models.Prompt, prompt_id) if prompt_id else None
             prompt_text = prompt.text if prompt else str(response.get("prompt") or "") or None
             logical_prompt_id = prompt_id or (str(response.get("_inline_prompt_id")) if response.get("_inline_prompt_id") else None)
+            grid_metadata = response.pop("_grid_metadata", None)
             response_metadata = {key: value for key, value in response.items() if key != "images"}
+            request_parameters = dict(run.parameters_snapshot or definition.parameters or {})
+            if isinstance(grid_metadata, dict) and isinstance(grid_metadata.get("parameters"), dict):
+                request_parameters = dict(grid_metadata["parameters"])
             request_ids = [str(response["_request_id"])] if response.get("_request_id") else list(run.provider_job_ids or [])
             generated_at = fal_generated_at(response)
             output_count = 0
@@ -77,10 +87,16 @@ class SQLAlchemyEvalOutputSink:
                         "caption": prompt_text,
                         "prompt": prompt_text,
                         "prompt_id": logical_prompt_id,
-                        "endpoint": definition.endpoint,
+                        "endpoint": response.get("_endpoint_id") or definition.endpoint,
                         "seed": response.get("seed"),
                         "provider_request_ids": request_ids,
-                        "parameters": dict(run.parameters_snapshot or definition.parameters or {}),
+                        "parameters": request_parameters,
+                        "fal_request_input": request_parameters,
+                        **{
+                            key: grid_metadata[key]
+                            for key in ("checkpoint_id", "model_version_id", "checkpoint_revision_id", "grid_cell_id", "grid_definition_id", "x_index", "y_index", "z_index", "coordinates")
+                            if isinstance(grid_metadata, dict) and grid_metadata.get(key) is not None
+                        },
                         **({"generated_at": generated_at.isoformat()} if generated_at else {}),
                     },
                 )
@@ -121,8 +137,10 @@ class SQLAlchemyEvalOutputSink:
                         "source_kind": "inline_data" if source_url.startswith("data:") else "url",
                         "prompt": prompt_text,
                         "inline_prompt_id": None if prompt_id else logical_prompt_id,
-                        "endpoint": definition.endpoint,
+                        "endpoint": response.get("_endpoint_id") or definition.endpoint,
                         "request_ids": request_ids,
+                        "_request_input": request_parameters,
+                        **({"grid_metadata": grid_metadata} if isinstance(grid_metadata, dict) else {}),
                         "response": response_metadata,
                     },
                     generated_at=generated_at,
@@ -247,29 +265,93 @@ class SQLAlchemyEvalOutputSink:
         with self.session_factory.begin() as session:
             run = _required(session, models.EvalRun, eval_run_id)
             run.status = "failed"
+            self._set_grid_status(session, run, "failed", error=message)
 
     def mark_succeeded(self, eval_run_id: str) -> None:
         with self.session_factory.begin() as session:
             run = _required(session, models.EvalRun, eval_run_id)
             run.status = "succeeded"
+            if not run.plan_id:
+                return
+            for item in session.scalars(select(models.GenerationQueueItem)).all():
+                cells = list((item.request_snapshot or {}).get("cells") or [])
+                if not any(str(entry.get("run_id")) == str(run.id) for entry in cells if isinstance(entry, dict)):
+                    continue
+                children = session.scalars(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == item.id)).all()
+                if children and all(child.state == "succeeded" for child in children):
+                    item.state = "succeeded"
+                elif any(child.state == "succeeded" for child in children):
+                    item.state = "partial"
+            grid_ids = list(session.scalars(select(models.GridDefinition.id).where(models.GridDefinition.plan_id == run.plan_id)))
+            for grid_id in grid_ids:
+                cells = session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid_id)).all()
+                if cells and all(cell.status == "succeeded" and cell.eval_output_id for cell in cells):
+                    session.get(models.GridDefinition, grid_id).status = "succeeded"
+                elif any(cell.status == "succeeded" for cell in cells):
+                    session.get(models.GridDefinition, grid_id).status = "partial"
 
     def mark_canceled(self, eval_run_id: str) -> None:
         with self.session_factory.begin() as session:
             run = _required(session, models.EvalRun, eval_run_id)
             run.status = "canceled"
+            self._set_grid_status(session, run, "cancelled")
 
-    def link_grid_cell(self, grid_definition_id: str, output_id: str, x_index: int, y_index: int) -> None:
+    @staticmethod
+    def _set_grid_status(session: Session, run: models.EvalRun, state: str, *, error: str | None = None) -> None:
+        if not run.plan_id:
+            return
+        grid_ids = list(session.scalars(select(models.GridDefinition.id).where(models.GridDefinition.plan_id == run.plan_id)))
+        for grid_id in grid_ids:
+            cells = session.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid_id, models.GridCell.status.notin_({"succeeded"}))).all()
+            for cell in cells:
+                cell.status = state
+                if error:
+                    cell.output_snapshot = {**dict(cell.output_snapshot or {}), "error": error}
+        for item in session.scalars(select(models.GenerationQueueItem)).all():
+            if str((item.request_snapshot or {}).get("plan", {}).get("plan_id")) != str(run.plan_id):
+                continue
+            for child in session.scalars(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == item.id)).all():
+                if child.state not in {"succeeded"}:
+                    child.state = state
+                    if error:
+                        child.error = error
+
+    def link_grid_cell(self, grid_definition_id: str, output_id: str, x_index: int, y_index: int, grid_cell_id: str | None = None) -> None:
         with self.session_factory.begin() as session:
-            if self.grid_cell_exists(grid_definition_id, x_index, y_index, session=session):
-                return
-            session.add(
-                models.GridCell(
+            cell = session.get(models.GridCell, grid_cell_id) if grid_cell_id else session.scalar(
+                select(models.GridCell).where(
+                    models.GridCell.grid_definition_id == grid_definition_id,
+                    models.GridCell.x_index == x_index,
+                    models.GridCell.y_index == y_index,
+                ).order_by(models.GridCell.ordinal).limit(1)
+            )
+            if cell is None:
+                cell = models.GridCell(
                     grid_definition_id=grid_definition_id,
                     eval_output_id=output_id,
+                    ordinal=0,
                     x_index=x_index,
                     y_index=y_index,
+                    coordinate={"x": x_index, "y": y_index, "z": None},
+                    status="succeeded",
                 )
-            )
+                session.add(cell)
+            else:
+                cell.eval_output_id = output_id
+                cell.status = "succeeded"
+                cell.output_snapshot = {**dict(cell.output_snapshot or {}), "eval_output_id": output_id}
+            queue_item_id = None
+            for item in session.scalars(select(models.GenerationQueueItem)).all():
+                snapshot_cells = list((item.request_snapshot or {}).get("cells") or [])
+                if any(str(entry.get("grid_cell_id")) == str(cell.id) for entry in snapshot_cells if isinstance(entry, dict)):
+                    queue_item_id = item.id
+                    break
+            if queue_item_id:
+                children = session.scalars(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == queue_item_id)).all()
+                for child in children:
+                    if str((child.result or {}).get("grid_cell_id")) == str(cell.id):
+                        child.state = "succeeded"
+                        child.result = {**dict(child.result or {}), "output_id": output_id}
 
     def grid_cell_exists(
         self,
@@ -277,18 +359,23 @@ class SQLAlchemyEvalOutputSink:
         x_index: int,
         y_index: int,
         *,
+        grid_cell_id: str | None = None,
         session: Session | None = None,
     ) -> bool:
         if session is not None:
+            if grid_cell_id:
+                return session.scalar(select(models.GridCell.id).where(models.GridCell.id == grid_cell_id, models.GridCell.grid_definition_id == grid_definition_id, models.GridCell.status == "succeeded", models.GridCell.eval_output_id.is_not(None)).limit(1)) is not None
             return session.scalar(
                 select(models.GridCell.id).where(
                     models.GridCell.grid_definition_id == grid_definition_id,
                     models.GridCell.x_index == x_index,
                     models.GridCell.y_index == y_index,
+                    models.GridCell.status == "succeeded",
+                    models.GridCell.eval_output_id.is_not(None),
                 ).limit(1)
             ) is not None
         with self.session_factory() as owned:
-            return self.grid_cell_exists(grid_definition_id, x_index, y_index, session=owned)
+            return self.grid_cell_exists(grid_definition_id, x_index, y_index, grid_cell_id=grid_cell_id, session=owned)
 
     def _download(self, url: str, expected_size: int | None):
         from titles_api.storage.fal_artifacts import MAX_ARTIFACT_BYTES

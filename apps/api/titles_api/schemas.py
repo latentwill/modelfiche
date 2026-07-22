@@ -336,15 +336,8 @@ class JobCreate(BaseModel):
     payload: dict[str, Any] = {}
 
 
-class PromptSetCreate(BaseModel):
-    project_id: str
-    name: str
-    prompts: list[str | dict[str, Any]] = []
 
 
-class PromptSetUpdate(BaseModel):
-    name: str | None = None
-    prompts: list[str | dict[str, Any]] | None = None
 
 
 class InlinePromptCreate(BaseModel):
@@ -354,57 +347,60 @@ class InlinePromptCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class EvalDefinitionCreate(BaseModel):
-    project_id: str
-    name: str
-    endpoint: str
-    model_version_id: str | None = None
-    prompt_set_id: str | None = None
-    inline_prompts: list[InlinePromptCreate] = Field(default_factory=list)
-    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class AxisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    values: list[Any] = Field(min_length=1)
+
+
+class PlanPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    contract_version: str = "2026-07-22.v1"
+    axes: dict[str, AxisRequest]
+    cases: list[dict[str, Any]] = Field(min_length=1)
+    targets: list[dict[str, Any]] = Field(min_length=1)
+    fixed_case_id: str | None = None
+    fixed_target_id: str | None = None
+    shared_params: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def prompt_source(self):
-        if bool(self.prompt_set_id) == bool(self.inline_prompts):
-            raise ValueError("exactly one of prompt_set_id or inline_prompts is required")
-        positions = [item.position for item in self.inline_prompts]
-        ids = [item.id for item in self.inline_prompts]
-        if len(positions) != len(set(positions)) or len(ids) != len(set(ids)):
-            raise ValueError("inline prompt ids and positions must be unique")
+    def validate_axes(self):
+        if set(self.axes) - {"x", "y", "z"} or "x" not in self.axes or "y" not in self.axes:
+            raise ValueError("axes must contain x and y and may contain z")
         return self
 
 
-class EvalRunCreate(BaseModel):
-    definition_id: str | None = None
-    model_version_id: str | None = None
-    prompt_set_id: str | None = None
-    endpoint: str | None = None
-    endpoint_adapter: str | None = None
-    checkpoint_id: str | None = None
-    parameters: dict[str, Any] = {}
-    dry_run: bool = False
-
-    @model_validator(mode="after")
-    def source_contract(self):
-        direct = self.model_version_id and self.prompt_set_id and (self.endpoint or self.endpoint_adapter)
-        if not self.definition_id and not direct:
-            raise ValueError("definition_id or model_version_id, prompt_set_id, and endpoint are required")
-        if self.endpoint and self.endpoint_adapter and self.endpoint != self.endpoint_adapter:
-            raise ValueError("endpoint and endpoint_adapter disagree")
-        return self
+class PlanPreflightRequest(PlanPayload):
+    idempotency_key: str = Field(min_length=1, max_length=200)
 
 
-class GridDefinitionCreate(BaseModel):
-    project_id: str
-    name: str
-    eval_definition_id: str
-    x_axis: dict[str, Any]
-    y_axis: dict[str, Any]
+class GridCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=240)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    plan: PlanPayload
 
-    @model_validator(mode="after")
-    def different_axes(self):
-        if self.x_axis.get("parameter") == self.y_axis.get("parameter"):
-            raise ValueError("grid axes must use different parameters")
-        if not self.x_axis.get("values") or not self.y_axis.get("values"):
-            raise ValueError("each grid axis requires values")
-        return self
+class GridQueueRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    plan_version: int = Field(ge=1)
+    plan_digest: str = Field(min_length=8, max_length=80)
+    cell_ordinals: list[int] | None = None
+
+    billing_acknowledgement: Literal["I understand FAL may bill this run even if checkpoint fetch fails"]
+
+
+
+class EvalCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=240)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    run_id: str = Field(min_length=1)
+    assessment: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvalReferenceRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: str = Field(min_length=1, max_length=200)

@@ -19,7 +19,6 @@ const ModelVersionScreen = lazy(() => import("./screens-model-version").then(mod
 const EvalComparisonScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.EvalComparisonScreen })));
 const EvalScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.EvalScreen })));
 const EvalsScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.EvalsScreen })));
-const PromptSetsScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.PromptSetsScreen })));
 const ReviewsScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.ReviewsScreen })));
 const GridScreen = lazy(() => import("./screens-grids").then(module => ({ default: module.GridScreen })));
 const GridsScreen = lazy(() => import("./screens-grids").then(module => ({ default: module.GridsScreen })));
@@ -47,7 +46,7 @@ export function App() {
   else if (section === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
   else if (section === "eval") content = <EvalScreen id={id} />;
   else if (section === "eval-comparison") content = <EvalComparisonScreen id={id} />;
-  else if (section === "grid") content = <GridScreen id={id} />;
+  else if (section === "grid") content = <GridScreen id={id} projectId={params.get("project") ?? ""} />;
   else content = <WorkbenchShell section={section} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}>{renderScreen(section, id, params)}</WorkbenchShell>;
   return <div className="vela-theme"><Suspense fallback={<main className="vela-main" aria-busy="true">Loading view…</main>}>{content}</Suspense></div>;
 }
@@ -73,12 +72,11 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "models": return <ModelsScreen projectId={projectId} />;
     case "model": return <ModelScreen id={id} />;
     case "model-version": return <ModelVersionScreen id={id} />;
-    case "prompt-sets": return <PromptSetsScreen projectId={projectId} promptSetId={id} />;
     case "evals": return <EvalsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
     case "eval": return <EvalScreen id={id} />;
     case "eval-comparison": return <EvalComparisonScreen id={id} />;
     case "grids": return <GridsScreen params={params} />;
-    case "grid": return <GridScreen id={id} />;
+    case "grid": return <GridScreen id={id} projectId={projectId} />;
     case "reviews": return <ReviewsScreen projectId={projectId} subject={params.get("subject") ?? ""} />;
     case "transfers": return <TransfersScreen mode={params.get("mode") ?? ""} params={params} />;
     case "docs": return <DocsScreen />;
