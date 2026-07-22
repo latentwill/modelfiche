@@ -218,7 +218,7 @@ def queue_grid(project_id: str, grid_id: str, body: schemas.GridQueueRequest, db
         raise HTTPException(status_code=404, detail="grid not found")
     if grid.plan_version != body.plan_version or grid.plan_digest != body.plan_digest:
         raise HTTPException(status_code=409, detail={"code": "PLAN_SNAPSHOT_MISMATCH", "plan_version": grid.plan_version, "plan_digest": grid.plan_digest})
-    parent_key = f"grid:{project_id}:{body.idempotency_key}"
+    parent_key = f"grid:{project_id}:{grid_id}:{body.idempotency_key}"
     existing = db.scalar(select(models.Job).where(models.Job.idempotency_key == parent_key))
     if existing:
         payload = dict(existing.payload or {})
@@ -254,7 +254,7 @@ def queue_grid(project_id: str, grid_id: str, body: schemas.GridQueueRequest, db
     job = models.Job(workspace_id=current_workspace(db).id, kind="fal.grid_batch", profile_id=actor.id, idempotency_key=parent_key, payload={})
     db.add(job)
     db.flush()
-    queue_item = models.GenerationQueueItem(workspace_id=current_workspace(db).id, client_request_id=body.idempotency_key, workflow="grid", provider="fal", queue_owner="grid", project_id=project_id, model_id=version.model_id if version and singleton else None, model_version_ids=sorted({str((cell.target_snapshot or {})["model_version_id"]) for cell in cells if (cell.target_snapshot or {}).get("model_version_id")}), compiled_request_id=str(uuid4()), state="admitted", request_snapshot={"run_id": run.id, "plan": grid.plan_snapshot, "cells": [{"grid_cell_id": cell.id, "ordinal": cell.ordinal, "target": cell.target_snapshot, "effective_params": cell.effective_params, "coordinate": cell.coordinate} for cell in cells]}, job_id=job.id)
+    queue_item = models.GenerationQueueItem(workspace_id=current_workspace(db).id, client_request_id=parent_key, workflow="grid", provider="fal", queue_owner="grid", project_id=project_id, model_id=version.model_id if version and singleton else None, model_version_ids=sorted({str((cell.target_snapshot or {})["model_version_id"]) for cell in cells if (cell.target_snapshot or {}).get("model_version_id")}), compiled_request_id=str(uuid4()), state="admitted", request_snapshot={"run_id": run.id, "plan": grid.plan_snapshot, "cells": [{"grid_cell_id": cell.id, "ordinal": cell.ordinal, "target": cell.target_snapshot, "effective_params": cell.effective_params, "coordinate": cell.coordinate} for cell in cells]}, job_id=job.id)
     db.add(queue_item)
     db.flush()
     child_admissions = []
