@@ -235,9 +235,12 @@ def resolve_plan(raw: Mapping[str, Any], project_id: str) -> dict[str, Any]:
                 params.update(plan["shared_params"])
                 params.update(target.get("shared_overrides") or {})
                 params.update(target.get("target_overrides") or {})
+                lora_scale = params.pop("lora_scale", None)
                 for key in axis_keys:
                     axis = axes[key]
-                    if axis["name"] not in {"target", "prompt", "case"}:
+                    if axis["name"] == "lora_scale":
+                        lora_scale = axis["values"][coordinate[key]]
+                    elif axis["name"] not in {"target", "prompt", "case"}:
                         params[axis["name"]] = axis["values"][coordinate[key]]
                 input_value = case["input"]
                 prompt = str(input_value.get("prompt") or input_value.get("text") or "")
@@ -245,6 +248,9 @@ def resolve_plan(raw: Mapping[str, Any], project_id: str) -> dict[str, Any]:
                 if loras is None:
                     registered = target.get("registered_lora")
                     loras = [registered] if isinstance(registered, Mapping) and registered.get("path") else []
+                if lora_scale is not None:
+                    scale = adapter.parse_grid_axis_value("lora_scale", lora_scale)
+                    loras = [{**dict(lora), "scale": scale} for lora in loras]
                 try:
                     request = adapter.build_request(prompt=prompt, loras=loras, parameters=params, grid_cell=True)
                     status = "admissible"

@@ -25,6 +25,28 @@ def test_preflight_is_axis_first_and_exactly_2x2():
     assert result["valid"]
     assert result["request_count"] == 4
     assert [cell["ordinal"] for cell in result["cells"]] == [0, 1, 2, 3]
+
+
+def test_preflight_applies_lora_scale_axis_to_registered_lora():
+    raw = plan(targets=[{
+        "target_id": "krea",
+        "provider": "fal",
+        "endpoint_id": "fal-ai/krea-2/turbo/lora",
+        "_server_hydrated": True,
+        "registered_lora": {"path": "https://fal.example/checkpoint.safetensors", "scale": 1},
+    }])
+    raw["axes"] = {
+        "x": {"name": "seed", "values": [42]},
+        "y": {"name": "lora_scale", "values": [0.8, 1, 1.2]},
+        "z": None,
+    }
+
+    result = resolve_plan(raw, "project-1")
+
+    assert result["valid"]
+    assert [cell["effective_params"]["loras"][0]["scale"] for cell in result["cells"]] == [0.8, 1.0, 1.2]
+
+
 def test_preflight_mixes_endpoints_and_allows_endpoint_only_targets():
     raw = plan(targets=[
         {"target_id": "ideo", "provider": "fal", "endpoint_id": "ideogram/v4/lora"},

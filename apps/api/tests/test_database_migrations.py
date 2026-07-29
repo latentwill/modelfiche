@@ -21,7 +21,7 @@ def test_upgrade_installed_database_adopts_exact_unversioned_baseline(tmp_path: 
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0021_grid_eval_redesign",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0023_modern_times_merge_reconciliation",)
 
 
 def test_packaged_upgrade_creates_verified_pre_migration_backup(tmp_path: Path, monkeypatch) -> None:
@@ -51,7 +51,7 @@ def test_upgrade_installed_database_runs_frozen_alembic_chain(tmp_path: Path) ->
     upgrade_installed_database(f"sqlite:///{database_path}")
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0021_grid_eval_redesign",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0023_modern_times_merge_reconciliation",)
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_feature_gates'"
         ).fetchone() == (1,)
@@ -128,7 +128,7 @@ def test_upgrade_installed_database_accepts_asset_timestamp_head(tmp_path: Path)
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0021_grid_eval_redesign",
+            "0023_modern_times_merge_reconciliation",
         )
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(eval_definitions)").fetchall()}
         assert columns["prompt_set_id"][3] == 0
@@ -147,7 +147,7 @@ def test_upgrade_installed_database_accepts_checkpoint_revision_head(tmp_path: P
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0021_grid_eval_redesign",
+            "0023_modern_times_merge_reconciliation",
         )
 
 
@@ -156,7 +156,7 @@ def test_upgrade_installed_database_accepts_live_inline_prompts_head(tmp_path: P
     database_url = f"sqlite:///{database_path}"
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0021_grid_eval_redesign",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0023_modern_times_merge_reconciliation",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_items'").fetchone() == (1,)
 
 
@@ -165,7 +165,7 @@ def test_upgrade_installed_database_accepts_live_generation_queue_head(tmp_path:
     database_url = f"sqlite:///{database_path}"
     upgrade_installed_database(database_url)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0021_grid_eval_redesign",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0023_modern_times_merge_reconciliation",)
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='generation_queue_children'").fetchone() == (1,)
 
 

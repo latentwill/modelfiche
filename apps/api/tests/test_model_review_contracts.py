@@ -132,6 +132,7 @@ def test_checkpoint_version_readiness_dataset_and_typed_lineage_are_consistent(c
         "dataset_version_id": dataset_detail["current_version_id"],
         "dataset_version_name": dataset_version_name,
         "available": True,
+        "input_count": 1,
     }
     impossible_hydration = client.post(f"/api/checkpoints/{checkpoint['id']}/hydrate", headers=headers)
     assert impossible_hydration.status_code == 409

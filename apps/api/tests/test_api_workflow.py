@@ -47,13 +47,32 @@ def test_checkpoint_and_model_version_establish_revision_for_fal_admission(clien
         session.add(models.AssetLocation(asset_id=asset["id"], workspace_id=workspace, provider="s3", uri="s3://bucket/model.safetensors", bucket="bucket", object_key="model.safetensors", version_id="v1", verification_state="available", hydration_state="remote"))
     checkpoint = client.post(f"/api/runs/{run['id']}/checkpoints", headers={"X-Profile-ID": profile["id"]}, json={"asset_id": asset["id"], "step": 100, "state": "available"}).json()
     model = client.post("/api/models", headers={"X-Profile-ID": profile["id"]}, json={"project_id": project["id"], "name": "model"}).json()
-    version = client.post("/api/model-versions", headers={"X-Profile-ID": profile["id"]}, json={"model_id": model["id"], "checkpoint_id": checkpoint["id"], "name": "v1"}).json()
+    version = client.post("/api/model-versions", headers={"X-Profile-ID": profile["id"]}, json={"model_id": model["id"], "checkpoint_id": checkpoint["id"], "name": "v1", "base_model": "krea/Krea-2-Raw"}).json()
 
     detail = client.get(f"/api/model-versions/{version['id']}").json()
     assert detail["checkpoint_revision_id"]
     with app_module.SessionLocal() as session:
         stored_checkpoint = session.get(models.Checkpoint, checkpoint["id"])
         assert stored_checkpoint.current_revision_id == detail["checkpoint_revision_id"]
+
+    rejected = client.patch(
+        f"/api/model-versions/{version['id']}/fal-registration",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"fal_url": "https://example.test/model.safetensors", "endpoint_id": "fal-ai/krea-2/turbo/lora"},
+    )
+    assert rejected.status_code == 422
+    registered = client.patch(
+        f"/api/model-versions/{version['id']}/fal-registration",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"fal_url": "https://v3b.fal.media/files/model.safetensors", "endpoint_id": "fal-ai/krea-2/turbo/lora"},
+    )
+    assert registered.status_code == 200
+    assert registered.json()["readiness_summary"]["fal"] == {
+        "status": "ready",
+        "available": True,
+        "url": "https://v3b.fal.media/files/model.safetensors",
+        "endpoint_id": "fal-ai/krea-2/turbo/lora",
+    }
 
 
 def test_project_dataset_draft_and_profile_attribution(client: TestClient):

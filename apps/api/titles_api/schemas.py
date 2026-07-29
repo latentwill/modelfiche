@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -225,6 +225,31 @@ class DraftPublish(BaseModel):
     name: str = Field(min_length=1, max_length=240)
 
 
+class DatasetSubsetCreate(BaseModel):
+    key: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    name: str = Field(min_length=1, max_length=240)
+    description: str | None = None
+    role: Literal["style", "subject", "source", "quality", "holdout", "custom"] = "custom"
+    parent_subset_id: str | None = None
+    color_token: Literal["blue", "cyan", "teal", "green", "mint", "grey"] = "blue"
+    position: int = Field(default=0, ge=0)
+
+
+class DatasetSubsetUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=240)
+    description: str | None = None
+    role: Literal["style", "subject", "source", "quality", "holdout", "custom"] | None = None
+    parent_subset_id: str | None = None
+    color_token: Literal["blue", "cyan", "teal", "green", "mint", "grey"] | None = None
+    position: int | None = Field(default=None, ge=0)
+
+
+class DatasetSubsetAssignment(BaseModel):
+    subset_id: str
+    draft_item_ids: list[str] = Field(min_length=1)
+    membership_role: Literal["primary", "secondary"] = "primary"
+
+
 class WandbCredentialCreate(BaseModel):
     alias: str = Field(min_length=1, max_length=120)
     public_key: str = Field(min_length=40, max_length=128)
@@ -264,6 +289,118 @@ class RunCreate(BaseModel):
     normalized_config: dict[str, Any] = {}
 
 
+class TrainingRunDatasetInputCreate(BaseModel):
+    dataset_version_id: str
+    subset_id: str | None = None
+    alias: str | None = Field(default=None, max_length=120)
+    item_count_snapshot: int = Field(default=0, ge=0)
+    sampling_weight: float = Field(default=1.0, gt=0)
+    repeat_count: int = Field(default=1, ge=1)
+    position: int = Field(default=0, ge=0)
+    dataset_content_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class TrainingRunDatasetInputUpdate(BaseModel):
+    alias: str | None = Field(default=None, max_length=120)
+    sampling_weight: float | None = Field(default=None, gt=0)
+    repeat_count: int | None = Field(default=None, ge=1)
+    position: int | None = Field(default=None, ge=0)
+
+
+class MergeRecipeInput(BaseModel):
+    alias: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+    checkpoint_revision_id: str
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    step: int | None = Field(default=None, ge=0)
+    rank: int | None = Field(default=None, ge=1)
+    role: Literal["general", "specialist", "donor", "primary", "custom"] = "custom"
+    key_format: Literal["native", "ai_toolkit"] = "native"
+    weights: dict[str, float]
+
+    @model_validator(mode="after")
+    def validate_weights(self):
+        if not self.weights:
+            raise ValueError("merge input weights cannot be empty")
+        for scope, value in self.weights.items():
+            if scope not in {"global", "text_fusion", "transformer"} and not scope.startswith("module:"):
+                raise ValueError(f"unsupported merge weight scope: {scope}")
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"merge weight for {scope} must be between 0 and 1")
+        return self
+
+
+class MergeRecipeOutput(BaseModel):
+    rank: int = Field(ge=1)
+    dtype: Literal["float32", "float16", "bfloat16"] = "float16"
+
+
+class MergeRecipe(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    schema_version: Literal["modelfiche.checkpoint-merge/v1"] = Field(
+        default="modelfiche.checkpoint-merge/v1",
+        alias="$schema",
+    )
+    name: str = Field(min_length=1, max_length=240)
+    operator: Literal["linear_weighted_sum", "layer_weighted_sum", "rank_concat"]
+    base_model: str = Field(min_length=1, max_length=500)
+    inputs: list[MergeRecipeInput] = Field(min_length=2)
+    output: MergeRecipeOutput
+
+    @model_validator(mode="after")
+    def validate_recipe(self):
+        aliases = [item.alias for item in self.inputs]
+        if len(aliases) != len(set(aliases)):
+            raise ValueError("merge input aliases must be unique")
+        scopes = {scope for item in self.inputs for scope in item.weights}
+        for scope in scopes:
+            total = sum(item.weights.get(scope, 0.0) for item in self.inputs)
+            if abs(total - 1.0) > 1e-6:
+                raise ValueError(f"merge weights for {scope} must sum to 1.0, got {total}")
+        if self.operator == "linear_weighted_sum" and scopes != {"global"}:
+            raise ValueError("linear_weighted_sum requires only global weights")
+        if self.operator in {"layer_weighted_sum", "rank_concat"} and not {"text_fusion", "transformer"}.issubset(scopes):
+            raise ValueError(f"{self.operator} requires text_fusion and transformer weights")
+        return self
+
+
+class MergeRegistration(BaseModel):
+    model_id: str | None = None
+    version_name: str | None = Field(default=None, min_length=1, max_length=240)
+    trigger_words: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    lifecycle_state: Literal["candidate"] = "candidate"
+
+    @model_validator(mode="after")
+    def validate_model_version(self):
+        if self.model_id and not self.version_name:
+            raise ValueError("version_name is required when model_id is supplied")
+        return self
+
+
+class MergePrepareRequest(BaseModel):
+    project_id: str
+    client_request_id: str = Field(min_length=1, max_length=128)
+    recipe: MergeRecipe
+    registration: MergeRegistration = Field(default_factory=MergeRegistration)
+
+
+class MergeCompleteRequest(BaseModel):
+    output_path: str = Field(min_length=1, max_length=2048)
+    output_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    output_size: int = Field(ge=1)
+    output_step: int = Field(default=0, ge=0)
+
+
+class MergeFailRequest(BaseModel):
+    phase: str = Field(min_length=1, max_length=80)
+    error_code: str = Field(min_length=1, max_length=80)
+    error_message: str = Field(min_length=1)
+
+
+class MergeHeartbeatRequest(BaseModel):
+    phase: str | None = Field(default=None, max_length=80)
+
+
 class CheckpointCreate(BaseModel):
     step: int = Field(ge=0)
     asset_id: str
@@ -294,6 +431,11 @@ class ModelVersionCreate(BaseModel):
     base_model: str | None = None
     notes: str | None = None
     lifecycle_state: Literal["candidate", "approved", "archived"] = "candidate"
+
+
+class ModelVersionFalRegistration(BaseModel):
+    fal_url: AnyHttpUrl
+    endpoint_id: str = Field(min_length=1, max_length=240)
 
 
 class ModelVersionState(BaseModel):

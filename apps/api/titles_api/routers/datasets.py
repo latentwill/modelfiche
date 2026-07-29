@@ -40,6 +40,48 @@ def _asset_fields(db: Session, asset_id: str) -> dict[str, Any]:
         "availability_error": None if locations else "No storage object is associated with this dataset asset.",
     }
 
+def _version_subset_rows(db: Session, version_id: str) -> list[dict[str, Any]]:
+    subsets = db.scalars(
+        select(models.DatasetVersionSubset)
+        .where(models.DatasetVersionSubset.dataset_version_id == version_id)
+        .order_by(models.DatasetVersionSubset.position, models.DatasetVersionSubset.key)
+    ).all()
+    rows = []
+    for subset in subsets:
+        memberships = db.scalars(
+            select(models.DatasetSubsetItem)
+            .where(models.DatasetSubsetItem.subset_id == subset.id)
+            .order_by(models.DatasetSubsetItem.position)
+        ).all()
+        rows.append({
+            **_dump(subset),
+            "item_count": len(memberships),
+            "memberships": [_dump(membership) for membership in memberships],
+        })
+    return rows
+
+
+def _draft_subset_rows(db: Session, draft_id: str) -> list[dict[str, Any]]:
+    subsets = db.scalars(
+        select(models.DatasetDraftSubset)
+        .where(models.DatasetDraftSubset.draft_id == draft_id)
+        .order_by(models.DatasetDraftSubset.position, models.DatasetDraftSubset.key)
+    ).all()
+    rows = []
+    for subset in subsets:
+        memberships = db.scalars(
+            select(models.DatasetDraftSubsetItem)
+            .where(models.DatasetDraftSubsetItem.subset_id == subset.id)
+            .order_by(models.DatasetDraftSubsetItem.position)
+        ).all()
+        rows.append({
+            **_dump(subset),
+            "item_count": len(memberships),
+            "memberships": [_dump(membership) for membership in memberships],
+        })
+    return rows
+
+
 def _dump_draft(db: Session, draft: models.DatasetDraft) -> dict[str, Any]:
     items = db.scalars(
         select(models.DatasetDraftItem)
@@ -49,7 +91,119 @@ def _dump_draft(db: Session, draft: models.DatasetDraft) -> dict[str, Any]:
     return {
         **_dump(draft),
         "items": [{**_dump(item), **_asset_fields(db, item.asset_id)} for item in items],
+        "subsets": _draft_subset_rows(db, draft.id),
     }
+
+
+def _recompute_version_digest(db: Session, version: models.DatasetVersion) -> str:
+    items = db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all()
+    subsets = db.scalars(select(models.DatasetVersionSubset).where(models.DatasetVersionSubset.dataset_version_id == version.id)).all()
+    subset_ids = [subset.id for subset in subsets]
+    memberships = db.scalars(select(models.DatasetSubsetItem).where(models.DatasetSubsetItem.subset_id.in_(subset_ids))).all() if subset_ids else []
+    version.content_digest = content_digest(version, items, subsets, memberships)
+    return version.content_digest
+
+
+def _create_default_subset(db: Session, version: models.DatasetVersion, items: list[models.DatasetItem]) -> models.DatasetVersionSubset:
+    subset = models.DatasetVersionSubset(
+        dataset_version_id=version.id,
+        key="default",
+        name="Default",
+        role="custom",
+        color_token="blue",
+        position=0,
+    )
+    db.add(subset)
+    db.flush()
+    for position, item in enumerate(sorted(items, key=lambda value: (value.position, value.asset_id))):
+        db.add(models.DatasetSubsetItem(
+            subset_id=subset.id,
+            dataset_item_id=item.id,
+            membership_role="primary",
+            position=position,
+        ))
+    db.flush()
+    return subset
+
+
+def _clone_version_composition(
+    db: Session,
+    source_version_id: str,
+    target_version_id: str,
+    item_ids: dict[str, str],
+) -> None:
+    source_subsets = db.scalars(
+        select(models.DatasetVersionSubset)
+        .where(models.DatasetVersionSubset.dataset_version_id == source_version_id)
+        .order_by(models.DatasetVersionSubset.position)
+    ).all()
+    subset_ids: dict[str, str] = {}
+    for source in source_subsets:
+        target = models.DatasetVersionSubset(
+            dataset_version_id=target_version_id,
+            key=source.key,
+            name=source.name,
+            description=source.description,
+            role=source.role,
+            color_token=source.color_token,
+            position=source.position,
+        )
+        db.add(target)
+        db.flush()
+        subset_ids[source.id] = target.id
+    for source in source_subsets:
+        if source.parent_subset_id:
+            target = db.get(models.DatasetVersionSubset, subset_ids[source.id])
+            target.parent_subset_id = subset_ids.get(source.parent_subset_id)
+        memberships = db.scalars(select(models.DatasetSubsetItem).where(models.DatasetSubsetItem.subset_id == source.id)).all()
+        for membership in memberships:
+            target_item_id = item_ids.get(membership.dataset_item_id)
+            if target_item_id:
+                db.add(models.DatasetSubsetItem(
+                    subset_id=subset_ids[source.id],
+                    dataset_item_id=target_item_id,
+                    membership_role=membership.membership_role,
+                    position=membership.position,
+                ))
+    db.flush()
+
+
+def _clone_version_to_draft(db: Session, version_id: str, draft_id: str, item_ids: dict[str, str]) -> None:
+    source_subsets = db.scalars(
+        select(models.DatasetVersionSubset)
+        .where(models.DatasetVersionSubset.dataset_version_id == version_id)
+        .order_by(models.DatasetVersionSubset.position)
+    ).all()
+    subset_ids: dict[str, str] = {}
+    for source in source_subsets:
+        target = models.DatasetDraftSubset(
+            draft_id=draft_id,
+            source_subset_id=source.id,
+            key=source.key,
+            name=source.name,
+            description=source.description,
+            role=source.role,
+            color_token=source.color_token,
+            position=source.position,
+        )
+        db.add(target)
+        db.flush()
+        subset_ids[source.id] = target.id
+    for source in source_subsets:
+        if source.parent_subset_id:
+            target = db.get(models.DatasetDraftSubset, subset_ids[source.id])
+            target.parent_subset_id = subset_ids.get(source.parent_subset_id)
+        memberships = db.scalars(select(models.DatasetSubsetItem).where(models.DatasetSubsetItem.subset_id == source.id)).all()
+        for membership in memberships:
+            draft_item_id = item_ids.get(membership.dataset_item_id)
+            if draft_item_id:
+                db.add(models.DatasetDraftSubsetItem(
+                    subset_id=subset_ids[source.id],
+                    draft_item_id=draft_item_id,
+                    membership_role=membership.membership_role,
+                    position=membership.position,
+                ))
+    db.flush()
 
 
 def _read_local_image(db: Session, asset_id: str) -> tuple[bytes, str]:
@@ -192,7 +346,9 @@ def create_dataset(body: schemas.DatasetCreate, db: DB, x_profile_id: Annotated[
             caption_format=body.caption_format,
         ))
     db.flush()
-    version.content_digest = content_digest(version, db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all())
+    created_items = db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all()
+    _create_default_subset(db, version, created_items)
+    _recompute_version_digest(db, version)
     record_activity(db, action="dataset.created", subject_type="dataset", subject_id=dataset.id, profile_id=actor.id, project_id=project.id, details={"version_id": version.id, "items": len(body.items)})
     db.commit()
     return {**_dump(dataset), "current_version_id": version.id}
@@ -243,10 +399,15 @@ def duplicate_dataset_version(
             )
         )
     db.flush()
-    version.content_digest = content_digest(
-        version,
-        db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all(),
+    target_items = db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all()
+    target_by_asset = {item.asset_id: item.id for item in target_items}
+    _clone_version_composition(
+        db,
+        source_version.id,
+        version.id,
+        {item.id: target_by_asset[item.asset_id] for item in source_items},
     )
+    _recompute_version_digest(db, version)
     draft = None
     if body.open_draft:
         draft = models.DatasetDraft(dataset_id=dataset.id, base_version_id=version.id, created_by_profile_id=actor.id)
@@ -265,6 +426,15 @@ def duplicate_dataset_version(
                     position=item.position,
                 )
             )
+        db.flush()
+        draft_items = db.scalars(select(models.DatasetDraftItem).where(models.DatasetDraftItem.draft_id == draft.id)).all()
+        draft_by_asset = {item.asset_id: item.id for item in draft_items}
+        _clone_version_to_draft(
+            db,
+            version.id,
+            draft.id,
+            {item.id: draft_by_asset[item.asset_id] for item in target_items},
+        )
     record_activity(
         db,
         action="dataset.duplicated",
@@ -287,7 +457,15 @@ def dataset(dataset_id: str, db: DB):
     dataset = get_or_404(db, models.Dataset, dataset_id)
     versions = db.scalars(select(models.DatasetVersion).where(models.DatasetVersion.dataset_id == dataset.id).order_by(models.DatasetVersion.version_number.desc())).all()
     project = db.get(models.Project, dataset.project_id)
-    version_rows = [{**_dump(v), "item_count": int(db.scalar(select(func.count()).select_from(models.DatasetItem).where(models.DatasetItem.dataset_version_id == v.id)) or 0)} for v in versions]
+    version_rows = []
+    for version in versions:
+        subsets = _version_subset_rows(db, version.id)
+        version_rows.append({
+            **_dump(version),
+            "item_count": int(db.scalar(select(func.count()).select_from(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)) or 0),
+            "subset_count": len(subsets),
+            "subsets": subsets,
+        })
     current = versions[0] if versions else None
     version_ids = [version.id for version in versions]
     runs = db.scalars(select(models.TrainingRun).where(models.TrainingRun.dataset_version_id.in_(version_ids)).order_by(models.TrainingRun.created_at.desc())).all() if version_ids else []
@@ -298,6 +476,7 @@ def dataset(dataset_id: str, db: DB):
         "current_version_id": current.id if current else None,
         "source_uri": current.source_uri if current else None,
         "trigger_words": current.trigger_words if current else [],
+        "subsets": _version_subset_rows(db, current.id) if current else [],
         "versions": version_rows,
         "training_runs": [{"id": run.id, "name": run.name, "status": run.status, "dataset_version_id": run.dataset_version_id} for run in runs],
         "empty_reason": "No source image objects were imported for this dataset." if current and not version_rows[0]["item_count"] else None,
@@ -342,13 +521,128 @@ def version_items(version_id: str, db: DB, included: bool | None = None, limit: 
 def dataset_version(version_id: str, db: DB):
     version = get_or_404(db, models.DatasetVersion, version_id)
     dataset = get_or_404(db, models.Dataset, version.dataset_id)
+    subsets = _version_subset_rows(db, version.id)
     return {
         **_dump(version),
         "dataset_name": dataset.name,
         "project_id": dataset.project_id,
         "item_count": int(db.scalar(select(func.count()).select_from(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)) or 0),
+        "subset_count": len(subsets),
+        "subsets": subsets,
     }
 
+
+@router.get("/dataset-versions/{version_id}/subsets")
+def version_subsets(version_id: str, db: DB):
+    get_or_404(db, models.DatasetVersion, version_id)
+    return _version_subset_rows(db, version_id)
+
+
+
+@router.post("/dataset-drafts/{draft_id}/subsets", status_code=status.HTTP_201_CREATED)
+def create_draft_subset(
+    draft_id: str,
+    body: schemas.DatasetSubsetCreate,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    draft = get_or_404(db, models.DatasetDraft, draft_id)
+    if draft.state != "active":
+        raise HTTPException(status_code=409, detail="draft is not active")
+    if body.parent_subset_id:
+        parent = get_or_404(db, models.DatasetDraftSubset, body.parent_subset_id)
+        if parent.draft_id != draft.id:
+            raise HTTPException(status_code=400, detail="parent subset belongs to a different draft")
+    subset = models.DatasetDraftSubset(draft_id=draft.id, **body.model_dump())
+    db.add(subset)
+    db.flush()
+    dataset = get_or_404(db, models.Dataset, draft.dataset_id)
+    record_activity(db, action="dataset_subset.created", subject_type="dataset_draft", subject_id=draft.id, profile_id=active_profile(db, x_profile_id).id, project_id=dataset.project_id, details={"subset_id": subset.id, "key": subset.key})
+    db.commit()
+    return {**_dump(subset), "item_count": 0, "memberships": []}
+
+
+@router.patch("/dataset-drafts/{draft_id}/subsets/{subset_id}")
+def update_draft_subset(
+    draft_id: str,
+    subset_id: str,
+    body: schemas.DatasetSubsetUpdate,
+    db: DB,
+):
+    draft = get_or_404(db, models.DatasetDraft, draft_id)
+    subset = get_or_404(db, models.DatasetDraftSubset, subset_id)
+    if draft.state != "active" or subset.draft_id != draft.id:
+        raise HTTPException(status_code=409, detail="subset is not editable in this draft")
+    changes = body.model_dump(exclude_unset=True)
+    if "parent_subset_id" in changes and changes["parent_subset_id"]:
+        parent = get_or_404(db, models.DatasetDraftSubset, str(changes["parent_subset_id"]))
+        if parent.draft_id != draft.id or parent.id == subset.id:
+            raise HTTPException(status_code=400, detail="invalid parent subset")
+    for key, value in changes.items():
+        setattr(subset, key, value)
+    db.commit()
+    return {**_dump(subset), "memberships": [row for row in _draft_subset_rows(db, draft.id) if row["id"] == subset.id][0]["memberships"]}
+
+
+@router.delete("/dataset-drafts/{draft_id}/subsets/{subset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_draft_subset(draft_id: str, subset_id: str, db: DB):
+    draft = get_or_404(db, models.DatasetDraft, draft_id)
+    subset = get_or_404(db, models.DatasetDraftSubset, subset_id)
+    if draft.state != "active" or subset.draft_id != draft.id:
+        raise HTTPException(status_code=409, detail="subset is not editable in this draft")
+    children = db.scalar(select(func.count()).select_from(models.DatasetDraftSubset).where(models.DatasetDraftSubset.parent_subset_id == subset.id))
+    if children:
+        raise HTTPException(status_code=409, detail="move or remove child subsets first")
+    db.delete(subset)
+    db.commit()
+
+
+@router.post("/dataset-drafts/{draft_id}/subset-assignments")
+def assign_draft_subset(
+    draft_id: str,
+    body: schemas.DatasetSubsetAssignment,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    draft = get_or_404(db, models.DatasetDraft, draft_id)
+    subset = get_or_404(db, models.DatasetDraftSubset, body.subset_id)
+    if draft.state != "active" or subset.draft_id != draft.id:
+        raise HTTPException(status_code=409, detail="subset is not editable in this draft")
+    items = db.scalars(select(models.DatasetDraftItem).where(models.DatasetDraftItem.id.in_(body.draft_item_ids))).all()
+    if len(items) != len(set(body.draft_item_ids)) or any(item.draft_id != draft.id for item in items):
+        raise HTTPException(status_code=400, detail="one or more items do not belong to this draft")
+    if body.membership_role == "primary":
+        existing = db.scalars(
+            select(models.DatasetDraftSubsetItem)
+            .join(models.DatasetDraftSubset, models.DatasetDraftSubset.id == models.DatasetDraftSubsetItem.subset_id)
+            .where(
+                models.DatasetDraftSubset.draft_id == draft.id,
+                models.DatasetDraftSubsetItem.draft_item_id.in_(body.draft_item_ids),
+                models.DatasetDraftSubsetItem.membership_role == "primary",
+            )
+        ).all()
+        for membership in existing:
+            db.delete(membership)
+        db.flush()
+    for position, item_id in enumerate(body.draft_item_ids):
+        existing = db.scalar(select(models.DatasetDraftSubsetItem).where(
+            models.DatasetDraftSubsetItem.subset_id == subset.id,
+            models.DatasetDraftSubsetItem.draft_item_id == item_id,
+        ))
+        if existing:
+            existing.membership_role = body.membership_role
+            existing.position = position
+        else:
+            db.add(models.DatasetDraftSubsetItem(
+                subset_id=subset.id,
+                draft_item_id=item_id,
+                membership_role=body.membership_role,
+                position=position,
+            ))
+    dataset = get_or_404(db, models.Dataset, draft.dataset_id)
+    record_activity(db, action="dataset_subset.assigned", subject_type="dataset_draft", subject_id=draft.id, profile_id=active_profile(db, x_profile_id).id, project_id=dataset.project_id, details={"subset_id": subset.id, "item_count": len(body.draft_item_ids), "membership_role": body.membership_role})
+    db.commit()
+    return {"assigned": len(body.draft_item_ids), "subsets": _draft_subset_rows(db, draft.id)}
 
 @router.post("/datasets/{dataset_id}/drafts", status_code=status.HTTP_201_CREATED)
 def create_draft(dataset_id: str, body: schemas.DraftCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
@@ -360,8 +654,13 @@ def create_draft(dataset_id: str, body: schemas.DraftCreate, db: DB, x_profile_i
     draft = models.DatasetDraft(dataset_id=dataset.id, base_version_id=base.id, created_by_profile_id=actor.id)
     db.add(draft)
     db.flush()
+    item_ids: dict[str, str] = {}
     for item in db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == base.id)):
-        db.add(models.DatasetDraftItem(draft_id=draft.id, source_item_id=item.id, asset_id=item.asset_id, caption=item.caption, caption_format=item.caption_format, included=item.included, tags=item.tags, position=item.position))
+        draft_item = models.DatasetDraftItem(draft_id=draft.id, source_item_id=item.id, asset_id=item.asset_id, caption=item.caption, caption_format=item.caption_format, included=item.included, tags=item.tags, position=item.position)
+        db.add(draft_item)
+        db.flush()
+        item_ids[item.id] = draft_item.id
+    _clone_version_to_draft(db, base.id, draft.id, item_ids)
     record_activity(db, action="dataset_draft.created", subject_type="dataset_draft", subject_id=draft.id, profile_id=actor.id, project_id=dataset.project_id)
     db.commit()
     return _dump(draft)
@@ -743,6 +1042,30 @@ def publish(draft_id: str, body: schemas.DraftPublish, db: DB, x_profile_id: Ann
     dataset = get_or_404(db, models.Dataset, draft.dataset_id)
     base = get_or_404(db, models.DatasetVersion, draft.base_version_id)
     draft_items = list(db.scalars(select(models.DatasetDraftItem).where(models.DatasetDraftItem.draft_id == draft.id)))
+    draft_subsets = db.scalars(select(models.DatasetDraftSubset).where(models.DatasetDraftSubset.draft_id == draft.id)).all()
+    if not draft_subsets:
+        raise HTTPException(status_code=422, detail="dataset version must contain at least one sub-dataset")
+    primary_memberships = db.scalars(
+        select(models.DatasetDraftSubsetItem)
+        .join(models.DatasetDraftSubset, models.DatasetDraftSubset.id == models.DatasetDraftSubsetItem.subset_id)
+        .where(
+            models.DatasetDraftSubset.draft_id == draft.id,
+            models.DatasetDraftSubsetItem.membership_role == "primary",
+        )
+    ).all()
+    primary_counts: dict[str, int] = {}
+    for membership in primary_memberships:
+        primary_counts[membership.draft_item_id] = primary_counts.get(membership.draft_item_id, 0) + 1
+    invalid_items = [item.id for item in draft_items if item.included and primary_counts.get(item.id, 0) != 1]
+    if invalid_items:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "every included item must have exactly one primary sub-dataset membership",
+                "item_ids": invalid_items[:100],
+                "truncated": len(invalid_items) > 100,
+            },
+        )
     caption_formats = {item.caption_format for item in draft_items}
     if len(caption_formats) > 1:
         raise HTTPException(status_code=422, detail="draft captions must use one format; select Text or JSON for the whole draft")
@@ -752,13 +1075,40 @@ def publish(draft_id: str, body: schemas.DraftPublish, db: DB, x_profile_id: Ann
     version = models.DatasetVersion(dataset_id=dataset.id, version_number=next_number, name=body.name, source_uri=base.source_uri, caption_format=caption_format, trigger_words=base.trigger_words, published_by_profile_id=actor.id, parent_version_id=base.id, lineage_kind="draft_publish")
     db.add(version)
     db.flush()
+    published_item_ids: dict[str, str] = {}
     for item in draft_items:
-        db.add(models.DatasetItem(dataset_version_id=version.id, asset_id=item.asset_id, caption=item.caption, caption_format=item.caption_format, included=item.included, tags=list(item.tags or []), position=item.position))
+        published_item = models.DatasetItem(dataset_version_id=version.id, asset_id=item.asset_id, caption=item.caption, caption_format=item.caption_format, included=item.included, tags=list(item.tags or []), position=item.position)
+        db.add(published_item)
+        db.flush()
+        published_item_ids[item.id] = published_item.id
+    draft_subsets = db.scalars(select(models.DatasetDraftSubset).where(models.DatasetDraftSubset.draft_id == draft.id).order_by(models.DatasetDraftSubset.position)).all()
+    published_subset_ids: dict[str, str] = {}
+    for subset in draft_subsets:
+        published_subset = models.DatasetVersionSubset(
+            dataset_version_id=version.id,
+            key=subset.key,
+            name=subset.name,
+            description=subset.description,
+            role=subset.role,
+            color_token=subset.color_token,
+            position=subset.position,
+        )
+        db.add(published_subset)
+        db.flush()
+        published_subset_ids[subset.id] = published_subset.id
+    for subset in draft_subsets:
+        if subset.parent_subset_id:
+            db.get(models.DatasetVersionSubset, published_subset_ids[subset.id]).parent_subset_id = published_subset_ids.get(subset.parent_subset_id)
+        memberships = db.scalars(select(models.DatasetDraftSubsetItem).where(models.DatasetDraftSubsetItem.subset_id == subset.id)).all()
+        for membership in memberships:
+            db.add(models.DatasetSubsetItem(
+                subset_id=published_subset_ids[subset.id],
+                dataset_item_id=published_item_ids[membership.draft_item_id],
+                membership_role=membership.membership_role,
+                position=membership.position,
+            ))
     db.flush()
-    version.content_digest = content_digest(
-        version,
-        db.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all(),
-    )
+    _recompute_version_digest(db, version)
     draft.state = "published"
     record_activity(db, action="dataset_version.published", subject_type="dataset_version", subject_id=version.id, profile_id=actor.id, project_id=dataset.project_id, details={"draft_id": draft.id, "version": next_number})
     db.commit()

@@ -15,7 +15,7 @@ DB = Annotated[Session, Depends(get_db)]
 
 
 def dump(row) -> dict[str, Any]:
-    return {column.name: getattr(row, column.key) for column in row.__table__.columns}
+    return {column.name: getattr(row, row.__mapper__.get_property_by_column(column).key) for column in row.__table__.columns}
 
 def prompt_projection(prompt: models.Prompt) -> dict[str, Any]:
     """Serialize the mapped metadata_ attribute instead of SQLAlchemy's class metadata."""

@@ -351,7 +351,7 @@ def handle_filestream(session: Session, principal: WandbPrincipal, body: object)
                 )
             except (MetricValidationError, MetricBatchConflict) as exc:
                 raise ProtocolError(str(exc)) from exc
-        elif content:
+        elif filename == "wandb-summary.json" and content:
             summary = _decoded_object(content[-1])
             if summary is None:
                 raise ProtocolError("wandb-summary.json content must contain JSON objects")

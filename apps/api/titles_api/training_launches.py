@@ -363,10 +363,11 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
         raise LaunchError(f"unsupported FAL endpoint IDs: {', '.join(unsupported)}")
 
     if not version.content_digest:
-        items = session.scalars(
-            select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)
-        ).all()
-        version.content_digest = content_digest(version, items)
+        items = session.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all()
+        subsets = session.scalars(select(models.DatasetVersionSubset).where(models.DatasetVersionSubset.dataset_version_id == version.id)).all()
+        subset_ids = [subset.id for subset in subsets]
+        memberships = session.scalars(select(models.DatasetSubsetItem).where(models.DatasetSubsetItem.subset_id.in_(subset_ids))).all() if subset_ids else []
+        version.content_digest = content_digest(version, items, subsets, memberships)
 
     run = models.TrainingRun(
         project_id=project.id,
@@ -388,6 +389,19 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
     )
     session.add(run)
     session.flush()
+    item_count = int(session.scalar(select(func.count()).select_from(models.DatasetItem).where(
+        models.DatasetItem.dataset_version_id == version.id,
+        models.DatasetItem.included.is_(True),
+    )) or 0)
+    session.add(models.TrainingRunDatasetInput(
+        run_id=run.id,
+        dataset_version_id=version.id,
+        item_count_snapshot=item_count,
+        sampling_weight=1.0,
+        repeat_count=1,
+        position=0,
+        dataset_content_digest=version.content_digest,
+    ))
 
     run_prefix = f"projects/{project.id}/runs/{run.id}/"
     if not _source_allows_prefix(source, run_prefix):

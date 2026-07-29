@@ -49,7 +49,18 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
             "seed": 17,
             "generated_at": "2026-03-01T00:00:00Z",
             "_history": {"sent_at": "2026-04-01T00:00:00Z", "ended_at": "2026-05-01T12:30:00Z"},
-            "_grid_metadata": {"parameters": {"lora_scale": 0.75}, "grid_cell_id": "cell-1", "x_index": 2, "y_index": 1},
+            "_grid_metadata": {
+                "parameters": {"lora_scale": 0.75},
+                "grid_cell_id": "cell-1",
+                "x_index": 2,
+                "y_index": 1,
+                "checkpoint_name": "step 750",
+                "run_id": "training-run-1",
+                "run_name": "portrait-v1",
+                "base_model": "krea/Krea-2-Raw",
+                "model_name": "Portrait",
+                "model_version_name": "portrait-v001-step-750",
+            },
             "timings": {"inference": 1.2},
             "images": [{"url": "https://fal.media/files/output.png", "content_type": "image/png", "width": 640, "height": 480, "file_size": 5}],
         },
@@ -64,6 +75,12 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         assert asset.metadata_["parameters"] == {"lora_scale": 0.75}
         assert asset.metadata_["fal_request_input"] == {"lora_scale": 0.75}
         assert asset.metadata_["grid_cell_id"] == "cell-1"
+        assert asset.metadata_["checkpoint_name"] == "step 750"
+        assert asset.metadata_["run_id"] == "training-run-1"
+        assert asset.metadata_["run_name"] == "portrait-v1"
+        assert asset.metadata_["base_model"] == "krea/Krea-2-Raw"
+        assert asset.metadata_["model_name"] == "Portrait"
+        assert asset.metadata_["model_version_name"] == "portrait-v001-step-750"
         assert output.provider_metadata["source_url"] == "https://fal.media/files/output.png"
         assert output.provider_metadata["request_ids"] == ["request-123"]
         assert output.provider_metadata["_request_input"] == {"lora_scale": 0.75}

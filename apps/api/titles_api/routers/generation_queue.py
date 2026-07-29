@@ -59,12 +59,18 @@ def normalize_state(value: str) -> str:
 
 def projection(item: models.GenerationQueueItem) -> dict[str, Any]:
     children = []
+    grid_definition_id = (item.request_snapshot or {}).get("grid_definition_id")
     if item.id:
         session = Session.object_session(item)
         if session:
             children = list(session.scalars(select(models.GenerationQueueChild).where(models.GenerationQueueChild.queue_item_id == item.id).order_by(models.GenerationQueueChild.ordinal)))
+            if item.workflow == "grid" and not grid_definition_id:
+                grid_cell_id = next((str(child.result.get("grid_cell_id")) for child in children if isinstance(child.result, dict) and child.result.get("grid_cell_id")), None)
+                cell = session.get(models.GridCell, grid_cell_id) if grid_cell_id else None
+                grid_definition_id = cell.grid_definition_id if cell else None
     return {"id": item.id, "workflow": item.workflow, "provider": item.provider, "queue_owner": item.queue_owner,
         "project_id": item.project_id, "model_id": item.model_id, "model_version_ids": item.model_version_ids,
+        "grid_definition_id": grid_definition_id,
         "compiled_request_id": item.compiled_request_id, "admission_id": item.admission_id, "client_request_id": item.client_request_id,
         "status": item.state, "progress": item.progress, "result": item.result, "error": item.error,
         "provider_job_id": item.provider_job_id, "job_id": item.job_id, "request": item.request_snapshot,

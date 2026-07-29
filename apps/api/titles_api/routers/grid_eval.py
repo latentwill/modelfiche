@@ -124,6 +124,39 @@ def _preflight(body: schemas.PlanPayload, project_id: str, db: Session) -> dict[
     }
 def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
     cells = db.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid.id).order_by(models.GridCell.ordinal)).all()
+    output_ids = [cell.eval_output_id for cell in cells if cell.eval_output_id]
+    outputs = {
+        output.id: output
+        for output in db.scalars(select(models.EvalOutput).where(models.EvalOutput.id.in_(output_ids))).all()
+    } if output_ids else {}
+    version_ids = {
+        str((cell.target_snapshot or {}).get("model_version_id"))
+        for cell in cells
+        if (cell.target_snapshot or {}).get("model_version_id")
+    }
+    versions = {
+        version.id: version
+        for version in db.scalars(select(models.ModelVersion).where(models.ModelVersion.id.in_(version_ids))).all()
+    } if version_ids else {}
+    checkpoint_ids = {version.checkpoint_id for version in versions.values()}
+    checkpoints = {
+        checkpoint.id: checkpoint
+        for checkpoint in db.scalars(select(models.Checkpoint).where(models.Checkpoint.id.in_(checkpoint_ids))).all()
+    } if checkpoint_ids else {}
+    cell_rows = []
+    for cell in cells:
+        output = outputs.get(cell.eval_output_id)
+        version_id = str((cell.target_snapshot or {}).get("model_version_id") or "")
+        version = versions.get(version_id)
+        checkpoint = checkpoints.get(version.checkpoint_id) if version else None
+        cell_rows.append({
+            **_dump(cell),
+            "asset_id": output.asset_id if output else None,
+            "asset_revision_id": output.asset_id if output else None,
+            "seed": output.seed if output else None,
+            "checkpoint_step": checkpoint.step if checkpoint else None,
+            "model_version_name": version.name if version else None,
+        })
     jobs = db.scalars(select(models.Job).where(models.Job.payload["grid_definition_id"].as_string() == grid.id).order_by(models.Job.created_at.desc())).all()
     runs = []
     for job in jobs:
@@ -135,7 +168,7 @@ def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
         "plan": dict(grid.plan_snapshot or {}),
         "plan_version": grid.plan_version,
         "plan_digest": grid.plan_digest,
-        "cells": [_dump(cell) for cell in cells],
+        "cells": cell_rows,
         "runs": runs,
         "request_count": grid.request_count,
         "estimated_cost": grid.estimated_cost,
@@ -279,7 +312,7 @@ def queue_grid(project_id: str, grid_id: str, body: schemas.GridQueueRequest, db
     job = models.Job(workspace_id=current_workspace(db).id, kind="fal.grid_batch", profile_id=actor.id, idempotency_key=parent_key, payload={})
     db.add(job)
     db.flush()
-    queue_item = models.GenerationQueueItem(workspace_id=current_workspace(db).id, client_request_id=parent_key, workflow="grid", provider="fal", queue_owner="grid", project_id=project_id, model_id=version.model_id if version and singleton else None, model_version_ids=sorted({str((cell.target_snapshot or {})["model_version_id"]) for cell in cells if (cell.target_snapshot or {}).get("model_version_id")}), compiled_request_id=str(uuid4()), state="admitted", request_snapshot={"run_id": run.id, "billing_acknowledgement": body.billing_acknowledgement, "plan": grid.plan_snapshot, "cells": [{"grid_cell_id": cell.id, "ordinal": cell.ordinal, "target": cell.target_snapshot, "effective_params": cell.effective_params, "coordinate": cell.coordinate} for cell in cells]}, job_id=job.id)
+    queue_item = models.GenerationQueueItem(workspace_id=current_workspace(db).id, client_request_id=parent_key, workflow="grid", provider="fal", queue_owner="grid", project_id=project_id, model_id=version.model_id if version and singleton else None, model_version_ids=sorted({str((cell.target_snapshot or {})["model_version_id"]) for cell in cells if (cell.target_snapshot or {}).get("model_version_id")}), compiled_request_id=str(uuid4()), state="admitted", request_snapshot={"grid_definition_id": grid.id, "run_id": run.id, "billing_acknowledgement": body.billing_acknowledgement, "plan": grid.plan_snapshot, "cells": [{"grid_cell_id": cell.id, "ordinal": cell.ordinal, "target": cell.target_snapshot, "effective_params": cell.effective_params, "coordinate": cell.coordinate} for cell in cells]}, progress={"completed": 0, "total": len(cells), "fraction": 0.0}, result={}, job_id=job.id)
     db.add(queue_item)
     db.flush()
     child_admissions = []

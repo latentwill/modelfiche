@@ -368,7 +368,15 @@ class FalGridBatchHandler:
                                 **({"lora_scale": plan["lora_scale"]} if plan.get("lora_scale") is not None else {}),
                             },
                             "checkpoint_id": plan.get("checkpoint_id"),
+                            "checkpoint_name": f"step {plan['checkpoint_step']}" if plan.get("checkpoint_step") is not None else None,
+                            "checkpoint_step": plan.get("checkpoint_step"),
+                            "run_id": plan.get("training_run_id"),
+                            "run_name": plan.get("training_run_name"),
+                            "base_model": plan.get("base_model"),
+                            "model_id": plan.get("model_id"),
+                            "model_name": plan.get("model_name"),
                             "model_version_id": plan.get("model_version_id"),
+                            "model_version_name": plan.get("model_version_name"),
                             "checkpoint_revision_id": plan.get("checkpoint_revision_id"),
                             "grid_cell_id": plan.get("grid_cell_id"),
                             "grid_definition_id": grid_id,
@@ -434,17 +442,25 @@ class FalGridBatchHandler:
                 target = dict(cell.target_snapshot or {})
                 case = dict(cell.case_snapshot or {})
                 input_value = dict(case.get("input") or {})
-                checkpoint_id = None
                 version_id = target.get("model_version_id")
-                if version_id:
-                    version = session.get(models.ModelVersion, str(version_id))
-                    checkpoint_id = version.checkpoint_id if version else None
+                version = session.get(models.ModelVersion, str(version_id)) if version_id else None
+                checkpoint_id = version.checkpoint_id if version else None
                 if target.get("checkpoint_revision_id") and not checkpoint_id:
                     revision = session.get(models.CheckpointRevision, str(target["checkpoint_revision_id"]))
                     checkpoint_id = revision.checkpoint_id if revision else None
+                checkpoint = session.get(models.Checkpoint, checkpoint_id) if checkpoint_id else None
+                training_run = session.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+                model = session.get(models.Model, version.model_id) if version else None
                 plans.append({
                     "endpoint_id": cell.endpoint_id,
                     "checkpoint_id": checkpoint_id,
+                    "checkpoint_step": checkpoint.step if checkpoint else None,
+                    "training_run_id": training_run.id if training_run else None,
+                    "training_run_name": training_run.name if training_run else None,
+                    "base_model": (version.base_model if version else None) or (training_run.base_model if training_run else None),
+                    "model_id": model.id if model else None,
+                    "model_name": model.name if model else None,
+                    "model_version_name": version.name if version else None,
                     "prompt_id": None,
                     "case_id": case.get("case_id"),
                     "prompt": str(input_value.get("prompt") or input_value.get("text") or ""),

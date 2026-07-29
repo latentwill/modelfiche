@@ -331,8 +331,8 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
             headers=auth,
             json={
                 "files": {
-                    "output.log": {"offset": 0, "content": []},
-                    "wandb-events.jsonl": {"offset": 0, "content": []},
+                    "output.log": {"offset": 0, "content": ["training started"]},
+                    "wandb-events.jsonl": {"offset": 0, "content": ['{"event": "heartbeat"}']},
                 }
             },
         )

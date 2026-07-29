@@ -130,8 +130,8 @@ describe("gallery navigation contracts", () => {
 
     const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
     const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
-    expect(metadataFields).toEqual(expect.arrayContaining(["File", "Type", "Kind", "Dimensions", "Dataset", "Provider"]));
-    expect(metadataFields).toEqual(expect.arrayContaining(["Dataset", "Provider"]));
+    expect(metadataFields).toEqual(expect.arrayContaining(["Dimensions", "Dataset", "Provider"]));
+    expect(metadataFields).not.toEqual(expect.arrayContaining(["File", "Type", "Kind"]));
     await waitFor(() => expect(screen.getByRole("link", { name: "Close image review" })).toHaveFocus());
     expect(screen.getByRole("heading", { name: "Filters", hidden: true }).closest("section")).toHaveAttribute("aria-hidden", "true");
     const focusables = Array.from(dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), textarea:not([disabled])"));
@@ -160,6 +160,7 @@ describe("gallery navigation contracts", () => {
 
     const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
     const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
-    expect(metadataFields).toEqual(expect.arrayContaining(["Model", "Checkpoint", "Base model", "Training run", "LoRA scale"]));
+    expect(metadataFields).toEqual(expect.arrayContaining(["Model", "Model version", "Checkpoint", "Step", "Base model", "Training run", "LoRA scale", "Provider"]));
+    expect(metadataFields).not.toContain("File");
   });
 });

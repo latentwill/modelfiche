@@ -125,7 +125,21 @@ class SQLAlchemyImportSink:
             asset = self.session.get(models.Asset, asset_id)
             if asset:
                 asset.metadata_ = {**asset.metadata_, "source_text": body.decode("utf-8", "replace")}
+
+    def _load_known_assets(self, context: ImportContext) -> None:
+        locations = self.session.scalars(
+            select(models.AssetLocation).where(
+                models.AssetLocation.source_id == context.source_id,
+                models.AssetLocation.object_key.startswith(context.prefix),
+                models.AssetLocation.hydration_state != "remote_missing",
+            )
+        )
+        for location in locations:
+            if location.object_key:
+                self._assets.setdefault(location.object_key, location.asset_id)
+
     def finalize_import(self, context: ImportContext, result: ImportResult) -> None:
+        self._load_known_assets(context)
         for asset_id in self._assets.values():
             asset = self.session.get(models.Asset, asset_id)
             if asset and asset.project_id is None:
@@ -430,22 +444,34 @@ class SQLAlchemyImportSink:
                 self.session.add(stage)
                 self.session.flush()
                 stages[name] = stage
+        existing_checkpoints = list(self.session.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run.id)))
         checkpoints: dict[tuple[str | None, int], models.Checkpoint] = {
-            (item.stage_id, item.step): item
-            for item in self.session.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run.id))
+            (item.stage_id, item.step): item for item in existing_checkpoints
         }
+        checkpoints_by_asset = {item.asset_id: item for item in existing_checkpoints}
+        final_step = normalized.get("steps") if isinstance(normalized.get("steps"), int) else None
         for key, asset_id in self._assets.items():
-            if PurePosixPath(key).suffix.lower() != ".safetensors":
+            path = PurePosixPath(key)
+            if path.suffix.lower() != ".safetensors":
                 continue
-            step = _extract_step(PurePosixPath(key).name)
+            step = _checkpoint_step(path.name, str(config_name or run.name), final_step)
             stage_name = _stage_name(context.prefix, key)
             stage_id = stages[stage_name].id if stage_name else None
             identity = (stage_id, step) if step is not None else None
-            if identity is None or identity in checkpoints:
+            if identity is None:
                 continue
-            checkpoint = models.Checkpoint(run_id=run.id, stage_id=stage_id, step=step, asset_id=asset_id, state="available")
-            self.session.add(checkpoint)
-            self.session.flush()
+            checkpoint = checkpoints_by_asset.get(asset_id)
+            if identity in checkpoints and checkpoints[identity] is not checkpoint:
+                continue
+            if checkpoint is None:
+                checkpoint = models.Checkpoint(run_id=run.id, stage_id=stage_id, step=step, asset_id=asset_id, state="available")
+                self.session.add(checkpoint)
+                self.session.flush()
+                checkpoints_by_asset[asset_id] = checkpoint
+            else:
+                checkpoints.pop((checkpoint.stage_id, checkpoint.step), None)
+                checkpoint.stage_id = stage_id
+                checkpoint.step = step
             establish_checkpoint_revision(self.session, checkpoint)
             checkpoints[identity] = checkpoint
         existing_sample_assets = set(self.session.scalars(select(models.Sample.asset_id).where(models.Sample.run_id == run.id)))
@@ -570,12 +596,16 @@ class SQLAlchemyImportSink:
         else:
             model.name = run.name
             model.description = marker
+        project = self.session.get(models.Project, run.project_id)
+        project_triggers = list(project.trigger_words) if project else []
         for checkpoint in checkpoints:
             version = self.session.scalar(
                 select(models.ModelVersion).where(models.ModelVersion.checkpoint_id == checkpoint.id)
             )
             if version is not None:
                 version.model_id = model.id
+                if not version.trigger_words:
+                    version.trigger_words = project_triggers
                 readiness = {**dict(version.readiness or {}), "imported": True, "training_run_id": run.id}
                 endpoint = _supported_fal_endpoint(version.base_model or run.base_model or model.name)
                 if readiness.get("fal_url") and not any(readiness.get(key) for key in ("endpoint_id", "endpoint", "fal_endpoint")) and endpoint:
@@ -588,6 +618,7 @@ class SQLAlchemyImportSink:
                 model_id=model.id,
                 checkpoint_id=checkpoint.id,
                 name=version_name,
+                trigger_words=project_triggers,
                 base_model=run.base_model,
                 lifecycle_state="candidate",
                 readiness={"imported": True, "training_run_id": run.id},
@@ -710,8 +741,17 @@ def _extract_step(name: str) -> int | None:
     timestamp_sample = re.search(r"__(\d{6,})_\d+(?:\.[^.]+)?$", name)
     if timestamp_sample:
         return int(timestamp_sample.group(1))
-    numbers = re.findall(r"\d+", PurePosixPath(name).stem)
-    return int(numbers[-1]) if numbers else None
+    checkpoint_suffix = re.search(r"_(\d{6,})(?:\.[^.]+)?$", name)
+    return int(checkpoint_suffix.group(1)) if checkpoint_suffix else None
+
+
+def _checkpoint_step(name: str, run_name: str, final_step: int | None) -> int | None:
+    step = _extract_step(name)
+    if step is not None:
+        return step
+    if final_step is not None and PurePosixPath(name).stem == run_name:
+        return final_step
+    return None
 
 
 def _stage_name(prefix: str, key: str) -> str | None:
