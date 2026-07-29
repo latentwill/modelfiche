@@ -15,6 +15,8 @@ export type ExperimentTarget = {
   endpoint_id: string;
   model_version_id?: string | null;
   checkpoint_revision_id?: string | null;
+  display_name?: string;
+  checkpoint_step?: number;
   schema_digest?: string;
   schema: JsonObject;
   fixed_target?: JsonObject;

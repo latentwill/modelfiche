@@ -3052,3 +3052,101 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   .vela-theme .docs-card-grid,
   .vela-theme .docs-columns { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Generated grids are image comparison surfaces, not provenance tables. */
+.vela-theme .generated-grid-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--vela-space-2);
+}
+.vela-theme .generated-grid-links > a {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--vela-space-3);
+  padding: var(--vela-space-3);
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+  color: inherit;
+}
+.vela-theme .generated-grid-links > a:hover { background: var(--vela-surface-soft); }
+.vela-theme .generated-grid-links span { display: grid; gap: 2px; min-width: 0; }
+.vela-theme .generated-grid-links small,
+.vela-theme .generated-grid-links time { color: var(--vela-muted); font: .65rem/1.4 var(--vela-font-mono); }
+.vela-theme .grid-results-view .vela-main { max-width: none; }
+.vela-theme .grid-results-view .grid-z-slice { margin: 0; padding: 0; border: 0; }
+.vela-theme .grid-results-view .grid-z-slice > h2 {
+  margin: 0 0 var(--vela-space-2);
+  font: 700 .8rem var(--vela-font-display);
+  text-transform: uppercase;
+}
+.vela-theme .grid-fixed-context {
+  margin: 0;
+  padding: var(--vela-space-2) var(--vela-space-3);
+  border: 1px solid var(--vela-border);
+  border-bottom: 0;
+  background: var(--vela-surface-soft);
+  color: var(--vela-muted);
+  font: .7rem/1.45 var(--vela-font-mono);
+}
+.vela-theme .grid-fixed-context strong { color: var(--vela-ink); }
+.vela-theme .grid-zoom-controls {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--vela-border);
+  background: var(--vela-surface);
+}
+.vela-theme .grid-zoom-controls button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: var(--vela-space-1) var(--vela-space-2);
+  border: 0;
+  border-right: 1px solid var(--vela-border);
+  background: transparent;
+}
+.vela-theme .grid-zoom-controls button:last-child { border-right: 0; }
+.vela-theme .grid-zoom-controls button.active { background: var(--mf-active-fill); color: var(--mf-active-text); }
+.vela-theme .grid-board-region[data-fit="true"] { overflow-x: hidden; }
+.vela-theme .grid-board-region[data-fit="true"] table.grid-board { width: 100%; table-layout: fixed; }
+.vela-theme .grid-board-region[data-fit="true"] table.grid-board :is(th, td) { min-width: 0; }
+.vela-theme .grid-board-region[data-fit="true"] table.grid-board th:first-child { width: clamp(130px, 15vw, 210px); }
+.vela-theme .grid-board-region[data-fit="false"] table.grid-board { width: max-content; min-width: 100%; table-layout: auto; }
+.vela-theme .grid-board-region[data-fit="false"] table.grid-board th:not(:first-child),
+.vela-theme .grid-board-region[data-fit="false"] table.grid-board td { width: var(--grid-cell-width); min-width: var(--grid-cell-width); }
+.vela-theme table.grid-board caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+.vela-theme table.grid-board th {
+  color: var(--vela-muted);
+  font: .65rem/1.35 var(--vela-font-mono);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.vela-theme table.grid-board td { padding: 0; background: var(--mf-media-bed); }
+.vela-theme table.grid-board .grid-cell {
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.vela-theme table.grid-board .grid-image-link {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--mf-media-bed);
+  cursor: zoom-in;
+}
+.vela-theme table.grid-board .grid-image-link:focus-visible { outline: 3px solid var(--vela-selection); outline-offset: -3px; }
+.vela-theme table.grid-board .grid-image-link > .asset-image {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  display: block;
+  object-fit: contain;
+}
+@media (max-width: 680px) {
+  .vela-theme .generated-grid-links { grid-template-columns: minmax(0, 1fr); }
+  .vela-theme .generated-grid-links > a { grid-template-columns: auto minmax(0, 1fr); }
+  .vela-theme .generated-grid-links time { grid-column: 2; }
+}

@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from .. import models, schemas
 from ..checkpoint_revisions import establish_checkpoint_revision
 from ..database import get_db
+from ..integrations.fal.adapters import get_adapter
 from ..merge_operations import merge_projection
 from ..services import active_profile, current_workspace, get_or_404, record_activity
 
@@ -982,6 +983,50 @@ def model_versions(db: DB, model_id: str | None = None, project_id: str | None =
 @router.get("/model-versions/{version_id}")
 def model_version(version_id: str, db: DB):
     version = get_or_404(db, models.ModelVersion, version_id)
+    return model_version_projection(db, version)
+
+
+@router.patch("/model-versions/{version_id}/fal-registration")
+def register_model_version_with_fal(
+    version_id: str,
+    body: schemas.ModelVersionFalRegistration,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    version = get_or_404(db, models.ModelVersion, version_id)
+    model = get_or_404(db, models.Model, version.model_id)
+    checkpoint = get_or_404(db, models.Checkpoint, version.checkpoint_id)
+    try:
+        adapter = get_adapter(body.endpoint_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    fal_url = str(body.fal_url)
+    host = body.fal_url.host or ""
+    if body.fal_url.scheme != "https" or (host != "fal.media" and not host.endswith(".fal.media")):
+        raise HTTPException(status_code=422, detail="FAL checkpoint URL must use HTTPS on fal.media")
+    base_model = (version.base_model or "").casefold()
+    if not any(marker.casefold() in base_model for marker in adapter.compatible_base_model_markers):
+        raise HTTPException(status_code=422, detail="FAL endpoint is incompatible with the model version base model")
+    revision = establish_checkpoint_revision(db, checkpoint)
+    if revision is None:
+        raise HTTPException(status_code=409, detail="checkpoint source must be verified before FAL registration")
+    version.checkpoint_revision_id = revision.id
+    version.readiness = {
+        **dict(version.readiness or {}),
+        "fal_url": fal_url,
+        "endpoint_id": adapter.endpoint_id,
+        "fal_status": "ready",
+    }
+    record_activity(
+        db,
+        action="model_version.fal_registered",
+        subject_type="model_version",
+        subject_id=version.id,
+        profile_id=active_profile(db, x_profile_id).id,
+        project_id=model.project_id,
+        details={"checkpoint_id": checkpoint.id, "endpoint_id": adapter.endpoint_id},
+    )
+    db.commit()
     return model_version_projection(db, version)
 
 

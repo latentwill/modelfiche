@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from titles_api.integrations.s3.archive import TarArchiveBrowser
 from titles_api.integrations.s3.detection import PrefixKind, detect_prefix
+from titles_api.integrations.s3.sqlalchemy_sink import _checkpoint_step, _extract_step
 from titles_api.integrations.s3.metrics import parse_training_log
 from titles_api.image_provenance import normalize_fal_image_metadata
 
@@ -36,6 +37,12 @@ def test_tar_archive_browser_exposes_safe_training_run_members(tmp_path):
         assert browser.read_small(config_key) == b"model: qwen-image\n"
     finally:
         browser.close()
+
+
+def test_checkpoint_step_uses_training_steps_for_unsuffixed_versioned_final():
+    assert _extract_step("fujiwara-kaoru-krea2-v001.safetensors") is None
+    assert _checkpoint_step("fujiwara-kaoru-krea2-v001.safetensors", "fujiwara-kaoru-krea2-v001", 3000) == 3000
+    assert _checkpoint_step("fujiwara-kaoru-krea2-v001_000002750.safetensors", "fujiwara-kaoru-krea2-v001", 3000) == 2750
 
 
 def test_ai_toolkit_progress_log_yields_loss_graph_points():

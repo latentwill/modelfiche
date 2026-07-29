@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -431,6 +431,11 @@ class ModelVersionCreate(BaseModel):
     base_model: str | None = None
     notes: str | None = None
     lifecycle_state: Literal["candidate", "approved", "archived"] = "candidate"
+
+
+class ModelVersionFalRegistration(BaseModel):
+    fal_url: AnyHttpUrl
+    endpoint_id: str = Field(min_length=1, max_length=240)
 
 
 class ModelVersionState(BaseModel):

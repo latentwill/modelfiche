@@ -78,7 +78,9 @@ def test_eval_and_grid_image_read_dtos_expose_asset_revision_id(client: TestClie
     detail = client.get(f"/api/eval-runs/{run.id}").json()
     outputs = client.get(f"/api/eval-runs/{run.id}/outputs").json()
     grid = client.get(f"/api/grid-definitions/{grid.id}").json()
+    project_grid = client.get(f"/api/projects/{asset['project_id']}/grids/{grid['id']}").json()
 
     assert detail["outputs"][0]["asset_revision_id"] == asset["id"]
     assert outputs[0]["asset_revision_id"] == asset["id"]
     assert grid["cells"][0]["asset_revision_id"] == asset["id"]
+    assert project_grid["cells"][0]["asset_revision_id"] == asset["id"]

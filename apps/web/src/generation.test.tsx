@@ -186,6 +186,11 @@ describe("shared generation contracts", () => {
     expect(screen.getByText("model.safetensors · step 1200")).toBeTruthy();
     expect(screen.queryByText("project-id / model-id")).toBeNull();
   });
+  it("links grid queue rows to the visual grid result", () => {
+    render(<GenerationQueue items={[{ id: "queue-1", workflow: "grid", project_id: "project-1", grid_definition_id: "grid-1",
+      model_version_ids: [], status: "completed", progress: { completed: 1, total: 1 } }]} />);
+    expect(screen.getByRole("link", { name: "Grid" })).toHaveAttribute("href", "#/grid/grid-1?project=project-1");
+  });
   it("shows the newest queued work first", () => {
     render(<GenerationQueue items={[
       { id: "older", workflow: "image", project_id: "project", model_version_ids: ["v1"], status: "completed", progress: { completed: 1, total: 1 }, created_at: "2026-07-20T01:02:03Z" },

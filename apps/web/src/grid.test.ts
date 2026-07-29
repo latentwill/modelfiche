@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axisValues, compileGridPlan, parseGridAxisValues, type GridAxis, type GridAxisSchema } from "./grid";
 import type { GenerationModel } from "./generation";
-import { GridBoard, GridsScreen, intersectFieldSchemas } from "./screens-grids";
+import { GridBoard, GridsScreen, intersectFieldSchemas, sortGridAxisEntries } from "./screens-grids";
 
 const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelId: `family-${id}`, projectId: "project", name: `Model ${id}`,
   checkpointLabel: `step ${id}`, checkpointRevisionId: `revision-${id}`, provider: "fal", endpoint, providerModelUrl: `fal://${id}`, available: true });
@@ -121,14 +121,31 @@ describe("grid planner", () => {
       y: y.values,
       cells: [{ x_index: 0, y_index: 0, asset_revision_id: "asset-1" }],
       completed: true,
+      xLabel: "Prompt",
+      yLabel: "Seed",
+      imageHref: assetId => `#/gallery?asset=${assetId}`,
     }));
     const image = await review.findByRole("img");
     await waitFor(() => expect(image.getAttribute("src")).toBe("/delivery/full"));
-    expect(image.parentElement?.classList.contains("grid-cell")).toBe(true);
+    expect(image.closest(".grid-cell")).toBeTruthy();
+    expect(review.getByRole("link", { name: "Open grid output in image viewer" })).toHaveAttribute("href", "#/gallery?asset=asset-1");
     expect(review.container.querySelector(".grid-board-completed")).toBeTruthy();
-    expect(review.getByRole("table", { name: "Generated Grid outputs" })).toBeTruthy();
-    expect(review.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Y ↓ / X →", "portrait"]);
+    expect(review.getByRole("table", { name: "Generated grid" })).toBeTruthy();
+    expect(review.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Seed ↓ / Prompt →", "portrait"]);
     expect(review.getByRole("rowheader", { name: "7" })).toBeTruthy();
+  });
+
+  it("sorts numeric checkpoint entries while preserving their coordinate indexes", () => {
+    const sorted = sortGridAxisEntries([
+      { value: "step-2750", label: "Step 2750", index: 0, sortValue: 2750 },
+      { value: "step-1750", label: "Step 1750", index: 1, sortValue: 1750 },
+      { value: "step-2500", label: "Step 2500", index: 2, sortValue: 2500 },
+    ]);
+    expect(sorted.map(entry => [entry.label, entry.index])).toEqual([
+      ["Step 1750", 1],
+      ["Step 2500", 2],
+      ["Step 2750", 0],
+    ]);
   });
 });
 

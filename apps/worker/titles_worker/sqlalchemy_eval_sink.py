@@ -94,7 +94,13 @@ class SQLAlchemyEvalOutputSink:
                         "fal_request_input": request_parameters,
                         **{
                             key: grid_metadata[key]
-                            for key in ("checkpoint_id", "model_version_id", "checkpoint_revision_id", "grid_cell_id", "grid_definition_id", "x_index", "y_index", "z_index", "coordinates")
+                            for key in (
+                                "checkpoint_id", "checkpoint_name", "checkpoint_step",
+                                "run_id", "run_name", "base_model", "model_id", "model_name",
+                                "model_version_id", "model_version_name", "checkpoint_revision_id",
+                                "grid_cell_id", "grid_definition_id", "x_index", "y_index",
+                                "z_index", "coordinates",
+                            )
                             if isinstance(grid_metadata, dict) and grid_metadata.get(key) is not None
                         },
                         **({"generated_at": generated_at.isoformat()} if generated_at else {}),
