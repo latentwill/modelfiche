@@ -33,6 +33,8 @@ import { DataTable, Dropdown, Field, Form, Json, Notice, Page, Pagination, Panel
 import { generationReplayFromMetadata, generatorHref, loraScaleFromMetadata } from "./generation";
 import { DitherLossChart } from "./dither-loss-chart";
 import { LineageList } from "./lineage";
+import { DitherStackedBar, type DitherBarSegment } from "./dither-stacked-bar";
+import type { DitherColor } from "./components/dither-kit/palette";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -275,6 +277,7 @@ export function DatasetScreen({ id }: { id: string }) {
   const activeVersion = versions.find(version => idOf(version) === activeVersionId);
   const activeVersionReferenced = activeVersion?.status === "referenced";
   const publishedItems = useResource<Row>(activeVersionId && !activeDraft ? `/api/dataset-versions/${activeVersionId}/items${query({ limit: pageSize, offset: (page - 1) * pageSize, paginated: true })}` : null);
+  const compositionResource = useResource<unknown>(activeVersionId && !activeDraft ? `/api/dataset-versions/${activeVersionId}/subsets` : null);
   const items = activeDraft ? rows(activeDraft.items) : rows(publishedItems.data?.items);
   const totalItems = activeDraft ? items.length : Number(publishedItems.data?.total ?? activeVersion?.item_count ?? 0);
   const visibleItems = activeDraft ? items.slice((page - 1) * pageSize, page * pageSize) : items;
@@ -486,6 +489,62 @@ export function DatasetScreen({ id }: { id: string }) {
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
 
+  const compositionSubsets = activeDraft ? rows(activeDraft.subsets) : rows(compositionResource.data);
+  const compositionColors: DitherColor[] = ["blue", "cyan", "teal", "green", "mint", "grey"];
+  const compositionSegments: DitherBarSegment[] = compositionSubsets.map((subset, index) => ({
+    key: idOf(subset) || str(subset.key),
+    label: str(subset.name, str(subset.key, "Sub-dataset")),
+    value: Number(subset.item_count ?? 0),
+    color: compositionColors[index % compositionColors.length],
+  }));
+
+  async function refreshDraftComposition() {
+    if (!draft?.id) return;
+    const refreshed = await api<Row>(`/api/dataset-drafts/${draft.id}`);
+    setDraft(refreshed);
+  }
+
+  async function updateSubset(subsetId: string, changes: Row) {
+    if (!draft?.id) return;
+    setBusy(`subset-${subsetId}`); setActionError("");
+    try {
+      await api(`/api/dataset-drafts/${draft.id}/subsets/${subsetId}`, patchBody(changes));
+      await refreshDraftComposition();
+    } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
+  }
+
+  async function removeSubset(subsetId: string) {
+    if (!draft?.id || !window.confirm("Remove this sub-dataset and its draft memberships?")) return;
+    setBusy(`subset-${subsetId}`); setActionError("");
+    try {
+      await api(`/api/dataset-drafts/${draft.id}/subsets/${subsetId}`, { method: "DELETE" });
+      await refreshDraftComposition();
+    } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
+  }
+
+  async function moveSubset(index: number, offset: number) {
+    const target = compositionSubsets[index + offset];
+    const current = compositionSubsets[index];
+    if (!draft?.id || !target || !current) return;
+    setBusy(`subset-${idOf(current)}`); setActionError("");
+    try {
+      await Promise.all([
+        api(`/api/dataset-drafts/${draft.id}/subsets/${idOf(current)}`, patchBody({ position: Number(target.position ?? index + offset) })),
+        api(`/api/dataset-drafts/${draft.id}/subsets/${idOf(target)}`, patchBody({ position: Number(current.position ?? index) })),
+      ]);
+      await refreshDraftComposition();
+    } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
+  }
+
+  async function assignSubset(subsetId: string) {
+    if (!draft?.id || !selected.length) return;
+    setBusy(`assign-${subsetId}`); setActionError("");
+    try {
+      await api(`/api/dataset-drafts/${draft.id}/subset-assignments`, jsonBody({ subset_id: subsetId, draft_item_ids: selected, membership_role: "primary" }));
+      await refreshDraftComposition();
+      setMessage(`Assigned ${selected.length} selected image${selected.length === 1 ? "" : "s"} to a sub-dataset.`);
+    } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
+  }
   const subtitle = `${str(data?.project_name, "Project dataset")} · ${totalItems} images · ${activeDraft ? "Working draft" : `v${str(activeVersion?.version_number ?? data?.current_version, "-")}`}`;
   return <Page title={str(data?.name, "Dataset")} subtitle={subtitle} actions={<>
     {activeVersionId && !activeDraft ? <a className="button vela-button" href={`#/transfers?mode=export&dataset_version=${activeVersionId}`}><Download size={15} />Export version</a> : <button disabled title="Select a published dataset version before exporting"><Download size={15} />Export unavailable</button>}
@@ -520,6 +579,58 @@ export function DatasetScreen({ id }: { id: string }) {
           </button>;
         })}
         {draft && <button className={`caption-version ${activeDraft ? "active" : ""}`} aria-pressed={Boolean(activeDraft)} title="Return to the unpublished working copy" onClick={() => { setSelectedVersionId(str(draft.base_version_id)); setViewingDraft(true); setSelected([]); setPreview(null); }}><span className="caption-version-number">Draft</span><span className="caption-version-body"><strong>Working copy</strong><small>{str(rows(draft.items).length, "0")} images · cloned from v{str(versions.find(version => idOf(version) === str(draft.base_version_id))?.version_number, "-")}</small></span><span className="caption-version-state">Editing</span></button>}
+      </div>}
+    </Panel>
+
+    <Panel title="Dataset composition">
+      <Notice error={compositionResource.error} loading={!activeDraft && compositionResource.loading} empty={!compositionResource.loading && !compositionSubsets.length} emptyText="No sub-datasets in this version" emptyHint={activeDraft ? "Create a named sub-dataset before publishing this composed version." : "Clone this version to define composition groups."} />
+      {!!compositionSubsets.length && <div className="composition-grid">
+        <div>
+          <DitherStackedBar segments={compositionSegments} label={`${compositionSubsets.length} sub-datasets containing ${compositionSegments.reduce((sum, segment) => sum + segment.value, 0)} image memberships`} />
+          <table className="composition-table" aria-label="Dataset composition values">
+            <thead><tr><th>Sub-dataset</th><th>Role</th><th>Images</th><th>Share</th></tr></thead>
+            <tbody>{compositionSubsets.map((subset, index) => {
+              const count = Number(subset.item_count ?? 0);
+              const total = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
+              return <tr key={idOf(subset) || index}><td>{str(subset.name, str(subset.key))}</td><td>{str(subset.role, "style")}</td><td>{count}</td><td>{total ? `${(count / total * 100).toFixed(1)}%` : "0%"}</td></tr>;
+            })}</tbody>
+          </table>
+        </div>
+        <dl className="details">
+          <dt>Total included images</dt><dd>{totalItems}</dd>
+          <dt>Sub-datasets</dt><dd>{compositionSubsets.length}</dd>
+          <dt>Shared trigger words</dt><dd>{rows(activeVersion?.trigger_words ?? data?.trigger_words).map(value => str(value)).filter(Boolean).join(", ") || "None"}</dd>
+          <dt>Composition digest</dt><dd><code>{str(activeVersion?.composition_digest ?? activeVersion?.content_digest, "Draft")}</code></dd>
+        </dl>
+      </div>}
+      {activeDraft && <div className="composition-editor">
+        <h3>Edit sub-datasets</h3>
+        <Form submit="Create sub-dataset" onSubmit={async form => {
+          if (!draft?.id) return;
+          await api(`/api/dataset-drafts/${draft.id}/subsets`, jsonBody({
+            key: str(form.get("key")), name: str(form.get("name")), role: str(form.get("role"), "style"),
+            description: str(form.get("description")) || null, color_token: str(form.get("color_token")) || null,
+          }));
+          await refreshDraftComposition();
+        }}>
+          <div className="form-grid">
+            <Field label="Key" hint="Stable machine-readable identity."><input name="key" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="core-gestures" /></Field>
+            <Field label="Name"><input name="name" required placeholder="Core gestures" /></Field>
+            <Field label="Role"><Dropdown name="role" defaultValue="style" options={[{ value: "style", label: "Style" }, { value: "subject", label: "Subject" }, { value: "source", label: "Source" }, { value: "quality", label: "Quality" }, { value: "holdout", label: "Holdout" }, { value: "custom", label: "Custom" }]} /></Field>
+            <Field label="Description"><input name="description" /></Field>
+          </div>
+        </Form>
+        {!!compositionSubsets.length && <div className="caption-versions" aria-label="Editable sub-datasets">{compositionSubsets.map((subset, index) => <div className="caption-version" key={idOf(subset)}>
+          <span className="caption-version-number">{Number(subset.item_count ?? 0)}</span>
+          <span className="caption-version-body"><strong>{str(subset.name)}</strong><small>{str(subset.key)} · {str(subset.role, "style")}</small></span>
+          <span className="actions">
+            <button type="button" onClick={() => void assignSubset(idOf(subset))} disabled={!selected.length || Boolean(busy)} title={selected.length ? `Assign ${selected.length} selected images as primary members` : "Select images below first"}>Assign {selected.length || ""}</button>
+            <button type="button" onClick={() => void moveSubset(index, -1)} disabled={!index || Boolean(busy)} aria-label={`Move ${str(subset.name)} up`}>↑</button>
+            <button type="button" onClick={() => void moveSubset(index, 1)} disabled={index === compositionSubsets.length - 1 || Boolean(busy)} aria-label={`Move ${str(subset.name)} down`}>↓</button>
+            <button type="button" onClick={() => { const name = window.prompt("Sub-dataset name", str(subset.name)); if (name?.trim()) void updateSubset(idOf(subset), { name: name.trim() }); }} disabled={Boolean(busy)}>Rename</button>
+            <button type="button" onClick={() => void removeSubset(idOf(subset))} disabled={Boolean(busy)}>Remove</button>
+          </span>
+        </div>)}</div>}
       </div>}
     </Panel>
     {rows(data?.training_runs).length > 0 && <Panel title="Training runs using this dataset"><DataTable rows={rows(data?.training_runs)} columns={[["name", "Run"], ["status", "Status"], ["dataset_version_id", "Dataset version"]]} onRow={row => { location.hash = `run/${idOf(row)}`; }} /></Panel>}
@@ -731,6 +842,8 @@ export function RunScreen({ id }: { id: string }) {
   const checkpointsResource = useResource<unknown>(`/api/runs/${id}/checkpoints`);
   const config = useResource<Row>(`/api/runs/${id}/config`);
   const runView: Row = { ...(run.data ?? {}), ...(live.data ?? {}) };
+  const isMerge = str(runView.run_kind) === "checkpoint_merge";
+  const mergeSummary = (runView.merge_summary ?? {}) as Row;
   const latestLoss = runView.latest_loss && typeof runView.latest_loss === "object" && !Array.isArray(runView.latest_loss) ? runView.latest_loss as Row : null;
   const lossMetricName = str(latestLoss?.name, "");
   const metrics = useResource<LossMetrics>(lossMetricName ? `/api/runs/${id}/metrics${query({ name: lossMetricName })}` : null);
@@ -806,16 +919,23 @@ export function RunScreen({ id }: { id: string }) {
   const latestLossValue = str(latestLoss?.value_text ?? latestLoss?.value ?? metrics.data?.final_value, "Unavailable");
   if (!run.data && run.loading) return <Page title="Training run" subtitle="Loading imported run details"><section aria-busy="true"><Notice loading /></section></Page>;
   if (!run.data && run.error) return <Page title="Run unavailable" subtitle={`Run ${id}`}><Notice error={run.error} /><div className="actions"><a className="button vela-button" href="#/runs">Back to runs</a><button onClick={() => void run.reload()}>Retry</button></div></Page>;
-  return <Page title={str(runView.name, "Training run")} subtitle={`${str(runView.base_model, "Unknown base")} · ${str(runView.dataset_version_name, "No dataset")} · ${str(runView.trainer, "Unknown trainer")}`} actions={<>
-    {datasetId ? <a className="button vela-button" href={`#/dataset/${datasetId}`}><Database size={15} />Dataset</a> : <button disabled title={datasetError || (datasetLoading ? "Resolving the linked dataset version" : "This run does not reference an available dataset version")}><Database size={15} />{datasetLoading ? "Finding dataset..." : "Dataset unavailable"}</button>}
-    <a className="button vela-button" href={`#/samples/${id}?return=${encodeURIComponent(`run/${id}`)}`}><FileImage size={15} />Samples</a>
+  return <Page title={str(runView.name, isMerge ? "Checkpoint merge" : "Training run")} subtitle={isMerge ? `${str(runView.base_model, "Unknown base")} · ${str(mergeSummary.notation, str(mergeSummary.operator, "Merge recipe"))}` : `${str(runView.base_model, "Unknown base")} · ${str(runView.dataset_version_name, "No dataset")} · ${str(runView.trainer, "Unknown trainer")}`} actions={<>
+    {!isMerge && (datasetId ? <a className="button vela-button" href={`#/dataset/${datasetId}`}><Database size={15} />Dataset</a> : <button disabled title={datasetError || (datasetLoading ? "Resolving the linked dataset version" : "This run does not reference an available dataset version")}><Database size={15} />{datasetLoading ? "Finding dataset..." : "Dataset unavailable"}</button>)}
+    {!isMerge && <a className="button vela-button" href={`#/samples/${id}?return=${encodeURIComponent(`run/${id}`)}`}><FileImage size={15} />Samples</a>}
     {runView.project_id ? <a className="button vela-button" href={`#/transfers?mode=export&project=${str(runView.project_id)}`}><Download size={15} />Export project</a> : <button disabled title="This run is not attached to an exportable project"><Download size={15} />Export unavailable</button>}
-    <button className="vela-button vela-button-primary" onClick={() => void refreshRun()} disabled={busy === "refresh"}><RefreshCw size={15} />{busy === "refresh" ? "Refreshing..." : "Refresh import"}</button>
+    {!isMerge && <button className="vela-button vela-button-primary" onClick={() => void refreshRun()} disabled={busy === "refresh"}><RefreshCw size={15} />{busy === "refresh" ? "Refreshing..." : "Refresh import"}</button>}
   </>}>
     <ActionMessage message={message} error={actionError} />
-    <ObjectImageStrip assets={sampleRows.slice().reverse()} label="Latest training samples" showTrainingDetails />
+    {!isMerge && <ObjectImageStrip assets={sampleRows.slice().reverse()} label="Latest training samples" showTrainingDetails />}
     {live.error && <div className="vela-notice" role="status" aria-live="polite"><strong>{LIVE_CONNECTION_LABELS[live.connection]}</strong><span>{live.error}</span></div>}
-    {(run.data || live.data) && <div className="run-summary live-run-summary vela-context-stats" aria-label="Live training status">
+    {(run.data || live.data) && (isMerge ? <div className="run-summary live-run-summary vela-context-stats" aria-label="Checkpoint merge status">
+      <div className="vela-stat"><span>Status</span><Status value={runView.status} /></div>
+      <div className="vela-stat"><span>Operator</span><strong>{str(mergeSummary.operator).replaceAll("_", " ")}</strong></div>
+      <div className="vela-stat"><span>Inputs</span><strong>{rows(mergeSummary.inputs).length}</strong></div>
+      <div className="vela-stat"><span>Output rank</span><strong>{str((mergeSummary.output as Row | undefined)?.rank, "—")}</strong></div>
+      <div className="vela-stat"><span>Phase</span><strong>{str(mergeSummary.last_phase, str(runView.status))}</strong></div>
+      <div className="vela-stat"><span>Recipe</span><strong>{str(mergeSummary.recipe_digest).slice(0, 12)}</strong></div>
+    </div> : <div className="run-summary live-run-summary vela-context-stats" aria-label="Live training status">
       <div className="vela-stat"><span>Status</span><Status value={runView.status} /></div>
       <div className="vela-stat"><span>Connection</span><span className="vela-status" data-state={live.connection === "connected" ? "success" : live.connection === "reconnecting" ? "warning" : "neutral"} aria-label={`Live connection: ${LIVE_CONNECTION_LABELS[live.connection]}`} aria-live="polite">{LIVE_CONNECTION_LABELS[live.connection]}</span></div>
       <div className="vela-stat"><span>Step</span><strong>{str(runView.current_step, "Unavailable")}</strong></div>
@@ -827,14 +947,15 @@ export function RunScreen({ id }: { id: string }) {
       <div className="vela-stat"><span>Checkpoints</span><strong>{checkpoints.length}</strong></div>
       <div className="vela-stat"><span>Samples</span><strong>{str(runView.sample_count, String(sampleRows.length))}</strong></div>
       <div className="vela-stat"><span>LoRA rank</span><strong>{str(runView.lora_rank ?? runView.network_dim, "-")}</strong></div>
-    </div>}
+    </div>)}
     {runView.source_status === "failed" && runView.usable_output === true && <div className="vela-notice" role="status"><strong>Usable training output recovered</strong><span>The trainer process reported “{str(runView.source_message, "failed termination")}”, but the DAM found {checkpoints.length} usable checkpoints and retained the original termination details in normalized configuration.</span></div>}
 
-    <Panel title="Training metrics">
+    {isMerge && <Panel title="Checkpoint merge flow"><MergeFlowChart summary={mergeSummary} /></Panel>}
+    {!isMerge && <Panel title="Training metrics">
       <Notice error={metrics.error || learningRateMetrics.error} loading={metrics.loading || learningRateMetrics.loading} />
       <div className="training-metric-summary"><div><span>{lossMetricName || "Latest loss"}</span><strong>{latestLossValue}</strong></div><div><span>Configured learning rate</span><strong>{scientificNotation(runView.learning_rate ?? (runView.normalized_config as Row | undefined)?.learning_rate)}</strong></div><div><span>Loss points</span><strong>{normalizeLossPoints(metrics.data?.points).length}</strong></div><div><span>LR points</span><strong>{normalizeLossPoints(learningRateMetrics.data?.points).length}</strong></div></div>
       <div className="training-chart-grid"><section><header><strong>{lossMetricName || "Training loss"}</strong><small>Lower is generally better</small></header><LossGraph points={metrics.data?.points} /></section><section><header><strong>Learning rate</strong><small>Optimizer schedule</small></header>{normalizeLossPoints(learningRateMetrics.data?.points).length ? <FlintMetricChart points={normalizeLossPoints(learningRateMetrics.data?.points)} label="Learning rate" /> : <div className="loss-graph-empty" role="status"><strong>No learning-rate series available</strong><small>The configured value remains visible above.</small></div>}</section></div>
-    </Panel>
+    </Panel>}
 
     <Panel title="Run checkpoint artifacts">
       <Notice error={!enrichedCheckpoints.length ? checkpointsResource.error : undefined} loading={checkpointsResource.loading && !enrichedCheckpoints.length} empty={!checkpointsResource.loading && !checkpoints.length} emptyText="No checkpoint artifacts" emptyHint="No checkpoint files were indexed for this run." />
@@ -852,17 +973,17 @@ export function RunScreen({ id }: { id: string }) {
       })()}
     </Panel>
 
-    <Panel title="Samples by checkpoint">
+    {!isMerge && <Panel title="Samples by checkpoint">
       <Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />
       {!samples.loading && !sampleRows.length && <div className="vela-notice" role="status"><strong>No sample images were archived</strong><span>The run can still contain valid checkpoints and metrics; its source prefix contains no sample-image artifacts to import.</span></div>}
       {!!sampleSteps.length && <div className="sample-step-strip">{sampleSteps.map(step => <a href={`#/samples/${id}?step=${encodeURIComponent(step)}&return=${encodeURIComponent(`run/${id}`)}`} key={step}><strong>Step {step}</strong><span>{sampleRows.filter(sample => str(sample.training_step, "unassigned") === step).length} images</span></a>)}</div>}
       {!!sampleRows.length && <AssetGrid assets={sampleRows.slice(0, 12)} />}
-    </Panel>
+    </Panel>}
 
-    <div className="dashboard-lower vela-dashboard-grid">
+    {!isMerge && <div className="dashboard-lower vela-dashboard-grid">
       <Panel title="Normalized configuration"><Notice error={config.error} loading={config.loading} />{config.data && <ConfigDetails value={(config.data.normalized ?? config.data.normalized_config ?? config.data) as Row} datasetId={datasetId} />}</Panel>
       <Panel title="Training config"><Notice error={config.error} loading={config.loading} />{!config.loading && <details className="config-disclosure"><summary>Show raw training configuration</summary><Json value={config.data?.raw ?? config.data?.raw_config ?? run.data?.raw_config ?? (config.data?.normalized as Row | undefined)?.training_config ?? { state: "Not imported" }} /></details>}</Panel>
-    </div>
+    </div>}
     <Panel title="Typed lineage"><Notice error={lineage.error} loading={lineage.loading} empty={!lineage.loading && !rows(lineage.data).length} emptyText="No lineage indexed" emptyHint="No persisted or source-derived relationships were found for this run." />{!!rows(lineage.data).length && <LineageList value={lineage.data} />}</Panel>
   </Page>;
 }
@@ -1020,24 +1141,73 @@ function ModelVersionTable({ versions }: { versions: Row[] }) {
 }
 
 
+function MergeFlowChart({ summary }: { summary: Row }) {
+  const inputs = rows(summary.inputs);
+  const output = (summary.output ?? {}) as Row;
+  const colors: DitherColor[] = ["blue", "cyan", "teal", "green", "mint", "grey"];
+  const scopeSegments = (scope: string): DitherBarSegment[] => inputs.map((input, index) => ({
+    key: idOf(input) || str(input.alias),
+    label: str(input.alias, `Input ${index + 1}`),
+    value: Number(((input.weights ?? {}) as Row)[scope] ?? ((input.weights ?? {}) as Row).global ?? 0),
+    color: colors[index % colors.length],
+  }));
+  return <div className="merge-flow">
+    <div className="merge-flow-lanes">
+      <div>{inputs.map((input, index) => <div className="merge-flow-node" key={idOf(input) || index}>
+        <strong>{str(input.alias, `Input ${index + 1}`)} · step {str(input.step, "—")}</strong>
+        <small>Rank {str(input.source_rank, "—")} · {str(input.role, "input")}</small>
+        <small title={str(input.source_sha256)}>{str(input.source_sha256).slice(0, 12) || "SHA unavailable"}</small>
+      </div>)}</div>
+      <div className="merge-flow-node operator">
+        <strong>{str(summary.notation, str(summary.operator, "Checkpoint merge"))}</strong>
+        <small>{str(summary.operator).replaceAll("_", " ")}</small>
+        <Status value={summary.status} />
+      </div>
+      <div className="merge-flow-node">
+        <strong>{str(output.model_version_name, "Merged output")}</strong>
+        <small>Rank {str(output.rank, "—")} · {str(output.dtype, "—")}</small>
+        <small title={str(output.sha256)}>{str(output.sha256).slice(0, 12) || "Pending verification"}</small>
+      </div>
+    </div>
+    <div className="merge-scope-lane"><span>Text fusion</span><DitherStackedBar segments={scopeSegments("text_fusion")} label="Text fusion merge weights" /></div>
+    <div className="merge-scope-lane"><span>Transformer</span><DitherStackedBar segments={scopeSegments("transformer")} label="Transformer merge weights" /></div>
+    <table className="composition-table" aria-label="Exact checkpoint merge inputs">
+      <thead><tr><th>Input</th><th>Step</th><th>Rank</th><th>Text fusion</th><th>Transformer</th><th>Revision</th></tr></thead>
+      <tbody>{inputs.map((input, index) => {
+        const weights = (input.weights ?? {}) as Row;
+        return <tr key={idOf(input) || index}><td>{str(input.alias)}</td><td>{str(input.step, "—")}</td><td>{str(input.source_rank, "—")}</td><td>{Number(weights.text_fusion ?? weights.global ?? 0) * 100}%</td><td>{Number(weights.transformer ?? weights.global ?? 0) * 100}%</td><td><code>{str(input.checkpoint_revision_id).slice(0, 8)}</code></td></tr>;
+      })}</tbody>
+    </table>
+  </div>;
+}
+
+
 function ModelTrainingRun({ run, modelId, track, initiallyExpanded }: { run: Row; modelId: string; track: string; initiallyExpanded: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const runId = idOf(run);
-  const samples = useResource<unknown>(expanded ? `/api/runs/${runId}/samples` : null);
-  const metrics = useResource<LossMetrics>(expanded ? `/api/runs/${runId}/metrics?name=${encodeURIComponent(track ? `loss.${track}` : "loss")}` : null);
-  const config = useResource<Row>(expanded ? `/api/runs/${runId}/config` : null);
+  const isMerge = str(run.run_kind) === "checkpoint_merge";
+  const samples = useResource<unknown>(expanded && !isMerge ? `/api/runs/${runId}/samples` : null);
+  const metrics = useResource<LossMetrics>(expanded && !isMerge ? `/api/runs/${runId}/metrics?name=${encodeURIComponent(track ? `loss.${track}` : "loss")}` : null);
+  const config = useResource<Row>(expanded && !isMerge ? `/api/runs/${runId}/config` : null);
   const sampleRows = rows(samples.data).filter(sample => !track || str(sample.sample_track).toLowerCase() === track).slice(0, 9);
+  const mergeSummary = (run.merge_summary ?? {}) as Row;
   return <details className="training-run model-training-run" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
-    <summary><strong>{str(run.name, "Training run")}</strong><span>{str(run.dataset_version_name, "No linked dataset")}</span><Status value={run.status} /></summary>
+    <summary><strong>{str(run.name, isMerge ? "Checkpoint merge" : "Training run")}</strong><span>{isMerge ? str(mergeSummary.notation, str(mergeSummary.operator, "Merge recipe")) : str(run.dataset_version_name, "No linked dataset")}</span><Status value={run.status} /></summary>
     <div className="training-run-body">
-      <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>
-      <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}?return=${encodeURIComponent(`model/${modelId}`)}`}><FileImage size={14} />View all samples</a></div>
-      {expanded && <>
-        <div className="model-training-visuals">
-          <section className="vela-section model-training-chart"><div className="vela-section-heading"><h3>{track ? `${track[0].toUpperCase()}${track.slice(1)} loss` : "Loss graph"}</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
-          <section className="vela-section model-training-samples"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <div className="model-sample-grid">{sampleRows.map(sample => <figure key={idOf(sample)}><AssetImage assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id)} alt={str(sample.name, "Training sample")} /><figcaption>Step {str(sample.training_step, "—")}</figcaption></figure>)}</div>}</section>
-        </div>
-        <section className="vela-section"><div className="vela-section-heading"><h3>Training configuration</h3></div><Notice error={config.error} loading={config.loading} />{config.data && <details className="config-disclosure"><summary>Show stored training configuration</summary><ModelConfigDetails value={(config.data.normalized ?? {}) as Row} raw={(config.data.raw ?? {}) as Row} datasetName={str(run.dataset_version_name, "Not linked")} /></details>}</section>
+      {isMerge ? <>
+        <dl className="details"><dt>Kind</dt><dd>Checkpoint merge</dd><dt>Operator</dt><dd>{str(mergeSummary.operator).replaceAll("_", " ")}</dd><dt>Inputs</dt><dd>{str(rows(mergeSummary.inputs).length, "0")}</dd><dt>Recipe digest</dt><dd><code>{str(mergeSummary.recipe_digest).slice(0, 16)}</code></dd></dl>
+        <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open merge run</a>{str((mergeSummary.output as Row | undefined)?.model_version_id) && <a className="button vela-button" href={`#/model-version/${str((mergeSummary.output as Row).model_version_id)}`}><ExternalLink size={14} />Open output version</a>}</div>
+        {expanded && <section className="vela-section"><div className="vela-section-heading"><h3>Merge recipe and flow</h3></div><MergeFlowChart summary={mergeSummary} /></section>}
+      </> : <>
+        <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>
+        <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}?return=${encodeURIComponent(`model/${modelId}`)}`}><FileImage size={14} />View all samples</a></div>
+        {expanded && <>
+          <div className="model-training-visuals">
+            <section className="vela-section model-training-chart"><div className="vela-section-heading"><h3>{track ? `${track[0].toUpperCase()}${track.slice(1)} loss` : "Loss graph"}</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
+            <section className="vela-section model-training-samples"><div className="vela-section-heading"><h3>Sample images</h3></div><Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />{!!sampleRows.length && <div className="model-sample-grid">{sampleRows.map(sample => <figure key={idOf(sample)}><AssetImage assetRevisionId={str(sample.asset_revision_id ?? sample.asset_id)} alt={str(sample.name, "Training sample")} /><figcaption>Step {str(sample.training_step, "—")}</figcaption></figure>)}</div>}</section>
+          </div>
+          <section className="vela-section"><div className="vela-section-heading"><h3>Training configuration</h3></div><Notice error={config.error} loading={config.loading} />{config.data && <details className="config-disclosure"><summary>Show stored training configuration</summary><ModelConfigDetails value={(config.data.normalized ?? {}) as Row} raw={(config.data.raw ?? {}) as Row} datasetName={str(run.dataset_version_name, "Not linked")} /></details>}</section>
+        </>}
       </>}
     </div>
   </details>;

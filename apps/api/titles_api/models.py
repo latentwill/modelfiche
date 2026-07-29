@@ -199,6 +199,28 @@ class DatasetItem(UUIDMixin, TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class DatasetVersionSubset(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "dataset_version_subsets"
+    __table_args__ = (UniqueConstraint("dataset_version_id", "key", name="uq_dataset_version_subset_key"),)
+    dataset_version_id: Mapped[str] = mapped_column(ForeignKey("dataset_versions.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(120))
+    name: Mapped[str] = mapped_column(String(240))
+    description: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(String(32), default="custom", index=True)
+    parent_subset_id: Mapped[str | None] = mapped_column(ForeignKey("dataset_version_subsets.id", ondelete="SET NULL"), index=True)
+    color_token: Mapped[str] = mapped_column(String(32), default="blue")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DatasetSubsetItem(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "dataset_subset_items"
+    __table_args__ = (UniqueConstraint("subset_id", "dataset_item_id", name="uq_dataset_subset_item"),)
+    subset_id: Mapped[str] = mapped_column(ForeignKey("dataset_version_subsets.id", ondelete="CASCADE"), index=True)
+    dataset_item_id: Mapped[str] = mapped_column(ForeignKey("dataset_items.id", ondelete="CASCADE"), index=True)
+    membership_role: Mapped[str] = mapped_column(String(32), default="primary", index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class DatasetDraft(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "dataset_drafts"
     dataset_id: Mapped[str] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True)
@@ -218,6 +240,29 @@ class DatasetDraftItem(UUIDMixin, TimestampMixin, Base):
     caption_format: Mapped[str] = mapped_column(String(32), default="text")
     included: Mapped[bool] = mapped_column(Boolean, default=True)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DatasetDraftSubset(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "dataset_draft_subsets"
+    __table_args__ = (UniqueConstraint("draft_id", "key", name="uq_dataset_draft_subset_key"),)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("dataset_drafts.id", ondelete="CASCADE"), index=True)
+    source_subset_id: Mapped[str | None] = mapped_column(ForeignKey("dataset_version_subsets.id", ondelete="SET NULL"), index=True)
+    key: Mapped[str] = mapped_column(String(120))
+    name: Mapped[str] = mapped_column(String(240))
+    description: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(String(32), default="custom", index=True)
+    parent_subset_id: Mapped[str | None] = mapped_column(ForeignKey("dataset_draft_subsets.id", ondelete="SET NULL"), index=True)
+    color_token: Mapped[str] = mapped_column(String(32), default="blue")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DatasetDraftSubsetItem(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "dataset_draft_subset_items"
+    __table_args__ = (UniqueConstraint("subset_id", "draft_item_id", name="uq_dataset_draft_subset_item"),)
+    subset_id: Mapped[str] = mapped_column(ForeignKey("dataset_draft_subsets.id", ondelete="CASCADE"), index=True)
+    draft_item_id: Mapped[str] = mapped_column(ForeignKey("dataset_draft_items.id", ondelete="CASCADE"), index=True)
+    membership_role: Mapped[str] = mapped_column(String(32), default="primary", index=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -290,6 +335,7 @@ class TrainingRun(UUIDMixin, TimestampMixin, Base):
     dataset_version_id: Mapped[str | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(240))
     trainer: Mapped[str | None] = mapped_column(String(100))
+    run_kind: Mapped[str] = mapped_column(String(32), default="training", index=True)
     base_model: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
     source_prefix: Mapped[str | None] = mapped_column(String(1024))
@@ -316,6 +362,22 @@ class TrainingStage(UUIDMixin, TimestampMixin, Base):
     run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(240))
     config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class TrainingRunDatasetInput(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "training_run_dataset_inputs"
+    __table_args__ = (
+        UniqueConstraint("run_id", "dataset_version_id", "subset_id", name="uq_training_run_dataset_input"),
+    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    dataset_version_id: Mapped[str] = mapped_column(ForeignKey("dataset_versions.id", ondelete="RESTRICT"), index=True)
+    subset_id: Mapped[str | None] = mapped_column(ForeignKey("dataset_version_subsets.id", ondelete="RESTRICT"), index=True)
+    alias: Mapped[str | None] = mapped_column(String(120))
+    item_count_snapshot: Mapped[int] = mapped_column(Integer, default=0)
+    sampling_weight: Mapped[float] = mapped_column(Float, default=1.0)
+    repeat_count: Mapped[int] = mapped_column(Integer, default=1)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    dataset_content_digest: Mapped[str | None] = mapped_column(String(64), index=True)
 
 class TrainingMetric(UUIDMixin, Base):
     __tablename__ = "training_metrics"
@@ -971,6 +1033,56 @@ class CheckpointRevision(UUIDMixin, Base):
     source_location_id: Mapped[str | None] = mapped_column(ForeignKey("asset_locations.id", ondelete="RESTRICT"), index=True)
     supersedes_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MergeOperation(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "merge_operations"
+    __table_args__ = (
+        UniqueConstraint("project_id", "recipe_digest", name="uq_merge_operation_recipe"),
+        UniqueConstraint("run_id", name="uq_merge_operation_run"),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("training_runs.id", ondelete="CASCADE"), index=True)
+    schema_version: Mapped[str] = mapped_column(String(80), default="modelfiche.checkpoint-merge/v1")
+    operator: Mapped[str] = mapped_column(String(64), index=True)
+    base_model: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(32), default="preparing", index=True)
+    recipe: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    recipe_digest: Mapped[str] = mapped_column(String(64), index=True)
+    compact_notation: Mapped[str | None] = mapped_column(Text)
+    output_rank: Mapped[int] = mapped_column(Integer)
+    dtype: Mapped[str] = mapped_column(String(32))
+    output_checkpoint_revision_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    failure_phase: Mapped[str | None] = mapped_column(String(80))
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class MergeInput(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "merge_inputs"
+    __table_args__ = (
+        UniqueConstraint("merge_operation_id", "alias", name="uq_merge_input_alias"),
+        UniqueConstraint("merge_operation_id", "position", name="uq_merge_input_position"),
+    )
+    merge_operation_id: Mapped[str] = mapped_column(ForeignKey("merge_operations.id", ondelete="CASCADE"), index=True)
+    checkpoint_revision_id: Mapped[str] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="RESTRICT"), index=True)
+    alias: Mapped[str] = mapped_column(String(120))
+    role: Mapped[str] = mapped_column(String(32), default="custom")
+    source_rank: Mapped[int | None] = mapped_column(Integer)
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class MergeInputWeight(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "merge_input_weights"
+    __table_args__ = (
+        UniqueConstraint("merge_input_id", "scope", "module_pattern", name="uq_merge_input_weight_scope"),
+    )
+    merge_input_id: Mapped[str] = mapped_column(ForeignKey("merge_inputs.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(64), index=True)
+    module_pattern: Mapped[str | None] = mapped_column(String(500))
+    weight: Mapped[float] = mapped_column(Float)
 
 
 class FalAdmission(UUIDMixin, TimestampMixin, Base):

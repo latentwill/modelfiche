@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from .. import models, schemas
 from ..checkpoint_revisions import establish_checkpoint_revision
 from ..database import get_db
+from ..merge_operations import merge_projection
 from ..services import active_profile, current_workspace, get_or_404, record_activity
 
 router = APIRouter()
@@ -141,8 +142,47 @@ def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> di
     }
 
 
+def run_dataset_inputs(db: Session, run: models.TrainingRun | None) -> list[dict[str, Any]]:
+    if run is None:
+        return []
+    inputs = db.scalars(
+        select(models.TrainingRunDatasetInput)
+        .where(models.TrainingRunDatasetInput.run_id == run.id)
+        .order_by(models.TrainingRunDatasetInput.position, models.TrainingRunDatasetInput.id)
+    ).all()
+    rows = []
+    for item in inputs:
+        version = db.get(models.DatasetVersion, item.dataset_version_id)
+        dataset = db.get(models.Dataset, version.dataset_id) if version else None
+        subset = db.get(models.DatasetVersionSubset, item.subset_id) if item.subset_id else None
+        rows.append({
+            **dump(item),
+            "dataset_id": dataset.id if dataset else None,
+            "dataset_name": dataset.name if dataset else None,
+            "dataset_version_name": version.name if version else None,
+            "subset_key": subset.key if subset else None,
+            "subset_name": subset.name if subset else None,
+            "color_token": subset.color_token if subset else "blue",
+            "available": bool(dataset and version and (not item.subset_id or subset)),
+        })
+    return rows
+
+
 def run_dataset_link(db: Session, run: models.TrainingRun | None) -> dict[str, Any] | None:
-    if run is None or not run.dataset_version_id:
+    if run is None:
+        return None
+    inputs = run_dataset_inputs(db, run)
+    if inputs:
+        first = inputs[0]
+        return {
+            "dataset_id": first["dataset_id"],
+            "dataset_name": first["dataset_name"],
+            "dataset_version_id": first["dataset_version_id"],
+            "dataset_version_name": first["dataset_version_name"],
+            "available": first["available"],
+            "input_count": len(inputs),
+        }
+    if not run.dataset_version_id:
         return None
     version = db.get(models.DatasetVersion, run.dataset_version_id)
     dataset = db.get(models.Dataset, version.dataset_id) if version else None
@@ -152,7 +192,13 @@ def run_dataset_link(db: Session, run: models.TrainingRun | None) -> dict[str, A
         "dataset_version_id": run.dataset_version_id,
         "dataset_version_name": version.name if version else None,
         "available": bool(dataset and version),
+        "input_count": 1,
     }
+
+
+def run_merge_summary(db: Session, run: models.TrainingRun) -> dict[str, Any] | None:
+    operation = db.scalar(select(models.MergeOperation).where(models.MergeOperation.run_id == run.id))
+    return merge_projection(db, operation) if operation else None
 
 
 def checkpoint_readiness(
@@ -348,6 +394,8 @@ def runs(
             "dataset_name": dataset["dataset_name"] if dataset else None,
             "dataset_version_name": dataset["dataset_version_name"] if dataset else None,
             "dataset_linkage": dataset,
+            "dataset_inputs": run_dataset_inputs(db, row),
+            "merge_summary": run_merge_summary(db, row),
             "checkpoint_count": int(db.scalar(select(func.count()).select_from(models.Checkpoint).where(models.Checkpoint.run_id == row.id)) or 0),
             "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == row.id)) or 0),
             "result_model_id": result_model.id if result_model else None,
@@ -372,9 +420,99 @@ def create_run(body: schemas.RunCreate, db: DB, x_profile_id: Annotated[str | No
     run = models.TrainingRun(**body.model_dump())
     db.add(run)
     db.flush()
+    if body.dataset_version_id:
+        version = get_or_404(db, models.DatasetVersion, body.dataset_version_id)
+        item_count = int(db.scalar(select(func.count()).select_from(models.DatasetItem).where(
+            models.DatasetItem.dataset_version_id == version.id,
+            models.DatasetItem.included.is_(True),
+        )) or 0)
+        db.add(models.TrainingRunDatasetInput(
+            run_id=run.id,
+            dataset_version_id=version.id,
+            item_count_snapshot=item_count,
+            sampling_weight=1.0,
+            repeat_count=1,
+            position=0,
+            dataset_content_digest=version.content_digest,
+        ))
     record_activity(db, action="run.created", subject_type="run", subject_id=run.id, profile_id=active_profile(db, x_profile_id).id, project_id=run.project_id)
     db.commit()
     return dump(run)
+
+
+@router.get("/runs/{run_id}/dataset-inputs")
+def dataset_inputs(run_id: str, db: DB):
+    return run_dataset_inputs(db, get_or_404(db, models.TrainingRun, run_id))
+
+
+@router.post("/runs/{run_id}/dataset-inputs", status_code=status.HTTP_201_CREATED)
+def add_dataset_input(run_id: str, body: schemas.TrainingRunDatasetInputCreate, db: DB):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    if run.status not in {"unknown", "pending", "preparing"}:
+        raise HTTPException(status_code=409, detail="dataset composition is immutable after a run starts")
+    version = get_or_404(db, models.DatasetVersion, body.dataset_version_id)
+    dataset = get_or_404(db, models.Dataset, version.dataset_id)
+    if dataset.project_id != run.project_id:
+        raise HTTPException(status_code=400, detail="dataset input belongs to a different project")
+    subset = get_or_404(db, models.DatasetVersionSubset, body.subset_id) if body.subset_id else None
+    if subset and subset.dataset_version_id != version.id:
+        raise HTTPException(status_code=400, detail="sub-dataset belongs to a different dataset version")
+    existing = db.scalar(select(models.TrainingRunDatasetInput).where(
+        models.TrainingRunDatasetInput.run_id == run.id,
+        models.TrainingRunDatasetInput.dataset_version_id == version.id,
+        models.TrainingRunDatasetInput.subset_id == body.subset_id,
+    ))
+    if existing:
+        raise HTTPException(status_code=409, detail="dataset input is already attached to this run")
+    item_count = body.item_count_snapshot
+    if not item_count:
+        if subset:
+            item_count = int(db.scalar(
+                select(func.count())
+                .select_from(models.DatasetSubsetItem)
+                .join(models.DatasetItem, models.DatasetItem.id == models.DatasetSubsetItem.dataset_item_id)
+                .where(models.DatasetSubsetItem.subset_id == subset.id, models.DatasetItem.included.is_(True))
+            ) or 0)
+        else:
+            item_count = int(db.scalar(select(func.count()).select_from(models.DatasetItem).where(
+                models.DatasetItem.dataset_version_id == version.id,
+                models.DatasetItem.included.is_(True),
+            )) or 0)
+    row = models.TrainingRunDatasetInput(
+        run_id=run.id,
+        **body.model_dump(exclude={"item_count_snapshot", "dataset_content_digest"}),
+        item_count_snapshot=item_count,
+        dataset_content_digest=body.dataset_content_digest or version.content_digest,
+    )
+    db.add(row)
+    db.commit()
+    return dump(row)
+
+
+@router.patch("/runs/{run_id}/dataset-inputs/{input_id}")
+def update_dataset_input(run_id: str, input_id: str, body: schemas.TrainingRunDatasetInputUpdate, db: DB):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    row = get_or_404(db, models.TrainingRunDatasetInput, input_id)
+    if row.run_id != run.id:
+        raise HTTPException(status_code=404, detail="dataset input was not found")
+    if run.status not in {"unknown", "pending", "preparing"}:
+        raise HTTPException(status_code=409, detail="dataset composition is immutable after a run starts")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    return dump(row)
+
+
+@router.delete("/runs/{run_id}/dataset-inputs/{input_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_dataset_input(run_id: str, input_id: str, db: DB):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    row = get_or_404(db, models.TrainingRunDatasetInput, input_id)
+    if row.run_id != run.id:
+        raise HTTPException(status_code=404, detail="dataset input was not found")
+    if run.status not in {"unknown", "pending", "preparing"}:
+        raise HTTPException(status_code=409, detail="dataset composition is immutable after a run starts")
+    db.delete(row)
+    db.commit()
 
 
 @router.post("/runs/{run_id}/archive")
@@ -436,6 +574,8 @@ def run(run_id: str, db: DB):
         "dataset_name": dataset["dataset_name"] if dataset else None,
         "dataset_version_name": dataset["dataset_version_name"] if dataset else None,
         "dataset_linkage": dataset,
+        "dataset_inputs": run_dataset_inputs(db, run),
+        "merge_summary": run_merge_summary(db, run),
         "stages": [dump(stage) for stage in stages],
         "checkpoints": [checkpoint_projection(db, checkpoint) for checkpoint in checkpoints],
         "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0),
