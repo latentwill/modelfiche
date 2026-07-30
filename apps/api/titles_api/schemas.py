@@ -17,6 +17,10 @@ class WorkspaceOut(ORMModel):
     created_at: datetime
 
 
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class WorkspaceUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
@@ -513,6 +517,21 @@ class ModelVersionCreate(BaseModel):
     base_model: str | None = None
     notes: str | None = None
     lifecycle_state: Literal["candidate", "approved", "archived"] = "candidate"
+    artifact_type: Literal["lora", "embedding", "full_model"] = "lora"
+    artifact_format: str | None = Field(default=None, max_length=120)
+    method: str | None = Field(default=None, max_length=120)
+    compatibility: dict[str, Any] = {}
+
+
+class EmbeddingBundleImport(BaseModel):
+    project_id: str
+    manifest_path: str = Field(min_length=1, max_length=4096)
+    model_keys: list[str] = []
+
+
+class EmbeddingArchiveImport(BaseModel):
+    project_id: str
+    manifest_path: str = Field(min_length=1, max_length=4096)
 
 
 class ModelVersionFalRegistration(BaseModel):

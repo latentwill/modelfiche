@@ -58,7 +58,7 @@ describe("workspace navigation", () => {
     expect(document.querySelector(".vela-inspector")).toHaveAttribute("data-layout", "scroll-region");
     fireEvent.click(screen.getByRole("button", { name: "Create or import" }));
     const createItems = screen.getAllByRole("menuitem").map(item => item.textContent);
-    expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Eval"));
+    expect(createItems).not.toContain("Eval");
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
     expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/import?source=s3&project=project-1");
     expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/import?source=local&project=project-1");

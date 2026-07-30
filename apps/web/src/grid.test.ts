@@ -206,6 +206,7 @@ describe("grid planner", () => {
     expect(gridTargetAxisEntry("fujiwara-source", 0, {
       target_snapshot: { target_id: "fujiwara-source" },
       model_version_name: "fujiwara-kaoru-krea2-v001",
+      model_version_source_kind: "training",
       checkpoint_step: 3000,
     })).toMatchObject({
       label: "fujiwara-source",
@@ -214,10 +215,20 @@ describe("grid planner", () => {
     expect(gridTargetAxisEntry("weighted-60-40", 1, {
       target_snapshot: { target_id: "weighted-60-40" },
       model_version_name: "Fujiwara Kaoru 3000 × Hoover 3750 — weighted 60–40",
+      model_version_source_kind: "checkpoint_merge",
       checkpoint_step: 3750,
     })).toMatchObject({
       label: "weighted-60-40",
       detail: "Merge output: Fujiwara Kaoru 3000 × Hoover 3750 — weighted 60–40",
+    });
+    expect(gridTargetAxisEntry("dawnjian-krea2-core-gestures", 2, {
+      target_snapshot: { target_id: "dawnjian-krea2-core-gestures" },
+      model_version_name: "dawnjian-krea2-core-gestures",
+      model_version_source_kind: "training",
+      checkpoint_step: 3500,
+    })).toMatchObject({
+      label: "dawnjian-krea2-core-gestures",
+      detail: "Checkpoint: dawnjian-krea2-core-gestures · step 3500",
     });
   });
 

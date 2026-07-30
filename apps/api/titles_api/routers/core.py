@@ -25,6 +25,37 @@ def profile_for(db: Session, profile_id: str | None) -> models.UserProfile:
     return active_profile(db, profile_id)
 
 
+@router.post("/workspaces", response_model=schemas.WorkspaceOut, status_code=status.HTTP_201_CREATED)
+def create_workspace(body: schemas.WorkspaceCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    actor = active_profile(db, x_profile_id)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="workspace name cannot be blank")
+    workspace = models.Workspace(name=name)
+    db.add(workspace)
+    db.flush()
+    profile = models.UserProfile(
+        workspace_id=workspace.id,
+        display_name=actor.display_name,
+        email=actor.email,
+        initials=actor.initials,
+        avatar_color=actor.avatar_color,
+        is_active=True,
+    )
+    db.add(profile)
+    db.flush()
+    record_activity(
+        db,
+        action="workspace.created",
+        subject_type="workspace",
+        subject_id=workspace.id,
+        profile_id=profile.id,
+        workspace_id=workspace.id,
+    )
+    db.commit()
+    return workspace
+
+
 @router.get("/workspaces", response_model=list[schemas.WorkspaceOut])
 def workspaces(db: DB):
     return db.scalars(select(models.Workspace).order_by(models.Workspace.created_at, models.Workspace.id)).all()

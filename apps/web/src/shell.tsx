@@ -24,7 +24,6 @@ import {
   Plus,
   Search,
   Settings,
-  Sparkles,
   Sun,
   X,
 } from "lucide-react";
@@ -184,7 +183,6 @@ function Topbar({ section, id, projectId, workspaces, workspaceId, theme, onTogg
         <CreateLink href="#/generate?workflow=image" icon={<ImagePlus size={15} />} onSelect={() => setCreateOpen(false)}>Image</CreateLink>
         <CreateLink href="#/transfers?mode=import&type=dataset" icon={<Images size={15} />} onSelect={() => setCreateOpen(false)}>Dataset</CreateLink>
         <CreateLink href="#/models" icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
-        <CreateLink href="#/evals" icon={<Sparkles size={15} />} onSelect={() => setCreateOpen(false)}>Eval</CreateLink>
         <CreateLink href="#/grids" icon={<LayoutDashboard size={15} />} onSelect={() => setCreateOpen(false)}>Grid</CreateLink>
         <CreateLink href={s3ImportHref} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>S3 import</CreateLink>
         <CreateLink href={localImportHref} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Local folder import</CreateLink>

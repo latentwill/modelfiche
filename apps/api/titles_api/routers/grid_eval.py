@@ -145,12 +145,18 @@ def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
         checkpoint.id: checkpoint
         for checkpoint in db.scalars(select(models.Checkpoint).where(models.Checkpoint.id.in_(checkpoint_ids))).all()
     } if checkpoint_ids else {}
+    checkpoint_run_ids = {checkpoint.run_id for checkpoint in checkpoints.values()}
+    checkpoint_runs = {
+        run.id: run
+        for run in db.scalars(select(models.TrainingRun).where(models.TrainingRun.id.in_(checkpoint_run_ids))).all()
+    } if checkpoint_run_ids else {}
     cell_rows = []
     for cell in cells:
         output = outputs.get(cell.eval_output_id)
         version_id = str((cell.target_snapshot or {}).get("model_version_id") or "")
         version = versions.get(version_id)
         checkpoint = checkpoints.get(version.checkpoint_id) if version else None
+        checkpoint_run = checkpoint_runs.get(checkpoint.run_id) if checkpoint else None
         cell_rows.append({
             **_dump(cell),
             "asset_id": output.asset_id if output else None,
@@ -158,6 +164,7 @@ def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
             "seed": output.seed if output else None,
             "checkpoint_step": checkpoint.step if checkpoint else None,
             "model_version_name": version.name if version else None,
+            "model_version_source_kind": checkpoint_run.run_kind if checkpoint_run else None,
         })
     jobs = db.scalars(select(models.Job).where(models.Job.payload["grid_definition_id"].as_string() == grid.id).order_by(models.Job.created_at.desc())).all()
     runs = []

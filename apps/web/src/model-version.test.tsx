@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ModelScreen } from "./screens-assets";
@@ -15,6 +15,10 @@ const version = {
   project_id: "project-1",
   name: "Portrait step 250",
   lifecycle_state: "candidate",
+  artifact_type: "lora",
+  artifact_format: "ai-toolkit-lora",
+  method: "lora",
+  compatibility: {},
   checkpoint_id: "checkpoint-250",
   checkpoint_step: 250,
   filename: "portrait_000000250.safetensors",
@@ -82,5 +86,37 @@ describe("model versions", () => {
     expect(archive).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: /reviewed the checkpoint, readiness, lineage, and downstream impact/i }));
     await waitFor(() => expect(archive).toBeEnabled());
+  });
+
+  it("presents embedding type, format, method, and compatibility as a first-class artifact contract", async () => {
+    const embeddingVersion = {
+      ...version,
+      name: "Airbrush DSCI step 8000",
+      artifact_type: "embedding",
+      artifact_format: "kef-qwen-dsci-v1",
+      method: "dsci",
+      compatibility: {
+        "qwen-image": { status: "observed" },
+        tensor_metadata: { shape: [5, 3584], token_count: 5 },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input), location.origin);
+      const path = `${url.pathname}${url.search}`;
+      if (path === "/api/model-versions/version-1") return json(embeddingVersion);
+      if (path.startsWith("/api/reviews?")) return json([]);
+      if (path.startsWith("/api/lineage?")) return json([]);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    render(<ModelVersionScreen id="version-1" />);
+    expect(await screen.findByRole("heading", { name: "Airbrush DSCI step 8000" })).toBeInTheDocument();
+    const contract = screen.getByRole("heading", { name: "Artifact contract" }).closest("section");
+    expect(contract).not.toBeNull();
+    expect(within(contract!).getByText("embedding")).toBeInTheDocument();
+    expect(within(contract!).getByText("kef-qwen-dsci-v1")).toBeInTheDocument();
+    expect(within(contract!).getByText("dsci")).toBeInTheDocument();
+    fireEvent.click(within(contract!).getByText("Compatibility and tensor metadata"));
+    expect(within(contract!).getByText(/qwen-image/)).toBeInTheDocument();
   });
 });

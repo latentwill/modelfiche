@@ -299,10 +299,10 @@ export function gridTargetAxisEntry(value: unknown, index: number, cell?: Row): 
   const targetId = str(snapshot.target_id ?? value, String(value));
   const modelVersionName = str(cell?.model_version_name ?? snapshot.display_name, "");
   const checkpointStep = Number(cell?.checkpoint_step ?? snapshot.checkpoint_step);
-  const isSourceCheckpoint = targetId.endsWith("-source");
-  const detail = isSourceCheckpoint
-    ? [modelVersionName ? `Checkpoint: ${modelVersionName}` : "Checkpoint", Number.isFinite(checkpointStep) ? `step ${checkpointStep}` : ""].filter(Boolean).join(" · ")
-    : [modelVersionName ? `Merge output: ${modelVersionName}` : "Merge output"].join("");
+  const sourceKind = str(cell?.model_version_source_kind ?? snapshot.model_version_source_kind, "training");
+  const detail = sourceKind === "checkpoint_merge"
+    ? [modelVersionName ? `Merge output: ${modelVersionName}` : "Merge output"].join("")
+    : [modelVersionName ? `Checkpoint: ${modelVersionName}` : "Checkpoint", Number.isFinite(checkpointStep) ? `step ${checkpointStep}` : ""].filter(Boolean).join(" · ");
   return { value, label: targetId, detail, index };
 }
 

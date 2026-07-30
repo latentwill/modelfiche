@@ -522,6 +522,10 @@ class ModelVersion(UUIDMixin, TimestampMixin, Base):
     base_model: Mapped[str | None] = mapped_column(String(500))
     notes: Mapped[str | None] = mapped_column(Text)
     lifecycle_state: Mapped[str] = mapped_column(String(32), default="candidate", index=True)
+    artifact_type: Mapped[str] = mapped_column(String(32), default="lora", index=True)
+    artifact_format: Mapped[str | None] = mapped_column(String(120))
+    method: Mapped[str | None] = mapped_column(String(120))
+    compatibility: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     checkpoint_revision_id: Mapped[str | None] = mapped_column(ForeignKey("checkpoint_revisions.id", ondelete="SET NULL"), index=True)
     readiness: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 

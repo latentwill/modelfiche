@@ -19,6 +19,7 @@ from .routers import (
     datasets,
     fal_admissions,
     generation_queue,
+    embedding_imports,
     grid_eval,
     integrations,
     local_imports,
@@ -279,6 +280,7 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
     for api_router in (
         core.router,
         datasets.router,
+        embedding_imports.router,
         runs.router,
         wandb_credentials.router,
         training_launches.router,

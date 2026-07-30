@@ -1059,7 +1059,7 @@ export function ModelsScreen({ projectId = "" }: { projectId?: string }) {
   const projects = useResource<unknown>("/api/projects");
   const data = rows(resource.data);
   const projectRows = rows(projects.data);
-  return <Page title="Models" subtitle="Registered LoRA models and their checkpoint-backed versions">
+  return <Page title="Models" subtitle="Registered model artifacts and their checkpoint-backed versions">
     <Panel title="Create model">
       <Notice error={projects.error} loading={projects.loading} empty={!projects.loading && !projectRows.length} />
       {!!projectRows.length && <Form submit="Create model" onSubmit={async form => {
@@ -1097,6 +1097,7 @@ export function ModelScreen({ id }: { id: string }) {
   </>}>
     <Notice error={resource.error} loading={resource.loading} />
     <ObjectImageStrip assets={rows(preview.data)} label="Latest model outputs" />
+    {resource.data && <Panel title="Artifact contract"><dl className="details"><dt>Type</dt><dd>{str(latestVersion.artifact_type, "lora").replaceAll("_", " ")}</dd><dt>Format</dt><dd>{str(latestVersion.artifact_format, "Not recorded")}</dd><dt>Method</dt><dd>{str(latestVersion.method, "Not recorded")}</dd></dl></Panel>}
     {resource.data && <Panel title="Model record"><Notice error={project.error} loading={project.loading} /><dl className="details"><dt>Description</dt><dd>{str(resource.data.description, "No description")}</dd><dt>Latest trigger words</dt><dd>{Array.isArray(latestVersion.trigger_words) && latestVersion.trigger_words.length ? latestVersion.trigger_words.join(", ") : "None registered"}</dd><dt>Base model</dt><dd>{str(latestVersion.base_model, "Not registered")}</dd><dt>Project</dt><dd>{projectId ? <a href={`#/project/${projectId}`}>{str(project.data?.title ?? project.data?.name, "Open project")}</a> : "Not assigned"}</dd><dt>Versions</dt><dd>{versions.length}</dd></dl></Panel>}
 
     <Panel title="Training run data">
@@ -1118,12 +1119,13 @@ export function ModelScreen({ id }: { id: string }) {
 
 function ModelVersionTable({ versions }: { versions: Row[] }) {
   return <>
-    <div className="model-version-table-wrap" role="region" aria-label="Registered model versions" tabIndex={0}><table className="vela-table model-version-table"><thead><tr><th>Registered version</th><th>Checkpoint artifact</th><th>Step</th><th>Lifecycle</th><th>Local readiness</th><th>FAL readiness</th></tr></thead><tbody>{versions.map(version => {
+    <div className="model-version-table-wrap" role="region" aria-label="Registered model versions" tabIndex={0}><table className="vela-table model-version-table"><thead><tr><th>Registered version</th><th>Type</th><th>Checkpoint artifact</th><th>Step</th><th>Lifecycle</th><th>Local readiness</th><th>FAL readiness</th></tr></thead><tbody>{versions.map(version => {
       const readiness = version.readiness_summary && typeof version.readiness_summary === "object" ? version.readiness_summary as Row : {};
       const local = readiness.local && typeof readiness.local === "object" ? readiness.local as Row : {};
       const fal = readiness.fal && typeof readiness.fal === "object" ? readiness.fal as Row : {};
       return <tr key={idOf(version)}>
         <td><a className="model-version-link" href={`#/model-version/${idOf(version)}`}><strong>{str(version.name, "Open version")}</strong><small>{idOf(version)}</small></a></td>
+        <td>{str(version.artifact_type, "lora").replaceAll("_", " ")}</td>
         <td>{version.checkpoint_id ? <a href={`#/checkpoint/${str(version.checkpoint_id)}`}>{str(version.filename, "Open checkpoint")}</a> : str(version.filename, "Unavailable")}</td>
         <td>{str(version.checkpoint_step, "Not recorded")}</td>
         <td><Status value={version.lifecycle_state} /></td>
@@ -1135,7 +1137,7 @@ function ModelVersionTable({ versions }: { versions: Row[] }) {
       const readiness = version.readiness_summary && typeof version.readiness_summary === "object" ? version.readiness_summary as Row : {};
       const local = readiness.local && typeof readiness.local === "object" ? readiness.local as Row : {};
       const fal = readiness.fal && typeof readiness.fal === "object" ? readiness.fal as Row : {};
-      return <a href={`#/model-version/${idOf(version)}`} key={idOf(version)}><strong>{str(version.name, "Open version")}</strong><small>{str(version.filename, "Checkpoint unavailable")} · Step {str(version.checkpoint_step, "not recorded")}</small><span><Status value={version.lifecycle_state} /><Status value={local.status ?? "unknown"} /><Status value={fal.status ?? "not registered"} /></span></a>;
+      return <a href={`#/model-version/${idOf(version)}`} key={idOf(version)}><strong>{str(version.name, "Open version")}</strong><small>{str(version.artifact_type, "lora").replaceAll("_", " ")} · {str(version.filename, "Checkpoint unavailable")} · Step {str(version.checkpoint_step, "not recorded")}</small><span><Status value={version.lifecycle_state} /><Status value={local.status ?? "unknown"} /><Status value={fal.status ?? "not registered"} /></span></a>;
     })}</div>
   </>;
 }
