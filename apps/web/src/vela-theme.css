@@ -818,6 +818,11 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-focus-workspace .filmstrip a.active { border-color: var(--vela-accent); }
 .vela-focus-workspace .image-review-inspector { padding: 18px; border-color: var(--vela-border); background: var(--vela-surface); }
 .vela-focus-workspace .image-review-inspector h2 { font: 700 15px var(--vela-font-display); }
+.vela-focus-workspace .image-review-inspector,
+.vela-focus-workspace .image-primary-metadata,
+.vela-focus-workspace .image-primary-metadata dd { min-width: 0; }
+.vela-focus-workspace .image-primary-metadata { max-width: 100%; grid-template-columns: minmax(70px, max-content) minmax(0, 1fr); }
+.vela-focus-workspace .image-primary-metadata dd { overflow-wrap: anywhere; word-break: break-word; }
 .vela-focus-workspace .details { margin-top: 15px; }
 .vela-focus-workspace .details dt { color: var(--vela-muted); font-family: var(--vela-font-mono); }
 .vela-focus-workspace .rating-control { padding-block: 12px; border-block: 1px solid var(--vela-border); }

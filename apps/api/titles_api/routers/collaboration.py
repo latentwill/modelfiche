@@ -896,6 +896,79 @@ def eval_definition(definition_id: str, db: DB):
 
 
 
+def _eval_output_provenance(db: Session, output: models.EvalOutput, cache: dict[str, Any]) -> dict[str, Any]:
+    provider_metadata = dict(output.provider_metadata or {})
+    grid_metadata = dict(provider_metadata.get("grid_metadata") or {})
+    asset = db.get(models.Asset, output.asset_id)
+    asset_metadata = dict(asset.metadata_ or {}) if asset else {}
+    version_id = str(grid_metadata.get("model_version_id") or asset_metadata.get("model_version_id") or "")
+
+    resolved = cache.get(f"version:{version_id}") if version_id else None
+    if resolved is None:
+        version = db.get(models.ModelVersion, version_id) if version_id else None
+        model = db.get(models.Model, version.model_id) if version else None
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id) if version else None
+        training_run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+        merge = db.scalar(
+            select(models.MergeOperation).where(
+                models.MergeOperation.output_checkpoint_revision_id == version.checkpoint_revision_id
+            )
+        ) if version and version.checkpoint_revision_id else None
+        resolved = (version, model, checkpoint, training_run, merge)
+        if version_id:
+            cache[f"version:{version_id}"] = resolved
+    version, model, checkpoint, training_run, merge = resolved
+
+    grid_id = str(grid_metadata.get("grid_definition_id") or "")
+    grid = cache.get(f"grid:{grid_id}") if grid_id else None
+    if grid_id and grid is None:
+        grid = db.get(models.GridDefinition, grid_id)
+        cache[f"grid:{grid_id}"] = grid
+    axis_values: dict[str, Any] = {}
+    if grid:
+        snapshot = dict(grid.plan_snapshot or {})
+        axes = dict(snapshot.get("axes") or {})
+        coordinates = dict(grid_metadata.get("coordinates") or {})
+        for coordinate in ("x", "y", "z"):
+            axis = axes.get(coordinate)
+            index = coordinates.get(coordinate)
+            if not isinstance(axis, dict) or index is None:
+                continue
+            values = list(axis.get("values") or [])
+            if isinstance(index, int) and 0 <= index < len(values):
+                axis_values[str(axis.get("name") or coordinate)] = values[index]
+
+    model_name = model.name if model else grid_metadata.get("model_name")
+    version_name = version.name if version else grid_metadata.get("model_version_name")
+    checkpoint_step = checkpoint.step if checkpoint else grid_metadata.get("checkpoint_step")
+    result = {
+        "kind": "merge" if merge else "checkpoint",
+        "axis_values": axis_values,
+        "model_id": model.id if model else grid_metadata.get("model_id"),
+        "model_name": model_name,
+        "model_version_id": version.id if version else version_id or None,
+        "model_version_name": version_name,
+        "checkpoint_id": checkpoint.id if checkpoint else grid_metadata.get("checkpoint_id"),
+        "checkpoint_revision_id": version.checkpoint_revision_id if version else grid_metadata.get("checkpoint_revision_id"),
+        "checkpoint_step": checkpoint_step,
+        "base_model": (version.base_model if version else None) or grid_metadata.get("base_model"),
+    }
+    if merge:
+        result.update({
+            "merge_operation_id": merge.id,
+            "merge_operator": merge.operator,
+            "merge_notation": merge.compact_notation,
+            "merge_recipe": dict(merge.recipe or {}),
+            "merge_schema_version": merge.schema_version,
+        })
+    else:
+        result.update({
+            "training_run_id": training_run.id if training_run else grid_metadata.get("run_id"),
+            "training_run_name": training_run.name if training_run else grid_metadata.get("run_name"),
+        })
+    return result
+
+
 @router.get("/eval-runs/{run_id}")
 def eval_run(run_id: str, db: DB):
     run = get_or_404(db, models.EvalRun, run_id)
@@ -904,6 +977,7 @@ def eval_run(run_id: str, db: DB):
     jobs = db.scalars(select(models.Job).where(models.Job.payload["eval_run_id"].as_string() == run.id).order_by(models.Job.created_at.desc())).all()
     latest_job = jobs[0] if jobs else None
     output_rows = []
+    provenance_cache: dict[str, Any] = {}
     for output in outputs:
         inline_id = str((output.provider_metadata or {}).get("inline_prompt_id") or output.prompt_id or "")
         inline = next((item for item in (definition.inline_prompts or []) if str(item.get("id")) == inline_id), None)
@@ -921,6 +995,7 @@ def eval_run(run_id: str, db: DB):
                 "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
                 "width": image.width if image else None,
                 "height": image.height if image else None,
+                "provenance": _eval_output_provenance(db, output, provenance_cache),
             }
         )
     version = db.get(models.ModelVersion, definition.model_version_id) if definition.model_version_id else None
@@ -964,6 +1039,7 @@ def eval_outputs(run_id: str, db: DB):
     run = get_or_404(db, models.EvalRun, run_id)
     definition = get_or_404(db, models.EvalDefinition, run.definition_id)
     rows = []
+    provenance_cache: dict[str, Any] = {}
     for output in db.scalars(select(models.EvalOutput).where(models.EvalOutput.eval_run_id == run_id).order_by(models.EvalOutput.created_at)).all():
         inline_id = str((output.provider_metadata or {}).get("inline_prompt_id") or output.prompt_id or "")
         inline = next((item for item in (definition.inline_prompts or []) if str(item.get("id")) == inline_id), None)
@@ -981,6 +1057,7 @@ def eval_outputs(run_id: str, db: DB):
                 "asset_metadata": dict(asset.metadata_ or {}) if asset else {},
                 "width": image.width if image else None,
                 "height": image.height if image else None,
+                "provenance": _eval_output_provenance(db, output, provenance_cache),
             }
         )
     return rows

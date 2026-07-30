@@ -315,12 +315,12 @@ class MergeRecipeInput(BaseModel):
     rank: int | None = Field(default=None, ge=1)
     role: Literal["general", "specialist", "donor", "primary", "custom"] = "custom"
     key_format: Literal["native", "ai_toolkit"] = "native"
-    weights: dict[str, float]
+    weights: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_weights(self):
-        if not self.weights:
-            raise ValueError("merge input weights cannot be empty")
+        if not isinstance(self.weights, dict):
+            raise ValueError("merge input weights must be an object")
         for scope, value in self.weights.items():
             if scope not in {"global", "text_fusion", "transformer"} and not scope.startswith("module:"):
                 raise ValueError(f"unsupported merge weight scope: {scope}")
@@ -329,37 +329,119 @@ class MergeRecipeInput(BaseModel):
         return self
 
 
+
 class MergeRecipeOutput(BaseModel):
     rank: int = Field(ge=1)
     dtype: Literal["float32", "float16", "bfloat16"] = "float16"
+    factorization: Literal["exact_concat", "svd"] | None = None
+
+
+class MergeRecipeMethod(BaseModel):
+    kind: Literal["weighted_sum", "delta_add", "cosine_gated", "orthogonal_add", "norm_balanced", "slerp"]
+    anchor: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+    donor: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class MergeRecipe(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    schema_version: Literal["modelfiche.checkpoint-merge/v1"] = Field(
-        default="modelfiche.checkpoint-merge/v1",
+    schema_version: Literal["modelfiche.checkpoint-merge/v1", "modelfiche.checkpoint-merge/v2"] = Field(
         alias="$schema",
     )
     name: str = Field(min_length=1, max_length=240)
-    operator: Literal["linear_weighted_sum", "layer_weighted_sum", "rank_concat"]
+    operator: Literal["linear_weighted_sum", "layer_weighted_sum", "rank_concat"] | None = None
+    method: MergeRecipeMethod | None = None
     base_model: str = Field(min_length=1, max_length=500)
     inputs: list[MergeRecipeInput] = Field(min_length=2)
     output: MergeRecipeOutput
+
+    @property
+    def resolved_operator(self) -> str:
+        if self.schema_version == "modelfiche.checkpoint-merge/v2":
+            if self.method is None:
+                raise ValueError("v2 merge recipe method is required")
+            return self.method.kind
+        if self.operator is None:
+            raise ValueError("v1 merge recipe operator is required")
+        return self.operator
+
+    @staticmethod
+    def _bounded(value: Any, name: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{name} must be a number")
+        number = float(value)
+        if not 0.0 <= number <= 1.0:
+            raise ValueError(f"{name} must be between 0 and 1")
+        return number
 
     @model_validator(mode="after")
     def validate_recipe(self):
         aliases = [item.alias for item in self.inputs]
         if len(aliases) != len(set(aliases)):
             raise ValueError("merge input aliases must be unique")
-        scopes = {scope for item in self.inputs for scope in item.weights}
-        for scope in scopes:
-            total = sum(item.weights.get(scope, 0.0) for item in self.inputs)
-            if abs(total - 1.0) > 1e-6:
-                raise ValueError(f"merge weights for {scope} must sum to 1.0, got {total}")
-        if self.operator == "linear_weighted_sum" and scopes != {"global"}:
-            raise ValueError("linear_weighted_sum requires only global weights")
-        if self.operator in {"layer_weighted_sum", "rank_concat"} and not {"text_fusion", "transformer"}.issubset(scopes):
-            raise ValueError(f"{self.operator} requires text_fusion and transformer weights")
+        if self.schema_version == "modelfiche.checkpoint-merge/v1":
+            if self.operator is None or self.method is not None:
+                raise ValueError("v1 merge recipes require operator and cannot define method")
+            scopes = {scope for item in self.inputs for scope in item.weights}
+            if any(not item.weights for item in self.inputs):
+                raise ValueError("v1 merge inputs require weights")
+            for scope in scopes:
+                total = sum(item.weights.get(scope, 0.0) for item in self.inputs)
+                if abs(total - 1.0) > 1e-6:
+                    raise ValueError(f"merge weights for {scope} must sum to 1.0, got {total}")
+            if self.operator == "linear_weighted_sum" and scopes != {"global"}:
+                raise ValueError("linear_weighted_sum requires only global weights")
+            if self.operator in {"layer_weighted_sum", "rank_concat"} and not {"text_fusion", "transformer"}.issubset(scopes):
+                raise ValueError(f"{self.operator} requires text_fusion and transformer weights")
+            return self
+        if self.operator is not None or self.method is None:
+            raise ValueError("v2 merge recipes require method and cannot define operator")
+        if len(self.inputs) != 2:
+            raise ValueError(f"{self.method.kind} requires exactly two inputs")
+        if self.method.anchor == self.method.donor or {self.method.anchor, self.method.donor} != set(aliases):
+            raise ValueError("merge method anchor and donor must name the two distinct inputs")
+        parameters = self.method.parameters
+        if self.method.kind in {"weighted_sum", "norm_balanced"}:
+            anchor_weight = self._bounded(parameters.get("anchor_weight"), "anchor_weight")
+            donor_weight = self._bounded(parameters.get("donor_weight"), "donor_weight")
+            if abs(anchor_weight + donor_weight - 1.0) > 1e-6:
+                raise ValueError(f"{self.method.kind} weights must sum to 1.0")
+        elif self.method.kind == "slerp":
+            self._bounded(parameters.get("donor_weight"), "donor_weight")
+        elif self.method.kind == "delta_add":
+            self._bounded(parameters.get("text_fusion_donor"), "text_fusion_donor")
+            ranges = parameters.get("transformer_blocks")
+            if not isinstance(ranges, list) or not ranges:
+                raise ValueError("delta_add requires transformer_blocks")
+            covered: set[int] = set()
+            for item in ranges:
+                if not isinstance(item, dict):
+                    raise ValueError("delta_add transformer block ranges must be objects")
+                start, end = item.get("start"), item.get("end")
+                if any(isinstance(value, bool) or not isinstance(value, int) for value in (start, end)) or start < 0 or end < start:
+                    raise ValueError("delta_add transformer block ranges are invalid")
+                overlap = covered.intersection(range(start, end + 1))
+                if overlap:
+                    raise ValueError(f"delta_add transformer block ranges overlap at {min(overlap)}")
+                covered.update(range(start, end + 1))
+                self._bounded(item.get("donor"), "delta_add block donor")
+        elif self.method.kind == "cosine_gated":
+            donor_min = self._bounded(parameters.get("donor_min"), "donor_min")
+            donor_max = self._bounded(parameters.get("donor_max"), "donor_max")
+            if donor_min > donor_max:
+                raise ValueError("donor_min cannot exceed donor_max")
+            lower = parameters.get("lower_percentile", 5)
+            upper = parameters.get("upper_percentile", 95)
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in (lower, upper)):
+                raise ValueError("cosine percentiles must be numbers")
+            if not 0 <= float(lower) < float(upper) <= 100:
+                raise ValueError("cosine percentiles must satisfy 0 <= lower < upper <= 100")
+        else:
+            self._bounded(parameters.get("novelty_cap"), "novelty_cap")
+        if self.output.factorization == "exact_concat" and all(item.rank is not None for item in self.inputs):
+            exact_rank = sum(int(item.rank) for item in self.inputs)
+            if self.output.rank < exact_rank:
+                raise ValueError(f"exact_concat output rank must be at least {exact_rank}")
         return self
 
 

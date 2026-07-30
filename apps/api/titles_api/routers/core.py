@@ -472,12 +472,25 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
     if output:
         eval_run = db.get(models.EvalRun, output.eval_run_id)
         definition = db.get(models.EvalDefinition, eval_run.definition_id) if eval_run else None
-        version = db.get(models.ModelVersion, definition.model_version_id) if definition and definition.model_version_id else None
+        provider_metadata = dict(output.provider_metadata or {})
+        grid_metadata = dict(provider_metadata.get("grid_metadata") or {})
+        version_id = str(
+            (definition.model_version_id if definition else None)
+            or grid_metadata.get("model_version_id")
+            or metadata.get("model_version_id")
+            or ""
+        )
+        version = db.get(models.ModelVersion, version_id) if version_id else None
         model = db.get(models.Model, version.model_id) if version else None
         prompt = db.get(models.Prompt, output.prompt_id) if output.prompt_id else None
         checkpoint = db.get(models.Checkpoint, version.checkpoint_id) if version else None
         training_run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
-        dataset_version = db.get(models.DatasetVersion, training_run.dataset_version_id) if training_run and training_run.dataset_version_id else None
+        merge_operation = db.scalar(
+            select(models.MergeOperation).where(
+                models.MergeOperation.output_checkpoint_revision_id == version.checkpoint_revision_id
+            )
+        ) if version and version.checkpoint_revision_id else None
+        dataset_version = db.get(models.DatasetVersion, training_run.dataset_version_id) if training_run and training_run.dataset_version_id and not merge_operation else None
         dataset = db.get(models.Dataset, dataset_version.dataset_id) if dataset_version else None
         request_input = metadata.get("fal_request_input")
         if not isinstance(request_input, dict):
@@ -489,12 +502,28 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         assign("model_version_id", version.id if version else None, "eval-sample")
         assign("model_version_name", version.name if version else None, "eval-sample")
         assign("base_model", version.base_model if version else None, "eval-sample")
-        assign("run_id", training_run.id if training_run else None, "eval-sample")
-        assign("run_name", training_run.name if training_run else None, "eval-sample")
-        assign("dataset_id", dataset.id if dataset else None, "eval-sample")
-        assign("dataset_name", dataset.name if dataset else None, "eval-sample")
-        assign("dataset_version_id", dataset_version.id if dataset_version else None, "eval-sample")
-        assign("dataset_version_name", dataset_version.name if dataset_version else None, "eval-sample")
+        if merge_operation:
+            metadata.pop("run_id", None)
+            metadata.pop("run_name", None)
+            evidence["run_id"] = "unknown"
+            evidence["run_name"] = "unknown"
+            metadata.pop("checkpoint_step", None)
+            metadata["checkpoint_name"] = f"merged output · rank {merge_operation.output_rank}"
+            metadata.update({
+                "provenance_kind": "merge",
+                "merge_operation_id": merge_operation.id,
+                "merge_operator": merge_operation.operator,
+                "merge_notation": merge_operation.compact_notation,
+                "merge_recipe": dict(merge_operation.recipe or {}),
+                "merge_schema_version": merge_operation.schema_version,
+            })
+        else:
+            assign("run_id", training_run.id if training_run else None, "eval-sample")
+            assign("run_name", training_run.name if training_run else None, "eval-sample")
+            assign("dataset_id", dataset.id if dataset else None, "eval-sample")
+            assign("dataset_name", dataset.name if dataset else None, "eval-sample")
+            assign("dataset_version_id", dataset_version.id if dataset_version else None, "eval-sample")
+            assign("dataset_version_name", dataset_version.name if dataset_version else None, "eval-sample")
         assign("checkpoint_id", checkpoint.id if checkpoint else None, "eval-sample")
         assign("checkpoint_name", f"step {checkpoint.step}" if checkpoint else None, "eval-sample")
         assign("checkpoint_revision_id", version.checkpoint_revision_id if version else None, "eval-sample")
@@ -530,16 +559,18 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
             "hydration_state": remote.hydration_state,
         }.items() if value is not None}
         assign("provider", remote.provider, "deterministic-import")
-    metadata["provenance_kind"] = asset.provenance_kind
+    metadata.setdefault("provenance_kind", asset.provenance_kind)
     for key in relationship_keys:
         evidence.setdefault(key, "unknown")
     metadata["evidence"] = evidence
     metadata["metadata_contract_version"] = 1
     metadata["relationships"] = {
         "dataset": {"id": metadata.get("dataset_id"), "name": metadata.get("dataset_name"), "evidence": evidence["dataset_id"]},
-        "training_run": {"id": metadata.get("run_id"), "name": metadata.get("run_name"), "evidence": evidence["run_id"]},
+        "training_run": {"id": None, "name": "Not applicable — merge output", "evidence": "canonical"} if metadata.get("merge_operation_id") else {"id": metadata.get("run_id"), "name": metadata.get("run_name"), "evidence": evidence["run_id"]},
         "model": {"id": metadata.get("model_id"), "name": metadata.get("model_name"), "evidence": evidence["model_id"]},
+        "model_version": {"id": metadata.get("model_version_id"), "name": metadata.get("model_version_name"), "evidence": evidence["model_version_id"]},
         "checkpoint": {"id": metadata.get("checkpoint_id"), "name": metadata.get("checkpoint_name"), "evidence": evidence["checkpoint_id"]},
+        "merge_operation": {"id": metadata.get("merge_operation_id"), "name": metadata.get("merge_notation"), "evidence": "canonical" if metadata.get("merge_operation_id") else "unknown"},
         "base_model": {"id": None, "name": metadata.get("base_model"), "evidence": evidence["base_model"]},
         "asset_type": {"id": None, "name": metadata.get("asset_type"), "evidence": evidence["asset_type"]},
         "provider": {"id": None, "name": metadata.get("provider"), "evidence": evidence["provider"]},

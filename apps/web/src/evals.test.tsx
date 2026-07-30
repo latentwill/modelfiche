@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OutputReviewControl, moveItem } from "./screens-evals";
-import evalSource from "./screens-evals.tsx?raw";
+import { evalOutputProvenanceLabel, OutputReviewControl, moveItem } from "./screens-evals";
 import * as apiModule from "./api";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -13,23 +12,6 @@ describe("Eval workflow contracts", () => {
     expect(prompts.map(item => item.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("uses project-only completed-run assessment creation without generation selectors", () => {
-    const generator = evalSource.slice(evalSource.indexOf("export function EvalsScreen"), evalSource.indexOf("function EvalRunStrip"));
-    expect(generator).toContain("Completed generation run");
-    expect(generator).toContain("run_id: runId");
-    expect(generator).toContain("assessment");
-    expect(generator).not.toContain("/run");
-    expect(generator).not.toContain("prompt_set");
-    expect(generator).not.toContain("modelId");
-    expect(generator).not.toContain("ModelCheckpointPicker");
-  });
-
-  it("removes Prompt Set and model selector controls from assessment flow", () => {
-    expect(evalSource).not.toContain("aria-label=\"Saved set\"");
-    expect(evalSource).not.toContain("prompt-sets");
-    expect(evalSource).not.toContain("ModelCheckpointPicker");
-    expect(evalSource).toContain("Completed generation run");
-  });
 
   it("uses bounded composite rating and decision keyboard controls", async () => {
     const requests: Array<Record<string, unknown>> = [];
@@ -61,4 +43,32 @@ describe("Eval workflow contracts", () => {
     expect(prompts.map(item => item.prompt_id)).toEqual(["prompt-0", "prompt-1", "prompt-2", "prompt-3"]);
     expect(new Set(prompts.map(item => item.prompt_id)).size).toBe(4);
   });
+  it("labels source checkpoints and merge targets from canonical provenance", () => {
+    expect(evalOutputProvenanceLabel({
+      provenance: {
+        kind: "checkpoint",
+        axis_values: { target: "fujiwara-source" },
+        model_name: "fujiwara-kaoru-krea2-v001",
+        checkpoint_step: 3000,
+        training_run_name: "fujiwara training",
+      },
+    })).toEqual({
+      title: "Target · fujiwara-source",
+      detail: "fujiwara-kaoru-krea2-v001 · step 3000 · run fujiwara training",
+      kind: "checkpoint",
+    });
+    expect(evalOutputProvenanceLabel({
+      provenance: {
+        kind: "merge",
+        axis_values: { target: "cosine-anchor" },
+        model_name: "Fujiwara Kaoru × Hoover — cosine anchor",
+        merge_notation: "cosine-gated[r64] { anchor=fkaor@3000; donor=qhoov@3750 }",
+      },
+    })).toEqual({
+      title: "Target · cosine-anchor",
+      detail: "Merge · cosine-gated[r64] { anchor=fkaor@3000; donor=qhoov@3750 }",
+      kind: "merge",
+    });
+  });
+
 });

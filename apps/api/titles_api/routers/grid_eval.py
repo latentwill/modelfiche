@@ -69,8 +69,10 @@ def _hydrate_input(db: Session, project_id: str, raw: dict[str, Any]) -> dict[st
             continue
         version = get_or_404(db, models.ModelVersion, str(version_id))
         model = get_or_404(db, models.Model, version.model_id)
-        if model.project_id != project_id:
-            raise HTTPException(status_code=409, detail="target model version belongs to another project")
+        target_project = get_or_404(db, models.Project, model.project_id)
+        grid_project = get_or_404(db, models.Project, project_id)
+        if target_project.workspace_id != grid_project.workspace_id:
+            raise HTTPException(status_code=404, detail="target model version was not found")
         checkpoint = get_or_404(db, models.Checkpoint, version.checkpoint_id)
         canonical_revision_id = version.checkpoint_revision_id or checkpoint.current_revision_id
         if not canonical_revision_id:

@@ -11,7 +11,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("project packet timestamp", () => {
   it("places Dataset images left and Training samples in the middle", () => {
-    expect(PROJECT_IMAGE_COLLECTION_ORDER).toEqual(["Dataset images", "Training samples", "Eval outputs"]);
+    expect(PROJECT_IMAGE_COLLECTION_ORDER).toEqual(["Dataset images", "Training samples", "Grid outputs"]);
   });
   it("renders a deterministic UTC training-run timestamp", () => {
     expect(formatCanonicalTimestamp("2026-07-12T08:09:10.456+08:00")).toBe("2026-07-12 00:09:10 UTC");

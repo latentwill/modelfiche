@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { App } from "./App";
 import { AssetGrid, GalleryScreen, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
 import assetsSource from "./screens-assets.tsx?raw";
 
 vi.mock("./asset-image", () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); location.hash = ""; });
 
 describe("gallery navigation contracts", () => {
   it("preserves filters, pagination, context and exact safe origin", () => {
@@ -162,5 +163,33 @@ describe("gallery navigation contracts", () => {
     const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
     expect(metadataFields).toEqual(expect.arrayContaining(["Model", "Model version", "Checkpoint", "Step", "Base model", "Training run", "LoRA scale", "Provider"]));
     expect(metadataFields).not.toContain("File");
+  });
+  it("routes activity image links through the canonical gallery reviewer", async () => {
+    const asset = { id: "activity-image", asset_id: "activity-image", asset_revision_id: "activity-image", project_id: "project-1", name: "opaque-generated-name.png", kind: "image", mime_type: "image/png", origin_type: "EVAL" };
+    const checkpoint = "hoover-3750-x-fujiwara-kaoru-3000-spherical-60-40-1debb3b021b6.safetensors";
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      const body = path.includes("/api/gallery/context")
+        ? { items: [asset], current: asset, previous: null, next: null }
+        : path.includes("/api/assets/activity-image/context")
+          ? { metadata: { origin_type: "EVAL", project_id: "project-1", model_id: "model-1", model_version_id: "version-1", checkpoint_revision_id: "revision-1", provider: "fal", endpoint: "fal-ai/krea-2/turbo/lora", prompt: "watercolor portrait", relationships: { checkpoint: { name: checkpoint } } }, image: { width: 1024, height: 1024 }, storage: [] }
+          : path.includes("/api/assets/activity-image")
+            ? asset
+            : path.includes("/api/gallery")
+              ? { items: [asset], total: 1 }
+              : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    location.hash = "#/image/activity-image?project=project-1";
+
+    render(<App />);
+
+    const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
+    await waitFor(() => expect(dialog).toHaveTextContent("GRID"));
+    expect(dialog).toHaveTextContent(checkpoint);
+    expect(dialog).not.toHaveTextContent(".png");
+    expect(Array.from(dialog.querySelectorAll("dt"), field => field.textContent)).not.toContain("File");
+    expect(screen.getByRole("link", { name: "Generate with these settings" })).toBeInTheDocument();
   });
 });

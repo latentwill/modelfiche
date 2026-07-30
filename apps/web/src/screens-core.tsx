@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, Clipboard, Download, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Sparkles, Square, Trash2, Upload, X } from "lucide-react";
+import { Archive, Clipboard, Download, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Trash2, Upload, X } from "lucide-react";
 import { ApiError, api, apiDownload, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { AssetImage } from "./asset-image";
@@ -49,7 +49,7 @@ export async function collectDroppedLocalFiles(dataTransfer: DataTransfer): Prom
   }
   return Array.from(dataTransfer.files ?? []).map(file => ({ file, path: file.webkitRelativePath || file.name }));
 }
-export const PROJECT_IMAGE_COLLECTION_ORDER = ["Dataset images", "Training samples", "Eval outputs"] as const;
+export const PROJECT_IMAGE_COLLECTION_ORDER = ["Dataset images", "Training samples", "Grid outputs"] as const;
 
 export function ProjectsScreen() {
   const resource = useResource<unknown>("/api/projects");
@@ -76,10 +76,10 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
   const runs = useResource<unknown>(`/api/runs${query({ project_id: id })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: id })}`);
   const models = useResource<unknown>(`/api/models${query({ project_id: id })}`);
-  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: id })}`);
+  const grids = useResource<unknown>(`/api/projects/${id}/grids`);
   const trainingImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "sample", limit: 9 })}`);
   const datasetImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "dataset_image", include_dataset_assets: true, limit: 9 })}`);
-  const evalImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "eval_output", limit: 9 })}`);
+  const gridImages = useResource<unknown>(`/api/gallery${query({ project_id: id, kind: "image", category: "eval_output", limit: 9 })}`);
   const [projectMessage, setProjectMessage] = useState("");
   const [projectActionError, setProjectActionError] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
@@ -99,22 +99,22 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
       cancelAnimationFrame(revealFrame);
     };
   }, [editing, project.data, id]);
-  const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const evalRows = rows(evals.data);
+  const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const gridRows = rows(grids.data);
   const archived = project.data?.state === "archived";
-  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/evals?project=${id}&scope=project`}><Sparkles size={15} /> Eval</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a></>}>
+  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a></>}>
     <Notice error={project.error || projectActionError} loading={project.loading} />
     {archived && <a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a>}
     <ActiveTrainingPanel projectId={id} />
     <div className="project-visual-grid" aria-label="Project image collections">
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[0]} assets={rows(datasetImages.data)} loading={datasetImages.loading} error={datasetImages.error} href={projectGalleryHref(id, "dataset_image", { include_dataset_assets: true })} returnTarget={`project/${id}`} />
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[1]} assets={rows(trainingImages.data)} loading={trainingImages.loading} error={trainingImages.error} href={projectGalleryHref(id, "sample")} returnTarget={`project/${id}`} />
-      <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[2]} assets={rows(evalImages.data)} loading={evalImages.loading} error={evalImages.error} href={projectGalleryHref(id, "eval_output")} returnTarget={`project/${id}`} />
+      <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[2]} assets={rows(gridImages.data)} loading={gridImages.loading} error={gridImages.error} href={projectGalleryHref(id, "eval_output")} returnTarget={`project/${id}`} />
     </div>
     <LatestTrainingRun projectId={id} runs={runRows} loading={runs.loading} error={runs.error} />
     <div className="project-resource-grid">
       <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div>{!datasets.loading && !datasets.error && !datasetRows.length && <div className="vela-empty"><a className="button vela-button vela-button-primary" href={`#/transfers?mode=import&project=${id}`}>Create a dataset</a></div>}<a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
       <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
-      <Panel title="Eval batches"><Notice error={evals.error} loading={evals.loading} empty={!evalRows.length} /><DataTable rows={evalRows.slice(0, 6)} columns={[["name", "Eval"], ["endpoint_adapter", "Endpoint"], ["output_count", "Outputs"]]} onRow={row => { location.hash = `eval/${idOf(row)}`; }} /></Panel>
+      <Panel title="Grids"><Notice error={grids.error} loading={grids.loading} empty={!gridRows.length} /><DataTable rows={gridRows.slice(0, 6)} columns={[["name", "Grid"], ["status", "Status"], ["request_count", "Images"]]} onRow={row => { location.hash = `grid/${idOf(row)}?project=${id}`; }} /></Panel>
     </div>
     {project.data && editing && <div ref={editorRef} id="project-settings" tabIndex={-1}><Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { const updated = await api<Row>(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); project.setData(updated); window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: updated })); setProjectMessage("Project updated."); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel></div>}
   </Page>;

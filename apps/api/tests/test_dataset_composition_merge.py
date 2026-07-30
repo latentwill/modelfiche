@@ -3,8 +3,9 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from titles_api import models
+from titles_api import models, schemas
 from titles_api.checkpoint_revisions import establish_checkpoint_revision
+from titles_api.merge_operations import compact_notation
 from titles_api.database import get_db
 from fastapi.testclient import TestClient
 
@@ -167,3 +168,98 @@ def test_merge_prepare_complete_is_atomic_and_idempotent(client: TestClient):
     lineage = client.get("/api/lineage", params={"subject_type": "checkpoint_revision", "subject_id": result["output"]["checkpoint_revision_id"], "depth": 3}).json()
     merged_edges = [row for row in lineage if row.get("relationship") == "merged_into"]
     assert len(merged_edges) == 2
+
+
+def test_v2_merge_accepts_workspace_sources_and_records_method_notation(client: TestClient):
+    headers, output_project = _project(client)
+    donor_project = client.post("/api/projects", headers=headers, json={"title": "Donor project"}).json()
+    anchor_sha = "3" * 64
+    donor_sha = "4" * 64
+    anchor_revision = _checkpoint_source(client, headers, output_project, "fkaor", anchor_sha, 3000)
+    donor_revision = _checkpoint_source(client, headers, donor_project, "qhoov", donor_sha, 3750)
+    recipe = {
+        "$schema": "modelfiche.checkpoint-merge/v2",
+        "name": "Fujiwara Kaoru x Hoover cosine anchor",
+        "base_model": "krea/Krea-2-Raw",
+        "inputs": [
+            {
+                "alias": "fkaor",
+                "checkpoint_revision_id": anchor_revision,
+                "sha256": anchor_sha,
+                "step": 3000,
+                "rank": 32,
+                "role": "primary",
+                "key_format": "ai_toolkit",
+            },
+            {
+                "alias": "qhoov",
+                "checkpoint_revision_id": donor_revision,
+                "sha256": donor_sha,
+                "step": 3750,
+                "rank": 32,
+                "role": "donor",
+                "key_format": "ai_toolkit",
+            },
+        ],
+        "method": {
+            "kind": "cosine_gated",
+            "anchor": "fkaor",
+            "donor": "qhoov",
+            "parameters": {
+                "donor_min": 0.15,
+                "donor_max": 0.55,
+                "lower_percentile": 5,
+                "upper_percentile": 95,
+            },
+        },
+        "output": {"rank": 64, "dtype": "float16", "factorization": "exact_concat"},
+    }
+
+    prepared = client.post(
+        "/api/merge-operations/prepare",
+        headers=headers,
+        json={
+            "project_id": output_project["id"],
+            "client_request_id": "agent-v2-cosine",
+            "recipe": recipe,
+            "registration": {"version_name": recipe["name"], "trigger_words": ["fkaor", "qhoov"]},
+        },
+    )
+
+    assert prepared.status_code == 201, prepared.text
+    operation = prepared.json()
+    assert operation["schema_version"] == "modelfiche.checkpoint-merge/v2"
+    assert operation["operator"] == "cosine_gated"
+    assert operation["notation"].startswith("cosine-gated[r64]")
+    assert "anchor=fkaor@3000" in operation["notation"]
+    assert {item["checkpoint_revision_id"] for item in operation["inputs"]} == {anchor_revision, donor_revision}
+
+
+def test_geometric_merge_methods_validate_and_render_notation():
+    recipe = {
+        "$schema": "modelfiche.checkpoint-merge/v2",
+        "name": "Hoover geometric merge",
+        "base_model": "krea/Krea-2-Raw",
+        "inputs": [
+            {"alias": "qhoov", "checkpoint_revision_id": "qhoov-revision", "sha256": "3" * 64, "step": 3750, "rank": 32},
+            {"alias": "fkaor", "checkpoint_revision_id": "fkaor-revision", "sha256": "4" * 64, "step": 3000, "rank": 32},
+        ],
+        "method": {
+            "kind": "norm_balanced",
+            "anchor": "qhoov",
+            "donor": "fkaor",
+            "parameters": {"anchor_weight": 0.6, "donor_weight": 0.4},
+        },
+        "output": {"rank": 64, "dtype": "float16", "factorization": "exact_concat"},
+    }
+    norm_balanced = schemas.MergeRecipe.model_validate(recipe)
+    assert compact_notation(norm_balanced).startswith("norm-balanced[r64] { qhoov@3750 0.60 + fkaor@3000 0.40 }")
+
+    recipe["method"] = {
+        "kind": "slerp",
+        "anchor": "qhoov",
+        "donor": "fkaor",
+        "parameters": {"donor_weight": 0.4},
+    }
+    spherical = schemas.MergeRecipe.model_validate(recipe)
+    assert compact_notation(spherical).startswith("slerp[r64] { qhoov@3750 0.60 ↝ fkaor@3000 0.40 }")

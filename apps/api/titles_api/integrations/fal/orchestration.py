@@ -48,7 +48,7 @@ class GridPlanner:
     ) -> list[EvalTask]:
         adapter = get_adapter(definition.endpoint_id)
         fields = {definition.row_axis.field, definition.column_axis.field}
-        unsupported = fields - adapter.allowed_axes
+        unsupported = fields - (adapter.allowed_axes | {"checkpoint_step", "model"})
         if unsupported:
             raise ValueError(f"unsupported grid axes for {adapter.endpoint_id}: {', '.join(sorted(unsupported))}")
         if len(fields) != 2:

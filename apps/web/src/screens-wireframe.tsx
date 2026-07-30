@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, Maximize2, Minimize2, Star, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { previewAssetId } from "./activity";
@@ -18,7 +18,7 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
   const displayed = visible.length ? visible : rows(projects.data);
   const runRows = rows(runs.data);
   return <main className="vela-main">
-    <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and evaluation activity.</p></div><div className="vela-hero-art" aria-hidden="true"><img className="vela-reader-symbol vela-reader-symbol-light" src="/assets/modelfiche-reader-symbol-light.png" alt="" /><img className="vela-reader-symbol vela-reader-symbol-dark" src="/assets/modelfiche-reader-symbol-dark.png" alt="" /></div></section>
+    <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and grid activity.</p></div><div className="vela-hero-art" aria-hidden="true"><img className="vela-reader-symbol vela-reader-symbol-light" src="/assets/modelfiche-reader-symbol-light.png" alt="" /><img className="vela-reader-symbol vela-reader-symbol-dark" src="/assets/modelfiche-reader-symbol-dark.png" alt="" /></div></section>
     {createProject && <section className="vela-section"><ProjectCreatePanel onCreated={projects.reload} /></section>}
     <ActiveTrainingPanel />
     <section className="vela-section">
@@ -45,17 +45,17 @@ function ProjectSummaryCard({ project }: { project: Row }) {
   const models = useResource<unknown>(`/api/models${query({ project_id: projectId })}`);
   const runs = useResource<unknown>(`/api/runs${query({ project_id: projectId })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: projectId })}`);
-  const evals = useResource<unknown>(`/api/eval-runs${query({ project_id: projectId })}`);
-  const evalImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "eval_output", limit: 4 })}`);
+  const grids = useResource<unknown>(`/api/projects/${projectId}/grids`);
+  const gridImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "eval_output", limit: 4 })}`);
   const sampleImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "sample", limit: 4 })}`);
   const datasetImages = useResource<unknown>(`/api/gallery${query({ project_id: projectId, kind: "image", category: "dataset_image", include_dataset_assets: true, limit: 4 })}`);
-  const previewSource = rows(evalImages.data).length
-    ? { images: rows(evalImages.data), label: "eval outputs" }
+  const previewSource = rows(gridImages.data).length
+    ? { images: rows(gridImages.data), label: "grid outputs" }
     : rows(sampleImages.data).length
       ? { images: rows(sampleImages.data), label: "training samples" }
       : { images: rows(datasetImages.data), label: "dataset images" };
   const previewImages = previewSource.images.slice(0, 4);
-  return <a className="vela-project-card" href={`#/project/${projectId}`}><div className="vela-project-card-body vela-project-card-heading"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p></div>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest ${previewSource.label}`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Evals <strong>{rows(evals.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
+  return <a className="vela-project-card" href={`#/project/${projectId}`}><div className="vela-project-card-body vela-project-card-heading"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p></div>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest ${previewSource.label}`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Grids <strong>{rows(grids.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
 }
 
 
@@ -113,28 +113,6 @@ function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>;
   }}><div className="form-grid"><Field label="Package name"><input key={targetName || "manual"} name="name" defaultValue={targetName} required /></Field>{target ? <Field label="Export scope"><input readOnly value={`${target.label}: ${targetName}`} /></Field> : <Field label="Export project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select project..." /></Field>}</div><label><input name="include_files" type="checkbox" defaultChecked /> Include available hydrated files</label><label><input name="include_reviews" type="checkbox" defaultChecked /> Include comments, ratings, and review metadata</label></Form>}{message && <div className="vela-notice" role="status"><strong>Export queued</strong><span>{message}</span></div>}</Panel>;
 }
 
-export function ImageReviewScreen({ id }: { id: string }) {
-  const asset = useResource<Row>(`/api/assets/${id}`);
-  const context = useResource<Row>(`/api/assets/${id}/context`);
-  const gallery = useResource<unknown>(asset.data ? `/api/gallery${query({ project_id: asset.data.project_id, kind: asset.data.kind, limit: 250 })}` : null);
-  const comments = useResource<unknown>(`/api/comments${query({ subject_type: "asset", subject_id: id })}`);
-  const reviews = useResource<unknown>(`/api/reviews${query({ subject_type: "asset", subject_id: id })}`);
-  const items = rows(gallery.data); const index = items.findIndex(item => idOf(item) === id);
-  const previous = index > 0 ? items[index - 1] : undefined; const next = index >= 0 ? items[index + 1] : undefined;
-  const [fit, setFit] = useState(true);
-  const [ratingBusy, setRatingBusy] = useState(false);
-  const [ratingError, setRatingError] = useState("");
-  const currentRating = Number(rows(reviews.data)[0]?.rating ?? 0);
-  const metadata = context.data?.metadata && typeof context.data.metadata === "object" ? context.data.metadata as Row : {};
-  return <div className="review-overlay vela-focus-workspace"><header className="viewer-topbar"><a href="#/gallery">Gallery</a><div className="viewer-actions"><button title={fit ? "Fill image" : "Fit image"} aria-label={fit ? "Fill image" : "Fit image"} onClick={() => setFit(!fit)}>{fit ? <Maximize2 size={16} /> : <Minimize2 size={16} />}<span>{fit ? "Fill" : "Fit"}</span></button><a className="button" aria-label="Close image review" href="#/gallery"><X size={16} /> Close</a></div></header>
-    <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? `#/image/${idOf(previous)}` : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? `#/image/${idOf(next)}` : undefined}>Next <ChevronRight size={16} /></a></nav><AssetImage className={fit ? "fit" : "fill"} assetRevisionId={id} variant="content" alt={str(asset.data?.name, "Selected image")} />
-      <div className="filmstrip">{items.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={`#/image/${idOf(item)}`} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
-      <aside id="storage_details" className="image-review-inspector"><h2>Image review</h2><Notice error={asset.error || context.error || gallery.error} loading={asset.loading || context.loading} /><dl className="details"><dt>File</dt><dd>{str(asset.data?.name)}</dd><dt>Type</dt><dd>{str(asset.data?.mime_type)}</dd><dt>Kind</dt><dd>{str(asset.data?.kind)}</dd><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Model</dt><dd>{str(metadata.model_name, "Unknown")}</dd><dt>Base model</dt><dd>{str(metadata.base_model, "Unknown")}</dd><dt>Dataset</dt><dd>{str(metadata.dataset_name, "Unknown")}</dd><dt>Training run</dt><dd>{str(metadata.run_name, "Unknown")}</dd><dt>Step</dt><dd>{str(metadata.step, "Unknown")}</dd><dt>Seed</dt><dd>{str(metadata.seed, "Unknown")}</dd><dt>Storage</dt><dd>{rows((context.data?.asset as Row | undefined)?.locations).map(location => str(location.provider)).join(", ") || "Remote"}</dd></dl><details><summary>All metadata</summary><pre className="vela-code">{JSON.stringify(metadata, null, 2)}</pre></details>
-        <div className="rating-control"><span>Image rating</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={async () => { setRatingBusy(true); setRatingError(""); try { await api("/api/reviews", jsonBody({ subject_type: "asset", subject_id: id, rating: value, decision: "candidate" })); await reviews.reload(); } catch (reason) { setRatingError(reason instanceof Error ? reason.message : String(reason)); } finally { setRatingBusy(false); } }}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
-        <section><h3>Comments</h3><div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div><Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form></section>
-      </aside></main>
-  </div>;
-}
 
 const MAX_SAMPLE_COLUMNS = 6;
 const SAMPLE_ROWS_PER_PAGE = 8;

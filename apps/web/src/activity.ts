@@ -26,6 +26,12 @@ export function activityObjectHref(value: unknown): string | null {
   const href = value.trim();
   return href.startsWith("#/") ? href : null;
 }
+export function activityDisplayText(value: unknown, fallback: string) {
+  const text = String(value ?? "").trim();
+  if (!text || /\.(?:png|jpe?g|webp|gif|avif)(?:$|[?#])/i.test(text)) return fallback;
+  return text;
+}
+
 
 export function previewAssetId(value: unknown): string | null {
   if (typeof value !== "string") return null;

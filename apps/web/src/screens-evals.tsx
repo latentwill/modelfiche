@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   Check,
-  ExternalLink,
-  Grid3X3,
   LoaderCircle,
   Star,
   X,
@@ -15,7 +11,6 @@ import { AssetImage } from "./asset-image";
 import { useResource, pollWhileActive } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
 import { galleryOpenHref } from "./screens-assets";
-import type { JsonObject } from "./experiment-plan";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -23,64 +18,6 @@ const PROGRESS_POLL = { pollInterval: 1000, pollWhile: pollWhileActive };
 const OUTPUTS_POLL = { pollInterval: 1000 };
 
 
-export function EvalsScreen({ projectId = "" }: { projectId?: string; initialModelVersionId?: string }) {
-  const projects = useResource<unknown>("/api/projects?limit=100");
-  const [project, setProject] = useState(projectId);
-  const [runId, setRunId] = useState("");
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState("human_review");
-  const [params, setParams] = useState("{}");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const attemptKeys = useRef({ create: crypto.randomUUID() });
-  const grids = useResource<unknown>(project ? `/api/projects/${encodeURIComponent(project)}/grids` : null);
-  const assessments = useResource<unknown>(project ? `/api/projects/${encodeURIComponent(project)}/evals` : null);
-  const runRows = useMemo(() => rows(grids.data).flatMap(grid => {
-    const nested = rows(grid.runs);
-    if (nested.length) return nested.map(run => ({ ...run, grid_id: idOf(grid), grid_name: str(grid.name, "Grid") }));
-    return str(grid.run_id ?? grid.generation_run_id, "") ? [grid] : [];
-  }).filter(run => Boolean(str(run.run_id ?? run.generation_run_id, "")) && /completed|succeeded/i.test(str(run.status, ""))), [grids.data]);
-  const assessmentRows = rows(assessments.data);
-  useEffect(() => {
-    if (projectId) return;
-    setProject("");
-  }, [projectId]);
-  async function create() {
-    if (!project || !runId || !name.trim() || busy) return;
-    let parameters: JsonObject;
-    try {
-      const parsed = JSON.parse(params || "{}");
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Parameters must be a JSON object.");
-      parameters = parsed as JsonObject;
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Parameters must be valid JSON.");
-      return;
-    }
-    setBusy(true); setError(""); setMessage("");
-    try {
-      const created = await api<Row>(`/api/projects/${encodeURIComponent(project)}/evals`, jsonBody({ name: name.trim(), idempotency_key: attemptKeys.current.create, run_id: runId, assessment: { kind, parameters } }));
-      setMessage(`Assessment ${idOf(created)} is ready for review.`);
-      attemptKeys.current = { create: crypto.randomUUID() };
-      await assessments.reload();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-  const selectedRun = runRows.find(run => str(run.run_id ?? run.generation_run_id) === runId);
-  return <Page title="Eval assessment" subtitle="Assess a completed Grid generation run without creating a second generation plan.">
-    <Notice error={projects.error || grids.error || assessments.error || error} loading={projects.loading || grids.loading || assessments.loading} />
-  <Panel title="Project context"><Field label="Project"><Dropdown aria-label="Project" value={project} options={[{ value: "", label: "Select…" }, ...rows(projects.data).map(row => ({ value: idOf(row), label: str(row.title ?? row.name) }))]} onChange={value => { setProject(value); setRunId(""); setMessage(""); setError(""); attemptKeys.current = { create: crypto.randomUUID() }; }} /></Field><p className="vela-muted">Eval is project-scoped. It references an existing Grid generation run and never mutates its plan.</p></Panel>
-    <Panel title="Completed Grid generation run"><Field label="Completed run"><Dropdown aria-label="Completed generation run" value={runId} disabled={!project} options={[{ value: "", label: runRows.length ? "Select a completed run…" : "No completed Grid runs" }, ...runRows.map(run => ({ value: str(run.run_id ?? run.generation_run_id), label: `${str(run.grid_name, "Grid")} · ${str(run.run_id ?? run.generation_run_id)}` }))]} onChange={setRunId} /></Field>{selectedRun && <dl className="details"><dt>Grid</dt><dd>{str(selectedRun.grid_name, "Grid")}</dd><dt>Run</dt><dd>{str(selectedRun.run_id ?? selectedRun.generation_run_id)}</dd><dt>Status</dt><dd><Status value={selectedRun.status} /></dd></dl>}</Panel>
-    <Panel title="Assessment"><div className="form-grid"><Field label="Name"><input aria-label="Assessment name" value={name} onChange={event => setName(event.target.value)} /></Field><Field label="Assessment kind"><Dropdown aria-label="Assessment kind" value={kind} options={[{ value: "human_review", label: "Human review" }, { value: "image_quality", label: "Image quality" }]} onChange={setKind} /></Field></div><Field label="Parameters"><textarea aria-label="Assessment parameters JSON" value={params} onChange={event => setParams(event.target.value)} /></Field><button type="button" className="vela-button vela-button-primary" disabled={!project || !runId || !name.trim() || busy} onClick={() => void create()}>{busy ? <><LoaderCircle className="vela-spin" size={15} /> Creating…</> : "Create assessment"}</button>{message && <div className="vela-notice" role="status">{message}</div>}</Panel>
-    <Panel title="Project assessments"><Notice empty={!assessments.loading && !assessmentRows.length} emptyText="No assessments yet" emptyHint="Create an assessment from a completed Grid run." />{!!assessmentRows.length && <DataTable rows={assessmentRows} columns={[["name", "Name"], ["run_id", "Generation run"], ["assessment", "Assessment"], ["status", "Status"]]} onRow={row => { location.hash = `eval/${idOf(row)}?project=${encodeURIComponent(project)}`; }} />}</Panel>
-  </Page>;
-}
-function EvalRunStrip({ runs }: { runs: Row[] }) {
-  return <div className="eval-run-strip">{runs.map(run => <a href={`#/eval/${idOf(run)}`} key={idOf(run)}><div className="comparison-image">{rows(run.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} alt="Eval output preview" loading="lazy" />)}</div><strong>{str(run.name, "Eval run")}</strong><span>{str(run.model_version_name, "Checkpoint")} · {str(run.prompt_count, "0")} prompts · {str(run.output_count, "0")} outputs</span><Status value={run.status} /></a>)}</div>;
-}
 
 
 export function moveItem<T>(items: T[], from: number, to: number): T[] { const next = [...items]; const [item] = next.splice(from, 1); next.splice(to, 0, item); return next; }
@@ -88,7 +25,27 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] { const n
 function ProjectEvalDetail({ id, projectId, resource }: { id: string; projectId: string; resource: { data: Row | null; loading: boolean; error?: string } }) {
   const assessment = resource.data?.assessment && typeof resource.data.assessment === "object" ? resource.data.assessment as Row : {};
   const reviews = rows(resource.data?.reviews);
-  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><h1>{str(resource.data?.name, "Assessment")}</h1><span>{str(resource.data?.status, "Loading")} · project {projectId}</span></div><a className="vela-button" href={`#/evals?project=${encodeURIComponent(projectId)}`}><ArrowLeft size={15} /> Project Evals</a></header><main className="vela-main"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !resource.data} emptyText="Assessment unavailable" /><Panel title="Assessment provenance"><dl className="details"><dt>Project</dt><dd>{projectId}</dd><dt>Generation run</dt><dd>{str(resource.data?.run_id, "Unknown")}</dd><dt>Plan</dt><dd>{str(resource.data?.plan_id, "Unknown")}</dd><dt>Plan version</dt><dd>{str(resource.data?.plan_version, "Unknown")}</dd><dt>Digest</dt><dd>{str(resource.data?.plan_digest, "Unknown")}</dd><dt>Kind</dt><dd>{str(assessment.kind, "human_review")}</dd></dl></Panel><Panel title="Assessment results"><a className="vela-button" href={`#/eval/${encodeURIComponent(str(resource.data?.run_id, ""))}`}>Open generation outputs for review</a><Notice empty={!resource.loading && !reviews.length} emptyText="No review results yet" emptyHint="Reviewers can add human review or image quality results from the project-scoped assessment." />{!!reviews.length && <DataTable rows={reviews} columns={[["subject_id", "Subject"], ["rating", "Rating"], ["decision", "Decision"]]} />}</Panel></main></div>;
+  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><h1>{str(resource.data?.name, "Assessment")}</h1><span>{str(resource.data?.status, "Loading")} · project {projectId}</span></div><a className="vela-button" href={`#/grids?project=${encodeURIComponent(projectId)}`}><ArrowLeft size={15} /> Project Grids</a></header><main className="vela-main"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !resource.data} emptyText="Assessment unavailable" /><Panel title="Assessment provenance"><dl className="details"><dt>Project</dt><dd>{projectId}</dd><dt>Generation run</dt><dd>{str(resource.data?.run_id, "Unknown")}</dd><dt>Plan</dt><dd>{str(resource.data?.plan_id, "Unknown")}</dd><dt>Plan version</dt><dd>{str(resource.data?.plan_version, "Unknown")}</dd><dt>Plan digest</dt><dd>{str(resource.data?.plan_digest, "Unknown")}</dd></dl></Panel><Panel title="Assessment"><pre>{JSON.stringify(assessment, null, 2)}</pre><DataTable rows={reviews} columns={[["profile_name", "Reviewer"], ["rating", "Rating"], ["decision", "Decision"], ["body", "Comment"], ["updated_at", "Updated"]]} /></Panel></main></div>;
+}
+
+
+export function evalOutputProvenanceLabel(output: Row): { title: string; detail: string; kind: string } {
+  const provenance = output.provenance && typeof output.provenance === "object" ? output.provenance as Row : {};
+  const provider = output.provider_metadata && typeof output.provider_metadata === "object" ? output.provider_metadata as Row : {};
+  const grid = provider.grid_metadata && typeof provider.grid_metadata === "object" ? provider.grid_metadata as Row : {};
+  const axisValues = provenance.axis_values && typeof provenance.axis_values === "object" ? provenance.axis_values as Row : {};
+  const target = str(axisValues.target, "");
+  const modelName = str(provenance.model_name ?? grid.model_name, "");
+  const versionName = str(provenance.model_version_name ?? grid.model_version_name, "");
+  const step = str(provenance.checkpoint_step ?? grid.checkpoint_step, "");
+  const kind = str(provenance.kind, "checkpoint");
+  const mergeNotation = str(provenance.merge_notation, "");
+  const trainingRun = str(provenance.training_run_name ?? grid.run_name, "");
+  const title = target ? `Target · ${target}` : modelName || versionName || "Grid target";
+  const detail = kind === "merge" || mergeNotation
+    ? ["Merge", mergeNotation || modelName || versionName].filter(Boolean).join(" · ")
+    : [modelName || versionName, step ? `step ${step}` : "", trainingRun && trainingRun !== modelName ? `run ${trainingRun}` : ""].filter(Boolean).join(" · ");
+  return { title, detail: detail || "Checkpoint metadata unavailable", kind };
 }
 
 
@@ -113,7 +70,7 @@ export function EvalScreen({ id, projectId: routeProjectId = "" }: { id: string;
   }, [promptIds]);
   const shown = Object.entries(grouped).filter(([key]) => selected.includes(key)).slice(0, 4);
   const projectId = str(resource.data?.project_id, "");
-  const returnHref = `#/evals${projectId ? `?project=${projectId}` : ""}`;
+  const returnHref = `#/grids${projectId ? `?project=${projectId}` : ""}`;
   const cancelDisabledReason = resource.loading
     ? "Eval data is still loading"
     : resource.error
@@ -133,7 +90,7 @@ export function EvalScreen({ id, projectId: routeProjectId = "" }: { id: string;
           {resource.data && <span>{str(resource.data.plan_digest ?? resource.data.digest, "Inline plan")} · {str(resource.data.model_name, "Model")} / {str(resource.data.model_version_name, "Checkpoint")}</span>}
         </div>
         <div className="viewer-actions">
-          <a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Project Evals</a>
+          <a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Project Grids</a>
           <a className="vela-button" href={`#/transfers?mode=export&eval=${id}&project=${projectId}`}>Export</a>
           <AsyncAction
             label="Cancel"
@@ -181,8 +138,10 @@ export function EvalScreen({ id, projectId: routeProjectId = "" }: { id: string;
                 {visibleOutputs.map(output => {
                   const outputId = idOf(output);
                   const reviewing = activeReviewId === outputId;
-                  return <article className="comparison-image eval-review-output" key={outputId}>
-                    <a href={galleryOpenHref({ ...output, project_id: projectId, origin_type: "EVAL" })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={promptCopy(output) || "Eval output"} /></a>
+                  const provenance = evalOutputProvenanceLabel(output);
+                  return <article className="comparison-image eval-review-output" data-provenance-kind={provenance.kind} key={outputId}>
+                    <a href={galleryOpenHref({ ...output, project_id: projectId, origin_type: "EVAL" })}><AssetImage assetRevisionId={str(output.asset_revision_id ?? output.asset_id)} loading="lazy" alt={`${provenance.title} · ${promptCopy(output) || "Eval output"}`} /></a>
+                    <div className="eval-output-provenance"><strong>{provenance.title}</strong><small>{provenance.detail}</small></div>
                     <div className="eval-output-summary"><small>Seed {str(output.seed, "not recorded")}</small><button type="button" className="vela-button" aria-expanded={reviewing} onClick={() => setActiveReviewId(reviewing ? "" : outputId)}>{reviewing ? "Close review" : "Review output"}</button></div>
                     {reviewing && <OutputReviewControl output={output} />}
                   </article>;
@@ -216,7 +175,7 @@ export function EvalComparisonScreen({ id }: { id: string }) {
   const projectId = str(resource.data?.project_id ?? context.projectId ?? context.project_id, "");
   const returnParams = new URLSearchParams();
   if (projectId) returnParams.set("project", projectId);
-  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href={`#/evals${returnParams.size ? `?${returnParams}` : ""}`}><ArrowLeft size={15} /> Project Evals</a>}>
+  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href={`#/grids${returnParams.size ? `?${returnParams}` : ""}`}><ArrowLeft size={15} /> Project Grids</a>}>
     <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !runs.length} emptyText="No comparison results yet" emptyHint="This comparison updates while queued checkpoint work completes." />
     {!!runs.length && <>
       <Panel title="Comparison filters"><div className="form-grid"><Field label="Prompt contains"><input value={queryText} onChange={event => setQueryText(event.target.value)} /></Field><Field label="Model checkpoints"><select multiple value={visibleModels} onChange={event => setVisibleModels(Array.from(event.target.selectedOptions, option => option.value))}>{runs.map(run => <option key={str(run.model_version_id)} value={str(run.model_version_id)}>{str(run.model_name)} · {str(run.model_version_name)}</option>)}</select></Field></div></Panel>

@@ -18,12 +18,10 @@ const RunsScreen = lazy(() => import("./screens-assets").then(module => ({ defau
 const ModelVersionScreen = lazy(() => import("./screens-model-version").then(module => ({ default: module.ModelVersionScreen })));
 const EvalComparisonScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.EvalComparisonScreen })));
 const EvalScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.EvalScreen })));
-const EvalsScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.EvalsScreen })));
 const ReviewsScreen = lazy(() => import("./screens-evals").then(module => ({ default: module.ReviewsScreen })));
 const GridScreen = lazy(() => import("./screens-grids").then(module => ({ default: module.GridScreen })));
 const GridsScreen = lazy(() => import("./screens-grids").then(module => ({ default: module.GridsScreen })));
 const DashboardScreen = lazy(() => import("./screens-wireframe").then(module => ({ default: module.DashboardScreen })));
-const ImageReviewScreen = lazy(() => import("./screens-wireframe").then(module => ({ default: module.ImageReviewScreen })));
 const SampleViewerScreen = lazy(() => import("./screens-wireframe").then(module => ({ default: module.SampleViewerScreen })));
 const TransfersScreen = lazy(() => import("./screens-wireframe").then(module => ({ default: module.TransfersScreen })));
 const GenerationQueueScreen = lazy(() => import("./generator").then(module => ({ default: module.GenerationQueueScreen })));
@@ -40,14 +38,19 @@ export function App() {
   const section = parts[0] || "dashboard";
   const id = parts[1] || "";
   const params = new URLSearchParams(rawQuery);
+  const routedSection = section === "evals" ? "grids" : section;
   const { theme, toggleTheme } = useThemeController();
   let content;
-  if (section === "image") content = <ImageReviewScreen id={id} />;
-  else if (section === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
-  else if (section === "eval") content = <EvalScreen id={id} projectId={params.get("project") ?? ""} />;
-  else if (section === "eval-comparison") content = <EvalComparisonScreen id={id} />;
-  else if (section === "grid") content = <GridScreen id={id} projectId={params.get("project") ?? ""} />;
-  else content = <WorkbenchShell section={section} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}>{renderScreen(section, id, params)}</WorkbenchShell>;
+  if (routedSection === "image") {
+    const galleryParams = new URLSearchParams(params);
+    galleryParams.set("asset", id);
+    content = <GalleryScreen projectId={params.get("project") ?? ""} params={galleryParams} />;
+  }
+  else if (routedSection === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
+  else if (routedSection === "eval") content = <EvalScreen id={id} projectId={params.get("project") ?? ""} />;
+  else if (routedSection === "eval-comparison") content = <EvalComparisonScreen id={id} />;
+  else if (routedSection === "grid") content = <GridScreen id={id} projectId={params.get("project") ?? ""} />;
+  else content = <WorkbenchShell section={routedSection} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}>{renderScreen(routedSection, id, params)}</WorkbenchShell>;
   return <div className="vela-theme"><Suspense fallback={<main className="vela-main" aria-busy="true">Loading view…</main>}>{content}</Suspense></div>;
 }
 
@@ -72,7 +75,6 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "models": return <ModelsScreen projectId={projectId} />;
     case "model": return <ModelScreen id={id} />;
     case "model-version": return <ModelVersionScreen id={id} />;
-    case "evals": return <EvalsScreen projectId={projectId} initialModelVersionId={params.get("model_version") ?? ""} />;
     case "eval": return <EvalScreen id={id} projectId={projectId} />;
     case "eval-comparison": return <EvalComparisonScreen id={id} />;
     case "grids": return <GridsScreen params={params} />;

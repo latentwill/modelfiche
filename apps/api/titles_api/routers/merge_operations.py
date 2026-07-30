@@ -49,12 +49,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verified_input(db: Session, project_id: str, item: schemas.MergeRecipeInput) -> models.CheckpointRevision:
+def _verified_input(db: Session, workspace_id: str, item: schemas.MergeRecipeInput) -> models.CheckpointRevision:
     revision = get_or_404(db, models.CheckpointRevision, item.checkpoint_revision_id)
     checkpoint = get_or_404(db, models.Checkpoint, revision.checkpoint_id)
     run = get_or_404(db, models.TrainingRun, checkpoint.run_id)
-    if run.project_id != project_id:
-        raise HTTPException(status_code=400, detail=f"merge input {item.alias} belongs to a different project")
+    source_project = get_or_404(db, models.Project, run.project_id)
+    if source_project.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail=f"merge input {item.alias} was not found")
     asset = get_or_404(db, models.Asset, revision.asset_id)
     recorded_sha = (asset.sha256 or "").lower()
     if recorded_sha != item.sha256.lower():
@@ -89,7 +90,7 @@ def prepare_merge(
         output_dir.mkdir(parents=True, exist_ok=True)
         return merge_projection(db, existing, output_directory=str(output_dir))
 
-    revisions = [_verified_input(db, project.id, item) for item in body.recipe.inputs]
+    revisions = [_verified_input(db, project.workspace_id, item) for item in body.recipe.inputs]
     registration = body.registration.model_dump(mode="json", exclude_none=True)
     run = models.TrainingRun(
         project_id=project.id,
@@ -110,7 +111,7 @@ def prepare_merge(
         raw_state={"status": "preparing", "phase": "preparing"},
         normalized_config={
             "trainer": "checkpoint-merge",
-            "operator": body.recipe.operator,
+            "operator": body.recipe.resolved_operator,
             "lora_rank": body.recipe.output.rank,
             "dtype": body.recipe.output.dtype,
             "merge_recipe": canonical,
@@ -123,7 +124,7 @@ def prepare_merge(
         project_id=project.id,
         run_id=run.id,
         schema_version=body.recipe.schema_version,
-        operator=body.recipe.operator,
+        operator=body.recipe.resolved_operator,
         base_model=body.recipe.base_model,
         status="preparing",
         recipe=canonical,

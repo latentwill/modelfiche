@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activityLabel, activityObjectHref, previewAssetId } from "./activity";
+import { activityDisplayText, activityLabel, activityObjectHref, previewAssetId } from "./activity";
 
 describe("activityLabel", () => {
   it("maps known provider events to concise user-facing text", () => {
@@ -15,6 +15,14 @@ describe("activityLabel", () => {
 
   it("has a useful fallback for a missing event key", () => {
     expect(activityLabel(undefined)).toBe("Activity recorded");
+  });
+});
+
+describe("activity display text", () => {
+  it("replaces image filenames while preserving useful object labels", () => {
+    expect(activityDisplayText("Generated abc123.png", "Generated image")).toBe("Generated image");
+    expect(activityDisplayText("step 3750", "Generated image")).toBe("step 3750");
+    expect(activityDisplayText("", "Generated image")).toBe("Generated image");
   });
 });
 

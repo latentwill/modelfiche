@@ -23,21 +23,50 @@ def recipe_digest(recipe: schemas.MergeRecipe | dict[str, Any]) -> str:
 
 def compact_notation(recipe: schemas.MergeRecipe | dict[str, Any]) -> str:
     parsed = recipe if isinstance(recipe, schemas.MergeRecipe) else schemas.MergeRecipe.model_validate(recipe)
-    operator = {
-        "linear_weighted_sum": "linear-weighted-sum",
-        "layer_weighted_sum": "layer-weighted-sum",
-        "rank_concat": "rank-concat",
-    }[parsed.operator]
-    scopes = sorted({scope for item in parsed.inputs for scope in item.weights}, key=lambda value: (value != "global", value != "text_fusion", value))
-    clauses = []
-    for scope in scopes:
-        contributions = " + ".join(
-            f"{item.alias}{f'@{item.step}' if item.step is not None else ''} {item.weights.get(scope, 0.0):.2f}"
-            for item in parsed.inputs
-            if scope in item.weights
+    if parsed.schema_version == "modelfiche.checkpoint-merge/v1":
+        operator = {
+            "linear_weighted_sum": "linear-weighted-sum",
+            "layer_weighted_sum": "layer-weighted-sum",
+            "rank_concat": "rank-concat",
+        }[parsed.resolved_operator]
+        scopes = sorted({scope for item in parsed.inputs for scope in item.weights}, key=lambda value: (value != "global", value != "text_fusion", value))
+        clauses = []
+        for scope in scopes:
+            contributions = " + ".join(
+                f"{item.alias}{f'@{item.step}' if item.step is not None else ''} {item.weights.get(scope, 0.0):.2f}"
+                for item in parsed.inputs
+                if scope in item.weights
+            )
+            clauses.append(f"{scope.replace('_', '-')}: {contributions}")
+        return f"{operator}[r{parsed.output.rank}] {{ {'; '.join(clauses)} }} → {parsed.name}"
+    method = parsed.method
+    assert method is not None
+    inputs = {item.alias: item for item in parsed.inputs}
+    anchor = inputs[method.anchor]
+    donor = inputs[method.donor]
+    anchor_label = f"{anchor.alias}{f'@{anchor.step}' if anchor.step is not None else ''}"
+    donor_label = f"{donor.alias}{f'@{donor.step}' if donor.step is not None else ''}"
+    parameters = method.parameters
+    if method.kind in {"weighted_sum", "norm_balanced"}:
+        clause = f"{anchor_label} {float(parameters['anchor_weight']):.2f} + {donor_label} {float(parameters['donor_weight']):.2f}"
+    elif method.kind == "slerp":
+        donor_weight = float(parameters["donor_weight"])
+        clause = f"{anchor_label} {1.0 - donor_weight:.2f} ↝ {donor_label} {donor_weight:.2f}"
+    elif method.kind == "delta_add":
+        ranges = ",".join(
+            f"b{int(item['start']):02d}-{int(item['end']):02d}=+{float(item['donor']):.2f}"
+            for item in parameters["transformer_blocks"]
         )
-        clauses.append(f"{scope.replace('_', '-')}: {contributions}")
-    return f"{operator}[r{parsed.output.rank}] {{ {'; '.join(clauses)} }} → {parsed.name}"
+        clause = f"anchor={anchor_label}; donor={donor_label}; tf=+{float(parameters['text_fusion_donor']):.2f}; {ranges}"
+    elif method.kind == "cosine_gated":
+        clause = (
+            f"anchor={anchor_label}; donor={donor_label}; "
+            f"donor={float(parameters['donor_min']):.2f}..{float(parameters['donor_max']):.2f}; "
+            f"pct={float(parameters.get('lower_percentile', 5)):g}..{float(parameters.get('upper_percentile', 95)):g}"
+        )
+    else:
+        clause = f"anchor={anchor_label}; donor={donor_label}; novelty<={float(parameters['novelty_cap']):.2f}"
+    return f"{method.kind.replace('_', '-')}[r{parsed.output.rank}] {{ {clause} }} → {parsed.name}"
 
 
 def merge_projection(db: Session, operation: models.MergeOperation, *, output_directory: str | None = None) -> dict[str, Any]:
