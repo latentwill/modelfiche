@@ -299,11 +299,23 @@ def _reconcile_model(session: Session, run: models.TrainingRun, launch: models.T
     marker = f"Imported from training run {run.id}"
     model = session.scalar(select(models.Model).where(models.Model.project_id == run.project_id, models.Model.description == marker))
     if model is None:
+        model = session.scalar(
+            select(models.Model)
+            .where(
+                models.Model.project_id == run.project_id,
+                models.Model.name == run.name,
+                models.Model.description.is_(None),
+                ~select(models.ModelVersion.id).where(models.ModelVersion.model_id == models.Model.id).exists(),
+            )
+            .order_by(models.Model.created_at, models.Model.id)
+        )
+    if model is None:
         model = models.Model(project_id=run.project_id, name=run.name, description=marker)
         session.add(model)
         session.flush()
     else:
         model.name = run.name
+        model.description = marker
     supported = {str(value) for value in (launch.supported_endpoint_ids or []) if isinstance(value, str)}
     compatible_endpoint = _supported_fal_endpoint(run.base_model)
     for checkpoint in checkpoints:

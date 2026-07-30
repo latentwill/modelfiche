@@ -137,6 +137,13 @@ def _graph(factory: sessionmaker[Session], *, manifest_digest: str | None = None
 def test_manifest_last_imports_two_checkpoints_and_uses_manifest_version() -> None:
     factory = _factory()
     handoff_id, run_id, _, s3, _ = _graph(factory)
+    with factory.begin() as session:
+        run = session.get(models.TrainingRun, run_id)
+        assert run is not None
+        placeholder = models.Model(project_id=run.project_id, name=run.name)
+        session.add(placeholder)
+        session.flush()
+        placeholder_id = placeholder.id
     assert CheckpointHandoffReconciler(factory, client_factory=lambda _source: s3).run_once() == 1
     with factory() as session:
         handoff = session.get(models.RunArtifactHandoff, handoff_id)
@@ -150,6 +157,8 @@ def test_manifest_last_imports_two_checkpoints_and_uses_manifest_version() -> No
         assert all(location.verification_state == "verified" and location.version_id == "object-v1" for location in locations)
         model = session.scalar(select(models.Model).where(models.Model.description == f"Imported from training run {run_id}"))
         assert model is not None
+        assert model.id == placeholder_id
+        assert len(list(session.scalars(select(models.Model)))) == 1
         versions = list(session.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id)))
         assert len(versions) == 2
         assert all(version.lifecycle_state == "candidate" and version.readiness["fal_status"] == "not_ready" for version in versions)
