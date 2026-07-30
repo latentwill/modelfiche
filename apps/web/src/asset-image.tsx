@@ -41,6 +41,8 @@ async function resolveDelivery(assetRevisionId: string, variant: AssetImageVaria
   return request;
 }
 
+export { resolveDelivery as resolveAssetDelivery };
+
 /** Resolve the server-owned delivery descriptor before assigning an image URL. */
 export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels = 512, alt = "", className, ...props }: AssetImageProps) {
   const [delivery, setDelivery] = useState<{ src: string; error?: string }>();

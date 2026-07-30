@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Grid3X3, ZoomIn, ZoomOut } from "lucide-react";
 import { api, idOf, jsonBody, listOf, str } from "./api";
-import { AssetImage } from "./asset-image";
+import { AssetImage, resolveAssetDelivery } from "./asset-image";
 import { useResource } from "./hooks";
 import { Dropdown, Field, Notice, Page, Panel, Status } from "./ui";
 import { connectedFalGenerationModels, type GenerationModel } from "./generation";
@@ -18,6 +18,7 @@ import {
   type PlanAxis,
 } from "./experiment-plan";
 import { parseGridAxisValues, type GridAxisSchema } from "./grid";
+import { downloadGridImage, type GridExportSize, type GridExportSlice } from "./grid-export";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -311,10 +312,21 @@ export function sortGridAxisEntries(entries: GridAxisEntry[]) {
     : entries;
 }
 
+type GridBoardCell = Row | { coordinate?: { x: number; y: number }; target?: ExperimentTarget };
+
+function gridCellAt(cells: GridBoardCell[], expected: Partial<Record<CoordinateKey, number>>) {
+  return cells.find(item => {
+    const row = item as Row;
+    const coordinateValue = item && typeof item === "object" && "coordinate" in item ? item.coordinate : undefined;
+    const coordinate = coordinateValue && typeof coordinateValue === "object" ? coordinateValue as Row : {};
+    return Object.entries(expected).every(([key, value]) => Number(row[`${key}_index`] ?? coordinate[key]) === value);
+  });
+}
+
 export function GridBoard({ x, y, cells, incomplete = false, completed = false, transpose = false, xLabel = "X", yLabel = "Y", coordinateKeys = { x: "x", y: "y" }, fixedCoordinates = {}, zoom = 0, imageHref }: {
   x: GridAxisEntry[];
   y: GridAxisEntry[];
-  cells: Array<Row | { coordinate?: { x: number; y: number }; target?: ExperimentTarget }>;
+  cells: GridBoardCell[];
   incomplete?: boolean;
   completed?: boolean;
   transpose?: boolean;
@@ -361,12 +373,7 @@ export function GridBoard({ x, y, cells, incomplete = false, completed = false, 
                     const visualX = transpose ? entry.index ?? rowIndex : columnEntry.index ?? columnIndex;
                     const visualY = transpose ? columnEntry.index ?? columnIndex : entry.index ?? rowIndex;
                     const expected = { ...fixedCoordinates, [coordinateKeys.x]: visualX, [coordinateKeys.y]: visualY };
-                    const cell = cells.find(item => {
-                      const row = item as Row;
-                      const coordinateValue = item && typeof item === "object" && "coordinate" in item ? item.coordinate : undefined;
-                      const coordinate = coordinateValue && typeof coordinateValue === "object" ? coordinateValue as Row : {};
-                      return Object.entries(expected).every(([key, value]) => Number(row[`${key}_index`] ?? coordinate[key]) === value);
-                    });
+                    const cell = gridCellAt(cells, expected);
                     const row = cell as Row | undefined;
                     const target = cell && typeof cell === "object" && "target" in cell ? cell.target : undefined;
                     const assetId = str(row?.asset_revision_id ?? row?.asset_id);
@@ -409,8 +416,55 @@ export function GridBoard({ x, y, cells, incomplete = false, completed = false, 
   );
 }
 
+type ResultGridBoard = {
+  key: string;
+  x: GridAxisEntry[];
+  y: GridAxisEntry[];
+  xLabel: string;
+  yLabel: string;
+  transpose?: boolean;
+  coordinateKeys?: { x: CoordinateKey; y: CoordinateKey };
+  fixedCoordinates?: Partial<Record<CoordinateKey, number>>;
+  heading?: string;
+  fixedContext?: { label: string; value: string };
+};
+
+function gridExportSlice(board: ResultGridBoard, cells: GridBoardCell[]): GridExportSlice {
+  const columns = board.transpose ? board.y : board.x;
+  const tableRows = board.transpose ? board.x : board.y;
+  const columnLabel = board.transpose ? board.yLabel : board.xLabel;
+  const rowLabel = board.transpose ? board.xLabel : board.yLabel;
+  const coordinateKeys = board.coordinateKeys ?? { x: "x", y: "y" };
+  const fixedCoordinates = board.fixedCoordinates ?? {};
+  return {
+    title: board.heading ?? (board.fixedContext ? `${board.fixedContext.label}: ${board.fixedContext.value}` : undefined),
+    cornerLabel: `${rowLabel} ↓ / ${columnLabel} →`,
+    columns: columns.map(entry => ({ label: String(entry.label ?? entry.value), detail: entry.detail })),
+    rows: tableRows.map(entry => ({ label: String(entry.label ?? entry.value), detail: entry.detail })),
+    cells: tableRows.map((entry, rowIndex) => columns.map((columnEntry, columnIndex) => {
+      const visualX = board.transpose ? entry.index ?? rowIndex : columnEntry.index ?? columnIndex;
+      const visualY = board.transpose ? columnEntry.index ?? columnIndex : entry.index ?? rowIndex;
+      const expected = { ...fixedCoordinates, [coordinateKeys.x]: visualX, [coordinateKeys.y]: visualY };
+      const row = gridCellAt(cells, expected) as Row | undefined;
+      return {
+        assetRevisionId: str(row?.asset_revision_id ?? row?.asset_id) || undefined,
+        status: str(row?.status, "No image"),
+        alt: str(row?.prompt_snapshot ?? row?.prompt, "Grid output"),
+      };
+    })),
+  };
+}
+
+function gridExportFilename(name: string, size: GridExportSize) {
+  const slug = name.normalize("NFKD").replace(/[^\w]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "grid";
+  return `${slug}-${size === "compact" ? "small" : "full"}.png`;
+}
+
+
 export function GridScreen({ id, projectId = "" }: { id: string; projectId?: string }) {
   const [zoom, setZoom] = useState(0);
+  const [exporting, setExporting] = useState<GridExportSize | null>(null);
+  const [exportMessage, setExportMessage] = useState("");
   const resource = useResource<Row>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/grids/${encodeURIComponent(id)}` : null);
   const data = resource.data;
   const cells = rows(data?.cells);
@@ -442,15 +496,106 @@ export function GridScreen({ id, projectId = "" }: { id: string; projectId?: str
   const yName = axisName("y");
   const zName = axisName("z");
   const transpose = x.length === 1 && y.length > 1;
+  const resultBoards: ResultGridBoard[] = x.length === 1 && y.length > 1 && z.length
+    ? [{
+        key: "fixed-x",
+        x: y,
+        y: z,
+        xLabel: axisLabel(yName),
+        yLabel: axisLabel(zName),
+        coordinateKeys: { x: "y", y: "z" },
+        fixedCoordinates: { x: x[0].index ?? 0 },
+        fixedContext: { label: axisLabel(xName), value: String(x[0].label ?? x[0].value) },
+      }]
+    : z.length
+      ? z.map((entry, index) => ({
+          key: `z-${entry.index ?? index}`,
+          x,
+          y,
+          xLabel: axisLabel(xName),
+          yLabel: axisLabel(yName),
+          transpose,
+          fixedCoordinates: { z: entry.index ?? index },
+          heading: `${axisLabel(zName)} ${String(entry.label ?? entry.value)}`,
+        }))
+      : [{ key: "xy", x, y, xLabel: axisLabel(xName), yLabel: axisLabel(yName), transpose }];
   const returnHref = `#/grids${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`;
   const imageHref = (assetId: string) => {
     const query = new URLSearchParams({ project: projectId, category: "eval_output", asset: assetId, return: `grid/${id}${projectId ? `?project=${projectId}` : ""}` });
     return `#/gallery?${query.toString()}`;
   };
-  const grid = x.length === 1 && y.length > 1 && z.length
-    ? <><p className="grid-fixed-context"><strong>{axisLabel(xName)}:</strong> {String(x[0].label ?? x[0].value)}</p><GridBoard x={y} y={z} cells={cells} completed xLabel={axisLabel(yName)} yLabel={axisLabel(zName)} coordinateKeys={{ x: "y", y: "z" }} fixedCoordinates={{ x: x[0].index ?? 0 }} zoom={zoom} imageHref={imageHref} /></>
-    : z.length
-      ? z.map((entry, index) => <section key={entry.index ?? index} className="grid-z-slice"><h2>{axisLabel(zName)} {String(entry.label ?? entry.value)}</h2><GridBoard x={x} y={y} cells={cells} completed transpose={transpose} xLabel={axisLabel(xName)} yLabel={axisLabel(yName)} fixedCoordinates={{ z: entry.index ?? index }} zoom={zoom} imageHref={imageHref} /></section>)
-      : <GridBoard x={x} y={y} cells={cells} completed transpose={transpose} xLabel={axisLabel(xName)} yLabel={axisLabel(yName)} zoom={zoom} imageHref={imageHref} />;
-  return <div className="comparison-viewer vela-route-stage grid-results-view"><header className="viewer-topbar"><div><h1>{str(data?.name, "Grid results")}</h1><span>{str(data?.status, "Loading")} · {cells.filter(cell => cell.status === "succeeded").length} / {cells.length} images</span></div><div className="viewer-actions"><div className="grid-zoom-controls" role="group" aria-label="Grid zoom"><button type="button" aria-label="Zoom out" disabled={zoom === 0} onClick={() => setZoom(value => Math.max(0, value - 1))}><ZoomOut size={15} /></button><button type="button" className={zoom === 0 ? "active" : ""} onClick={() => setZoom(0)}>Fit</button><button type="button" aria-label="Zoom in" disabled={zoom === 3} onClick={() => setZoom(value => Math.min(3, value + 1))}><ZoomIn size={15} /></button></div><a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Generated grids</a></div></header><main className="vela-main"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data} emptyText="Grid result unavailable" />{data && grid}</main></div>;
+  const succeeded = cells.filter(cell => cell.status === "succeeded").length;
+  const canExport = Boolean(data && cells.some(cell => str(cell.asset_revision_id ?? cell.asset_id)));
+
+  async function exportGrid(size: GridExportSize) {
+    if (!data || !canExport || exporting) return;
+    setExporting(size);
+    setExportMessage("");
+    const name = str(data.name, "Grid results");
+    try {
+      await downloadGridImage({
+        title: name,
+        subtitle: `${str(data.status, "Generated")} · ${succeeded} / ${cells.length} images`,
+        filename: gridExportFilename(name, size),
+        size,
+        slices: resultBoards.map(board => gridExportSlice(board, cells)),
+        resolveImage: resolveAssetDelivery,
+      });
+      setExportMessage(`${size === "compact" ? "Small" : "Full-size"} grid image downloaded.`);
+    } catch (reason) {
+      setExportMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  return (
+    <div className="comparison-viewer vela-route-stage grid-results-view">
+      <header className="viewer-topbar">
+        <div>
+          <h1>{str(data?.name, "Grid results")}</h1>
+          <span>{str(data?.status, "Loading")} · {succeeded} / {cells.length} images</span>
+        </div>
+        <div className="viewer-actions">
+          <div className="grid-export-controls" role="group" aria-label="Export grid image">
+            <button type="button" className="vela-button" disabled={!canExport || Boolean(exporting)} title="Download a compact grid with 256 px image cells" onClick={() => void exportGrid("compact")}>
+              <Download size={15} /> {exporting === "compact" ? "Exporting…" : "Export small"}
+            </button>
+            <button type="button" className="vela-button" disabled={!canExport || Boolean(exporting)} title="Download a grid using the original image dimensions" onClick={() => void exportGrid("full")}>
+              <Download size={15} /> {exporting === "full" ? "Exporting…" : "Export full size"}
+            </button>
+          </div>
+          <div className="grid-zoom-controls" role="group" aria-label="Grid zoom">
+            <button type="button" aria-label="Zoom out" disabled={zoom === 0} onClick={() => setZoom(value => Math.max(0, value - 1))}><ZoomOut size={15} /></button>
+            <button type="button" className={zoom === 0 ? "active" : ""} onClick={() => setZoom(0)}>Fit</button>
+            <button type="button" aria-label="Zoom in" disabled={zoom === 3} onClick={() => setZoom(value => Math.min(3, value + 1))}><ZoomIn size={15} /></button>
+          </div>
+          <a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Generated grids</a>
+        </div>
+      </header>
+      <main className="vela-main">
+        <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data} emptyText="Grid result unavailable" />
+        {exportMessage && <div className="vela-notice" role="status">{exportMessage}</div>}
+        {data && resultBoards.map(board => (
+          <section key={board.key} className={board.heading ? "grid-z-slice" : "grid-result-slice"}>
+            {board.heading && <h2>{board.heading}</h2>}
+            {board.fixedContext && <p className="grid-fixed-context"><strong>{board.fixedContext.label}:</strong> {board.fixedContext.value}</p>}
+            <GridBoard
+              x={board.x}
+              y={board.y}
+              cells={cells}
+              completed
+              transpose={board.transpose}
+              xLabel={board.xLabel}
+              yLabel={board.yLabel}
+              coordinateKeys={board.coordinateKeys}
+              fixedCoordinates={board.fixedCoordinates}
+              zoom={zoom}
+              imageHref={imageHref}
+            />
+          </section>
+        ))}
+      </main>
+    </div>
+  );
 }

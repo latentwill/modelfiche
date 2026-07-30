@@ -3119,6 +3119,14 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   font: .7rem/1.45 var(--vela-font-mono);
 }
 .vela-theme .grid-fixed-context strong { color: var(--vela-ink); }
+.vela-theme .grid-export-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--vela-space-1);
+  padding-right: var(--vela-space-2);
+  border-right: 1px solid var(--vela-border);
+}
+.vela-theme .grid-export-controls .vela-button { white-space: nowrap; }
 .vela-theme .grid-zoom-controls {
   display: flex;
   align-items: center;

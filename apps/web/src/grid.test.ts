@@ -3,13 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axisValues, compileGridPlan, parseGridAxisValues, type GridAxis, type GridAxisSchema } from "./grid";
 import type { GenerationModel } from "./generation";
-import { GridBoard, GridsScreen, gridTargetAxisEntry, intersectFieldSchemas, sortGridAxisEntries } from "./screens-grids";
+import { GridBoard, GridScreen, GridsScreen, gridTargetAxisEntry, intersectFieldSchemas, sortGridAxisEntries } from "./screens-grids";
+
+const gridExportMocks = vi.hoisted(() => ({
+  downloadGridImage: vi.fn(async (_options: unknown) => undefined),
+}));
+vi.mock("./grid-export", async () => ({
+  ...await vi.importActual("./grid-export") as Record<string, unknown>,
+  downloadGridImage: gridExportMocks.downloadGridImage,
+}));
 
 const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelId: `family-${id}`, projectId: "project", name: `Model ${id}`,
   checkpointLabel: `step ${id}`, checkpointRevisionId: `revision-${id}`, provider: "fal", endpoint, providerModelUrl: `fal://${id}`, available: true });
 
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("grid planner", () => {
   it("shows only Project before selection, then reveals the composer", async () => {
     vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null), setItem: vi.fn(), removeItem: vi.fn() });
@@ -135,7 +143,66 @@ describe("grid planner", () => {
     expect(review.getByRole("rowheader", { name: "7" })).toBeTruthy();
   });
 
-  it("labels target columns with their actual checkpoint or merge output", () => {
+  it("exports labeled compact and full-size images from the generated grid page", async () => {
+    vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue("workspace"), setItem: vi.fn(), removeItem: vi.fn() });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "grid-1",
+      name: "Illingworth comparison",
+      status: "succeeded",
+      plan: {
+        axes: {
+          x: { name: "target", values: [{ value: "illingworth-source" }] },
+          y: { name: "prompt", values: [{ value: "portrait-case" }] },
+          z: null,
+        },
+      },
+      cells: [{
+        status: "succeeded",
+        x_index: 0,
+        y_index: 0,
+        coordinate: { x: 0, y: 0, z: null },
+        asset_revision_id: "asset-1",
+        model_version_name: "illingworth_krea2_4000_v4_000002500",
+        model_version_source_kind: "training",
+        checkpoint_step: 2500,
+        target_snapshot: { target_id: "illingworth-source" },
+        case_snapshot: { input: { prompt: "lngwr, a detailed portrait" } },
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    render(createElement(GridScreen, { id: "grid-1", projectId: "project-1" }));
+    const small = await screen.findByRole("button", { name: "Export small" });
+    const full = screen.getByRole("button", { name: "Export full size" });
+    expect(small).toBeEnabled();
+    expect(full).toBeEnabled();
+
+    fireEvent.click(small);
+    await waitFor(() => expect(gridExportMocks.downloadGridImage).toHaveBeenCalledTimes(1));
+    const compact = gridExportMocks.downloadGridImage.mock.calls[0]?.[0] as {
+      size: string;
+      filename: string;
+      slices: Array<{ cornerLabel: string; columns: Array<{ label: string; detail?: string }>; rows: Array<{ label: string }>; cells: Array<Array<{ assetRevisionId?: string }>> }>;
+    };
+    expect(compact).toMatchObject({
+      size: "compact",
+      filename: "illingworth-comparison-small.png",
+      slices: [{
+        cornerLabel: "prompt ↓ / Target →",
+        columns: [{ label: "illingworth-source", detail: "Checkpoint: illingworth_krea2_4000_v4_000002500 · step 2500" }],
+        rows: [{ label: "lngwr, a detailed portrait" }],
+        cells: [[{ assetRevisionId: "asset-1" }]],
+      }],
+    });
+
+    fireEvent.click(full);
+    await waitFor(() => expect(gridExportMocks.downloadGridImage).toHaveBeenCalledTimes(2));
+    expect(gridExportMocks.downloadGridImage.mock.calls[1]?.[0]).toMatchObject({
+      size: "full",
+      filename: "illingworth-comparison-full.png",
+    });
+  });
+
+  it("labels target columns from their checkpoint provenance", () => {
     expect(gridTargetAxisEntry("fujiwara-source", 0, {
       target_snapshot: { target_id: "fujiwara-source" },
       model_version_name: "fujiwara-kaoru-krea2-v001",
