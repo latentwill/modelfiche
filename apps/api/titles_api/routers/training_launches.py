@@ -97,6 +97,13 @@ def training_setup(db: DB):
     }
 
 
+def _resolve_live_telemetry(requested: bool | None, configured_ingress: str | None) -> bool:
+    ingress_ready = bool(configured_ingress and configured_ingress.startswith("https://"))
+    if requested is True and not ingress_ready:
+        raise HTTPException(status_code=409, detail="live telemetry requires a configured HTTPS W&B ingress")
+    return ingress_ready if requested is None else requested
+
+
 @router.post("/training-launches", status_code=status.HTTP_201_CREATED)
 def create_launch(
     body: schemas.TrainingLaunchCreate,
@@ -108,8 +115,7 @@ def create_launch(
     workspace = current_workspace(db)
     actor = active_profile(db, x_profile_id)
     configured_ingress = get_settings().wandb_ingress_base_url
-    if body.live_telemetry and not (configured_ingress and configured_ingress.startswith("https://")):
-        raise HTTPException(status_code=409, detail="live telemetry requires a configured HTTPS W&B ingress")
+    live_telemetry = _resolve_live_telemetry(body.live_telemetry, configured_ingress)
     ingress_base_url = configured_ingress or str(request.base_url).rstrip("/")
     try:
         launch, created = create_training_launch(
@@ -130,7 +136,7 @@ def create_launch(
                 supported_endpoint_ids=body.supported_endpoint_ids,
                 expected_duration_seconds=body.expected_duration_seconds,
                 base_url=ingress_base_url,
-                live_telemetry=bool(body.live_telemetry),
+                live_telemetry=live_telemetry,
             ),
         )
     except LaunchError as exc:

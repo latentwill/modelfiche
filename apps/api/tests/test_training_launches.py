@@ -3,15 +3,27 @@ from __future__ import annotations
 import base64
 import json
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from titles_api import app as app_module
 from titles_api import models
+from titles_api.routers.training_launches import _resolve_live_telemetry
 
 
 def _public_key(seed: int) -> str:
     raw = bytes((seed + offset) % 256 for offset in range(32))
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def test_live_telemetry_prefers_configured_ingress_without_becoming_required() -> None:
+    assert _resolve_live_telemetry(None, None) is False
+    assert _resolve_live_telemetry(None, "https://telemetry.example.test") is True
+    assert _resolve_live_telemetry(False, "https://telemetry.example.test") is False
+    with pytest.raises(HTTPException) as error:
+        _resolve_live_telemetry(True, None)
+    assert error.value.status_code == 409
 
 
 def test_reusable_credential_creates_one_stable_idempotent_training_launch(client: TestClient) -> None:

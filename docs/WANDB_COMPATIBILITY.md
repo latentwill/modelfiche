@@ -53,12 +53,15 @@ The public reverse proxy must route W&B SDK paths to the ingress service:
 /api/...                                  -> regular DAM API
 ```
 
-`TITLES_WANDB_INGRESS_BASE_URL` is optional. The default trainer packet uses
-outbound object storage for dataset delivery and checkpoint handoff, so a local
-macOS installation does not need public ingress or a tunnel. Set this value to
-an externally reachable HTTPS origin only when explicitly enabling live W&B
-telemetry. Multi-process live-ingress deployments should use Postgres; SQLite
-remains appropriate for the default local object-storage workflow.
+`TITLES_WANDB_INGRESS_BASE_URL` is optional. When it contains an externally
+reachable HTTPS origin, new training launches enable live W&B-compatible
+telemetry automatically; callers can still set `live_telemetry: false` for an
+individual launch. Explicitly requiring live telemetry without a configured
+HTTPS ingress is rejected before launch creation. Without an ingress URL, the
+default trainer packet remains outbound-only object storage and does not
+require a public tunnel. Multi-process live-ingress deployments should use
+Postgres; SQLite remains appropriate for the default local object-storage
+workflow.
 
 The examples below use the installed `mfiche` command. In a checkout without
 that entry point on `PATH`, use the equivalent `uv run mfiche ...` command.

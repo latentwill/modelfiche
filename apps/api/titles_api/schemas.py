@@ -273,7 +273,7 @@ class TrainingLaunchCreate(BaseModel):
     backup_policy: dict[str, Any] = Field(default_factory=dict)
     supported_endpoint_ids: list[str] = Field(default_factory=list)
     expected_duration_seconds: int = Field(default=604800, ge=300, le=2592000)
-    live_telemetry: bool = False
+    live_telemetry: bool | None = None
 
 
 class RunCreate(BaseModel):
