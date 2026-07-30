@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axisValues, compileGridPlan, parseGridAxisValues, type GridAxis, type GridAxisSchema } from "./grid";
 import type { GenerationModel } from "./generation";
-import { GridBoard, GridsScreen, intersectFieldSchemas, sortGridAxisEntries } from "./screens-grids";
+import { GridBoard, GridsScreen, gridTargetAxisEntry, intersectFieldSchemas, sortGridAxisEntries } from "./screens-grids";
 
 const model = (id: string, endpoint = "fal-a"): GenerationModel => ({ id, modelId: `family-${id}`, projectId: "project", name: `Model ${id}`,
   checkpointLabel: `step ${id}`, checkpointRevisionId: `revision-${id}`, provider: "fal", endpoint, providerModelUrl: `fal://${id}`, available: true });
@@ -133,6 +133,25 @@ describe("grid planner", () => {
     expect(review.getByRole("table", { name: "Generated grid" })).toBeTruthy();
     expect(review.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Seed ↓ / Prompt →", "portrait"]);
     expect(review.getByRole("rowheader", { name: "7" })).toBeTruthy();
+  });
+
+  it("labels target columns with their actual checkpoint or merge output", () => {
+    expect(gridTargetAxisEntry("fujiwara-source", 0, {
+      target_snapshot: { target_id: "fujiwara-source" },
+      model_version_name: "fujiwara-kaoru-krea2-v001",
+      checkpoint_step: 3000,
+    })).toMatchObject({
+      label: "fujiwara-source",
+      detail: "Checkpoint: fujiwara-kaoru-krea2-v001 · step 3000",
+    });
+    expect(gridTargetAxisEntry("weighted-60-40", 1, {
+      target_snapshot: { target_id: "weighted-60-40" },
+      model_version_name: "Fujiwara Kaoru 3000 × Hoover 3750 — weighted 60–40",
+      checkpoint_step: 3750,
+    })).toMatchObject({
+      label: "weighted-60-40",
+      detail: "Merge output: Fujiwara Kaoru 3000 × Hoover 3750 — weighted 60–40",
+    });
   });
 
   it("sorts numeric checkpoint entries while preserving their coordinate indexes", () => {

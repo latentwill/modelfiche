@@ -850,6 +850,11 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-theme .asset-image-unavailable { border: 2px solid var(--vela-danger); background: var(--mf-surface-muted) !important; }
 .vela-theme .image-review-inspector h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vela-theme .image-review-inspector h2 .asset-origin-badge { position: static; }
+.vela-theme .image-review-inspector :is(dd, pre, code, p) {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
 .vela-theme .filmstrip a.active { border-color: var(--vela-selection); box-shadow: inset 0 0 0 2px var(--vela-selection); }
 .vela-theme .project-image-mosaic {
   height: auto;
@@ -2843,6 +2848,23 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
 }
 .vela-theme .eval-output-card > a { min-width: 0; }
 .vela-theme .eval-output-review { align-content: start; }
+.vela-theme .eval-output-provenance {
+  display: grid;
+  gap: var(--vela-space-1);
+  margin-top: var(--vela-space-2);
+  padding: var(--vela-space-2);
+  border-inline-start: 2px solid var(--vela-accent);
+  background: var(--mf-surface-muted);
+}
+.vela-theme .eval-output-provenance strong {
+  color: var(--vela-text);
+  font: 700 .72rem/1.35 var(--vela-font-display);
+}
+.vela-theme .eval-output-provenance small {
+  color: var(--vela-muted);
+  font: .625rem/1.45 var(--vela-font-mono);
+  overflow-wrap: anywhere;
+}
 .vela-theme .eval-roving-group {
   display: flex;
   flex-wrap: wrap;
@@ -2866,6 +2888,7 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
 }
 .vela-theme .grid-board-frame {
   --mf-grid-cell: calc(var(--vela-space-6) * 4);
+  --grid-label-width: clamp(160px, 15vw, 220px);
   display: grid;
   gap: var(--vela-space-2);
   min-width: 0;
@@ -2873,7 +2896,8 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
 .vela-theme .grid-board-region {
   max-width: 100%;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   border: 1px solid var(--vela-border);
   background: var(--vela-surface);
 }
@@ -2894,7 +2918,7 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   text-align: left;
 }
 .vela-theme .grid-board :is(th, td) {
-  min-width: calc(var(--mf-grid-cell) * var(--grid-zoom));
+  min-width: var(--mf-grid-cell);
   padding: var(--vela-space-2);
   border-right: 1px solid var(--vela-border);
   border-bottom: 1px solid var(--vela-border);
@@ -2917,7 +2941,7 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   display: grid;
   gap: var(--vela-space-1);
   width: 100%;
-  min-height: calc(var(--mf-grid-cell) * var(--grid-zoom));
+  min-height: var(--mf-grid-cell);
 }
 .vela-theme .grid-board .grid-cell img {
   width: 100%;
@@ -3109,8 +3133,16 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
 .vela-theme .grid-board-region[data-fit="true"] { overflow-x: hidden; }
 .vela-theme .grid-board-region[data-fit="true"] table.grid-board { width: 100%; table-layout: fixed; }
 .vela-theme .grid-board-region[data-fit="true"] table.grid-board :is(th, td) { min-width: 0; }
-.vela-theme .grid-board-region[data-fit="true"] table.grid-board th:first-child { width: clamp(130px, 15vw, 210px); }
+.vela-theme .grid-board-region[data-fit="true"] table.grid-board th:first-child {
+  width: var(--grid-label-width);
+  max-width: var(--grid-label-width);
+}
 .vela-theme .grid-board-region[data-fit="false"] table.grid-board { width: max-content; min-width: 100%; table-layout: auto; }
+.vela-theme .grid-board-region[data-fit="false"] table.grid-board th:first-child {
+  width: var(--grid-label-width);
+  min-width: var(--grid-label-width);
+  max-width: var(--grid-label-width);
+}
 .vela-theme .grid-board-region[data-fit="false"] table.grid-board th:not(:first-child),
 .vela-theme .grid-board-region[data-fit="false"] table.grid-board td { width: var(--grid-cell-width); min-width: var(--grid-cell-width); }
 .vela-theme table.grid-board caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
@@ -3120,28 +3152,34 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   text-align: left;
   overflow-wrap: anywhere;
 }
+.vela-theme table.grid-board .grid-axis-heading {
+  display: grid;
+  gap: 3px;
+}
+.vela-theme table.grid-board .grid-axis-heading small {
+  color: var(--vela-ink);
+  font: 600 .65rem/1.35 var(--vela-font-mono);
+  text-transform: none;
+}
 .vela-theme table.grid-board td { padding: 0; background: var(--mf-media-bed); }
 .vela-theme table.grid-board .grid-cell {
   width: 100%;
   min-height: 0;
-  aspect-ratio: 16 / 9;
   display: grid;
-  place-items: center;
-  overflow: hidden;
+  align-content: start;
 }
 .vela-theme table.grid-board .grid-image-link {
   width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
+  display: block;
   background: var(--mf-media-bed);
   cursor: zoom-in;
 }
 .vela-theme table.grid-board .grid-image-link:focus-visible { outline: 3px solid var(--vela-selection); outline-offset: -3px; }
 .vela-theme table.grid-board .grid-image-link > .asset-image {
   width: 100%;
-  height: 100%;
+  height: auto;
   aspect-ratio: auto;
+  max-height: none;
   display: block;
   object-fit: contain;
 }

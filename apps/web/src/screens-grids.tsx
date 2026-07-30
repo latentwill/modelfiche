@@ -290,8 +290,20 @@ export function GridsScreen({ params }: { params: URLSearchParams }) {
   </Page>;
 }
 
-type GridAxisEntry = { value: unknown; label?: string; index?: number; sortValue?: number };
+type GridAxisEntry = { value: unknown; label?: string; detail?: string; index?: number; sortValue?: number };
 type CoordinateKey = "x" | "y" | "z";
+
+export function gridTargetAxisEntry(value: unknown, index: number, cell?: Row): GridAxisEntry {
+  const snapshot = (cell?.target_snapshot as Row | undefined) ?? {};
+  const targetId = str(snapshot.target_id ?? value, String(value));
+  const modelVersionName = str(cell?.model_version_name ?? snapshot.display_name, "");
+  const checkpointStep = Number(cell?.checkpoint_step ?? snapshot.checkpoint_step);
+  const isSourceCheckpoint = targetId.endsWith("-source");
+  const detail = isSourceCheckpoint
+    ? [modelVersionName ? `Checkpoint: ${modelVersionName}` : "Checkpoint", Number.isFinite(checkpointStep) ? `step ${checkpointStep}` : ""].filter(Boolean).join(" · ")
+    : [modelVersionName ? `Merge output: ${modelVersionName}` : "Merge output"].join("");
+  return { value, label: targetId, detail, index };
+}
 
 export function sortGridAxisEntries(entries: GridAxisEntry[]) {
   return entries.length > 1 && entries.every(entry => Number.isFinite(entry.sortValue))
@@ -317,24 +329,84 @@ export function GridBoard({ x, y, cells, incomplete = false, completed = false, 
   const tableRows = transpose ? x : y;
   const columnLabel = transpose ? yLabel : xLabel;
   const rowLabel = transpose ? xLabel : yLabel;
-  const cellWidth = zoom === 1 ? "160px" : zoom === 2 ? "240px" : "340px";
-  return <Panel title={completed ? "Generated grid" : "Resolved cell preview"}><div className="grid-board-frame" style={{ "--grid-zoom": zoom || 1, "--grid-cell-width": cellWidth } as React.CSSProperties}><div className="grid-board-region" data-fit={zoom === 0 ? "true" : "false"}><table className={`grid-board ${completed ? "grid-board-completed" : "grid-board-preview"}`}><caption>{completed ? "Generated grid" : "Resolved cells"}</caption><thead><tr><th scope="col">{rowLabel} ↓ / {columnLabel} →</th>{columns.map((entry, index) => <th scope="col" key={`${entry.index ?? index}-${String(entry.value)}`}>{String(entry.label ?? entry.value)}</th>)}</tr></thead><tbody>{tableRows.map((entry, rowIndex) => <tr key={`${entry.index ?? rowIndex}-${String(entry.value)}`}><th scope="row">{String(entry.label ?? entry.value)}</th>{columns.map((columnEntry, columnIndex) => {
-    const visualX = transpose ? entry.index ?? rowIndex : columnEntry.index ?? columnIndex;
-    const visualY = transpose ? columnEntry.index ?? columnIndex : entry.index ?? rowIndex;
-    const expected = { ...fixedCoordinates, [coordinateKeys.x]: visualX, [coordinateKeys.y]: visualY };
-    const cell = cells.find(item => {
-      const row = item as Row;
-      const coordinateValue = item && typeof item === "object" && "coordinate" in item ? item.coordinate : undefined;
-      const coordinate = coordinateValue && typeof coordinateValue === "object" ? coordinateValue as Row : {};
-      return Object.entries(expected).every(([key, value]) => Number(row[`${key}_index`] ?? coordinate[key]) === value);
-    });
-    const row = cell as Row | undefined;
-    const target = cell && typeof cell === "object" && "target" in cell ? cell.target : undefined;
-    const assetId = str(row?.asset_revision_id ?? row?.asset_id, "");
-    const step = str(row?.checkpoint_step, "");
-    const image = <AssetImage assetRevisionId={assetId} alt={step ? `Grid output at checkpoint step ${step}` : "Grid output"} />;
-    return <td key={columnIndex}><div className="grid-cell">{incomplete ? "—" : completed && assetId ? imageHref ? <a className="grid-image-link" href={imageHref(assetId)} aria-label={`${step ? `Open checkpoint step ${step}` : "Open grid output"} in image viewer`}>{image}</a> : image : completed ? str(row?.status, "pending") : <div className="grid-cell-plan"><b>{str(row?.status, "admissible")}</b><small>{str(row?.target_id ?? (target && typeof target === "object" && "target_id" in target ? target.target_id : undefined), "")}</small></div>}</div></td>;
-  })}</tr>)}</tbody></table></div></div></Panel>;
+  const cellWidth = zoom === 1 ? "320px" : zoom === 2 ? "480px" : "720px";
+  return (
+    <Panel title={completed ? "Generated grid" : "Resolved cell preview"}>
+      <div className="grid-board-frame">
+        <div
+          className="grid-board-region"
+          data-fit={zoom === 0 ? "true" : "false"}
+          style={zoom === 0 ? undefined : { "--grid-cell-width": cellWidth } as React.CSSProperties}
+        >
+          <table className={`grid-board ${completed ? "grid-board-completed" : "grid-board-preview"}`}>
+            <caption>{completed ? "Generated grid" : "Resolved cells"}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{rowLabel} ↓ / {columnLabel} →</th>
+                {columns.map((entry, index) => (
+                  <th scope="col" key={`${entry.index ?? index}-${String(entry.value)}`}>
+                    <span className="grid-axis-heading">
+                      {String(entry.label ?? entry.value)}
+                      {entry.detail && <small>{entry.detail}</small>}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map((entry, rowIndex) => (
+                <tr key={`${entry.index ?? rowIndex}-${String(entry.value)}`}>
+                  <th scope="row">{String(entry.label ?? entry.value)}</th>
+                  {columns.map((columnEntry, columnIndex) => {
+                    const visualX = transpose ? entry.index ?? rowIndex : columnEntry.index ?? columnIndex;
+                    const visualY = transpose ? columnEntry.index ?? columnIndex : entry.index ?? rowIndex;
+                    const expected = { ...fixedCoordinates, [coordinateKeys.x]: visualX, [coordinateKeys.y]: visualY };
+                    const cell = cells.find(item => {
+                      const row = item as Row;
+                      const coordinateValue = item && typeof item === "object" && "coordinate" in item ? item.coordinate : undefined;
+                      const coordinate = coordinateValue && typeof coordinateValue === "object" ? coordinateValue as Row : {};
+                      return Object.entries(expected).every(([key, value]) => Number(row[`${key}_index`] ?? coordinate[key]) === value);
+                    });
+                    const row = cell as Row | undefined;
+                    const target = cell && typeof cell === "object" && "target" in cell ? cell.target : undefined;
+                    const assetId = str(row?.asset_revision_id ?? row?.asset_id);
+                    const image = assetId ? (
+                      <AssetImage
+                        assetRevisionId={assetId}
+                        maxPixels={zoom >= 2 ? 1024 : 512}
+                        alt={str(row?.prompt_snapshot ?? row?.prompt, "Grid output")}
+                        loading="lazy"
+                        width={Number(row?.width) || undefined}
+                        height={Number(row?.height) || undefined}
+                      />
+                    ) : null;
+                    return (
+                      <td key={columnIndex}>
+                        <div className="grid-cell">
+                          {incomplete ? "—" : completed && image ? (
+                            imageHref ? (
+                              <a className="grid-image-link" href={imageHref(assetId)} aria-label="Open grid output in image viewer">{image}</a>
+                            ) : image
+                          ) : completed ? (
+                            str(row?.status, "pending")
+                          ) : (
+                            <div className="grid-cell-plan">
+                              <b>{str(row?.status, "admissible")}</b>
+                              <small>{str(row?.target_id ?? (target && typeof target === "object" && "target_id" in target ? target.target_id : undefined), "")}</small>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Panel>
+  );
 }
 
 export function GridScreen({ id, projectId = "" }: { id: string; projectId?: string }) {
@@ -345,17 +417,14 @@ export function GridScreen({ id, projectId = "" }: { id: string; projectId?: str
   const plan = data?.plan && typeof data.plan === "object" ? data.plan as Row : data;
   const axes = plan?.axes && typeof plan.axes === "object" ? plan.axes as Row : {};
   const axisName = (key: CoordinateKey) => str(axes[key] && typeof axes[key] === "object" ? (axes[key] as Row).name : "");
-  const axisLabel = (name: string) => name === "target" ? "Checkpoint step" : name === "case" || name === "prompt" ? "Prompt" : name.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase());
+  const axisLabel = (name: string) => name === "target" ? "Target" : name.replaceAll("_", " ");
   const entries = (key: CoordinateKey) => {
     const axisValue = axes[key] && typeof axes[key] === "object" ? axes[key] as Row : {};
     const name = str(axisValue.name);
     const mapped = rows(axisValue.values).map((wrapped, index): GridAxisEntry => {
       const value = wrapped.value ?? wrapped;
       const cell = cells.find(item => Number((item.coordinate as Row | undefined)?.[key] ?? item[`${key}_index`]) === index);
-      if (name === "target") {
-        const step = Number(cell?.checkpoint_step);
-        return { value, index, label: Number.isFinite(step) ? `Step ${step}` : str(cell?.model_version_name, String(value)), sortValue: Number.isFinite(step) ? step : undefined };
-      }
+      if (name === "target") return gridTargetAxisEntry(value, index, cell);
       if (name === "case" || name === "prompt") {
         const snapshot = cell?.case_snapshot && typeof cell.case_snapshot === "object" ? cell.case_snapshot as Row : {};
         const input = snapshot.input && typeof snapshot.input === "object" ? snapshot.input as Row : {};
