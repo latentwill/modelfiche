@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import (
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    model_validator,
+)
 
 
 class ORMModel(BaseModel):
@@ -77,7 +85,9 @@ class ProjectOut(ORMModel):
 
 class AssetCreate(BaseModel):
     project_id: str | None = None
-    kind: Literal["image", "model", "config", "manifest", "caption", "log", "other"] = "other"
+    kind: Literal["image", "model", "config", "manifest", "caption", "log", "other"] = (
+        "other"
+    )
     name: str = Field(min_length=1, max_length=500)
     mime_type: str | None = None
     sha256: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{64}$")
@@ -92,7 +102,9 @@ class AssetLocationCreate(BaseModel):
     object_key: str | None = None
     etag: str | None = None
     size: int | None = Field(default=None, ge=0)
-    hydration_state: Literal["remote", "cached", "hydrated", "remote_missing"] = "remote"
+    hydration_state: Literal["remote", "cached", "hydrated", "remote_missing"] = (
+        "remote"
+    )
 
 
 class AssetLocationOut(ORMModel):
@@ -121,6 +133,7 @@ class AssetOut(ORMModel):
     @property
     def asset_revision_id(self) -> str:
         return self.id
+
 
 class GalleryEvidence(str, Enum):
     explicit = "explicit"
@@ -162,11 +175,11 @@ class DatasetItemCreate(BaseModel):
     tags: list[str] = []
     position: int = 0
 
+
 class DatasetDuplicateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=240)
     description: str | None = None
     open_draft: bool = False
-
 
 
 class DraftCreate(BaseModel):
@@ -192,18 +205,32 @@ class CaptionOperationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_parameters(self):
-        required = {"replace": ["find", "replace"], "add_word": ["word"], "remove_word": ["word"], "set_included": ["included"]}
-        missing = [key for key in required[self.operation] if key not in self.parameters]
+        required = {
+            "replace": ["find", "replace"],
+            "add_word": ["word"],
+            "remove_word": ["word"],
+            "set_included": ["included"],
+        }
+        missing = [
+            key for key in required[self.operation] if key not in self.parameters
+        ]
         if missing:
             raise ValueError(f"missing parameters: {', '.join(missing)}")
-        if not (self.item_ids or self.tag is not None or self.included is not None or self.caption_format is not None or self.all):
-            raise ValueError("explicit scope required: item_ids, tag, included, caption_format, or all=true")
+        if not (
+            self.item_ids
+            or self.tag is not None
+            or self.included is not None
+            or self.caption_format is not None
+            or self.all
+        ):
+            raise ValueError(
+                "explicit scope required: item_ids, tag, included, caption_format, or all=true"
+            )
         if self.item_ids is not None and len(set(self.item_ids)) != len(self.item_ids):
             raise ValueError("item_ids must be unique")
         if self.item_ids and self.all:
             raise ValueError("scope must use item_ids or all=true, not both")
         return self
-
 
 
 class CaptionGenerateRequest(BaseModel):
@@ -225,15 +252,20 @@ class CaptionGenerateRequest(BaseModel):
 class CaptionFormatUpdate(BaseModel):
     caption_format: Literal["text", "json"]
 
+
 class DraftPublish(BaseModel):
     name: str = Field(min_length=1, max_length=240)
 
 
 class DatasetSubsetCreate(BaseModel):
-    key: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    key: str = Field(
+        min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    )
     name: str = Field(min_length=1, max_length=240)
     description: str | None = None
-    role: Literal["style", "subject", "source", "quality", "holdout", "custom"] = "custom"
+    role: Literal["style", "subject", "source", "quality", "holdout", "custom"] = (
+        "custom"
+    )
     parent_subset_id: str | None = None
     color_token: Literal["blue", "cyan", "teal", "green", "mint", "grey"] = "blue"
     position: int = Field(default=0, ge=0)
@@ -242,7 +274,9 @@ class DatasetSubsetCreate(BaseModel):
 class DatasetSubsetUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=240)
     description: str | None = None
-    role: Literal["style", "subject", "source", "quality", "holdout", "custom"] | None = None
+    role: (
+        Literal["style", "subject", "source", "quality", "holdout", "custom"] | None
+    ) = None
     parent_subset_id: str | None = None
     color_token: Literal["blue", "cyan", "teal", "green", "mint", "grey"] | None = None
     position: int | None = Field(default=None, ge=0)
@@ -312,7 +346,9 @@ class TrainingRunDatasetInputUpdate(BaseModel):
 
 
 class MergeRecipeInput(BaseModel):
-    alias: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+    alias: str = Field(
+        min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+    )
     checkpoint_revision_id: str
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
     step: int | None = Field(default=None, ge=0)
@@ -326,12 +362,15 @@ class MergeRecipeInput(BaseModel):
         if not isinstance(self.weights, dict):
             raise ValueError("merge input weights must be an object")
         for scope, value in self.weights.items():
-            if scope not in {"global", "text_fusion", "transformer"} and not scope.startswith("module:"):
+            if scope not in {
+                "global",
+                "text_fusion",
+                "transformer",
+            } and not scope.startswith("module:"):
                 raise ValueError(f"unsupported merge weight scope: {scope}")
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"merge weight for {scope} must be between 0 and 1")
         return self
-
 
 
 class MergeRecipeOutput(BaseModel):
@@ -341,19 +380,38 @@ class MergeRecipeOutput(BaseModel):
 
 
 class MergeRecipeMethod(BaseModel):
-    kind: Literal["weighted_sum", "delta_add", "cosine_gated", "orthogonal_add", "norm_balanced", "slerp"]
-    anchor: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
-    donor: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+    kind: Literal[
+        "weighted_sum",
+        "delta_add",
+        "cosine_gated",
+        "orthogonal_add",
+        "norm_balanced",
+        "slerp",
+    ]
+    anchor: str = Field(
+        min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+    )
+    donor: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+        pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+    )
+    donors: list[str] | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class MergeRecipe(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    schema_version: Literal["modelfiche.checkpoint-merge/v1", "modelfiche.checkpoint-merge/v2"] = Field(
+    schema_version: Literal[
+        "modelfiche.checkpoint-merge/v1", "modelfiche.checkpoint-merge/v2"
+    ] = Field(
         alias="$schema",
     )
     name: str = Field(min_length=1, max_length=240)
-    operator: Literal["linear_weighted_sum", "layer_weighted_sum", "rank_concat"] | None = None
+    operator: (
+        Literal["linear_weighted_sum", "layer_weighted_sum", "rank_concat"] | None
+    ) = None
     method: MergeRecipeMethod | None = None
     base_model: str = Field(min_length=1, max_length=500)
     inputs: list[MergeRecipeInput] = Field(min_length=2)
@@ -378,6 +436,118 @@ class MergeRecipe(BaseModel):
             raise ValueError(f"{name} must be between 0 and 1")
         return number
 
+    @staticmethod
+    def _finite(value: Any, name: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{name} must be a number")
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError(f"{name} must be finite")
+        return number
+
+    @classmethod
+    def _validate_slerp_weight_spec(
+        cls, value: Any, aliases: set[str], name: str
+    ) -> None:
+        if value == "auto":
+            return
+        if not isinstance(value, dict):
+            raise ValueError(f"{name} must be an alias-to-weight object or 'auto'")
+        if set(value) != aliases:
+            missing = sorted(aliases - set(value))
+            unexpected = sorted(set(value) - aliases)
+            raise ValueError(
+                f"{name} must name every input exactly once; missing={missing}, unexpected={unexpected}"
+            )
+        total = sum(
+            cls._finite(weight, f"{name} weight for {alias}")
+            for alias, weight in value.items()
+        )
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"{name} weights must sum to 1.0, got {total}")
+
+    def _validate_slerp(self, aliases: set[str]) -> None:
+        assert self.method is not None
+        method = self.method
+        if method.anchor not in aliases:
+            raise ValueError("slerp anchor must name an input")
+        if method.donor is not None and method.donors is not None:
+            raise ValueError("slerp method cannot define both donor and donors")
+        if method.donor is not None:
+            resolved_donors = [method.donor]
+        elif method.donors is None:
+            resolved_donors = [alias for alias in aliases if alias != method.anchor]
+        elif not method.donors:
+            raise ValueError("slerp donors must be a non-empty list")
+        else:
+            resolved_donors = method.donors
+        if len(resolved_donors) != len(set(resolved_donors)) or set(
+            resolved_donors
+        ) != aliases - {method.anchor}:
+            raise ValueError(
+                "slerp donors must name every non-anchor input exactly once"
+            )
+
+        parameters = method.parameters
+        if "donor_weight" in parameters:
+            if len(self.inputs) != 2:
+                raise ValueError(
+                    "legacy slerp donor_weight requires exactly two inputs"
+                )
+            if set(parameters) != {"donor_weight"}:
+                raise ValueError(
+                    "legacy slerp donor_weight cannot be combined with scoped weight profiles"
+                )
+            self._finite(parameters["donor_weight"], "donor_weight")
+            return
+
+        allowed = {
+            "weights",
+            "text_fusion_weights",
+            "transformer_weights",
+            "transformer_blocks",
+        }
+        unexpected = sorted(set(parameters) - allowed)
+        if unexpected:
+            raise ValueError(f"slerp parameters contain unsupported keys: {unexpected}")
+        self._validate_slerp_weight_spec(
+            parameters.get("weights"), aliases, "slerp weights"
+        )
+        for key, name in (
+            ("text_fusion_weights", "slerp text_fusion_weights"),
+            ("transformer_weights", "slerp transformer_weights"),
+        ):
+            if key in parameters:
+                self._validate_slerp_weight_spec(parameters[key], aliases, name)
+        ranges = parameters.get("transformer_blocks", [])
+        if not isinstance(ranges, list):
+            raise ValueError("slerp transformer_blocks must be a list")
+        covered: set[int] = set()
+        for item in ranges:
+            if not isinstance(item, dict) or set(item) != {"start", "end", "weights"}:
+                raise ValueError(
+                    "slerp transformer block ranges require start, end, and weights"
+                )
+            start, end = item["start"], item["end"]
+            if (
+                any(
+                    isinstance(value, bool) or not isinstance(value, int)
+                    for value in (start, end)
+                )
+                or start < 0
+                or end < start
+            ):
+                raise ValueError("slerp transformer block ranges are invalid")
+            overlap = covered.intersection(range(start, end + 1))
+            if overlap:
+                raise ValueError(
+                    f"slerp transformer block ranges overlap at {min(overlap)}"
+                )
+            covered.update(range(start, end + 1))
+            self._validate_slerp_weight_spec(
+                item["weights"], aliases, f"slerp blocks {start}-{end}"
+            )
+
     @model_validator(mode="after")
     def validate_recipe(self):
         aliases = [item.alias for item in self.inputs]
@@ -385,67 +555,113 @@ class MergeRecipe(BaseModel):
             raise ValueError("merge input aliases must be unique")
         if self.schema_version == "modelfiche.checkpoint-merge/v1":
             if self.operator is None or self.method is not None:
-                raise ValueError("v1 merge recipes require operator and cannot define method")
+                raise ValueError(
+                    "v1 merge recipes require operator and cannot define method"
+                )
             scopes = {scope for item in self.inputs for scope in item.weights}
             if any(not item.weights for item in self.inputs):
                 raise ValueError("v1 merge inputs require weights")
             for scope in scopes:
                 total = sum(item.weights.get(scope, 0.0) for item in self.inputs)
                 if abs(total - 1.0) > 1e-6:
-                    raise ValueError(f"merge weights for {scope} must sum to 1.0, got {total}")
+                    raise ValueError(
+                        f"merge weights for {scope} must sum to 1.0, got {total}"
+                    )
             if self.operator == "linear_weighted_sum" and scopes != {"global"}:
                 raise ValueError("linear_weighted_sum requires only global weights")
-            if self.operator in {"layer_weighted_sum", "rank_concat"} and not {"text_fusion", "transformer"}.issubset(scopes):
-                raise ValueError(f"{self.operator} requires text_fusion and transformer weights")
+            if self.operator in {"layer_weighted_sum", "rank_concat"} and not {
+                "text_fusion",
+                "transformer",
+            }.issubset(scopes):
+                raise ValueError(
+                    f"{self.operator} requires text_fusion and transformer weights"
+                )
             return self
         if self.operator is not None or self.method is None:
-            raise ValueError("v2 merge recipes require method and cannot define operator")
-        if len(self.inputs) != 2:
-            raise ValueError(f"{self.method.kind} requires exactly two inputs")
-        if self.method.anchor == self.method.donor or {self.method.anchor, self.method.donor} != set(aliases):
-            raise ValueError("merge method anchor and donor must name the two distinct inputs")
-        parameters = self.method.parameters
-        if self.method.kind in {"weighted_sum", "norm_balanced"}:
-            anchor_weight = self._bounded(parameters.get("anchor_weight"), "anchor_weight")
-            donor_weight = self._bounded(parameters.get("donor_weight"), "donor_weight")
-            if abs(anchor_weight + donor_weight - 1.0) > 1e-6:
-                raise ValueError(f"{self.method.kind} weights must sum to 1.0")
-        elif self.method.kind == "slerp":
-            self._bounded(parameters.get("donor_weight"), "donor_weight")
-        elif self.method.kind == "delta_add":
-            self._bounded(parameters.get("text_fusion_donor"), "text_fusion_donor")
-            ranges = parameters.get("transformer_blocks")
-            if not isinstance(ranges, list) or not ranges:
-                raise ValueError("delta_add requires transformer_blocks")
-            covered: set[int] = set()
-            for item in ranges:
-                if not isinstance(item, dict):
-                    raise ValueError("delta_add transformer block ranges must be objects")
-                start, end = item.get("start"), item.get("end")
-                if any(isinstance(value, bool) or not isinstance(value, int) for value in (start, end)) or start < 0 or end < start:
-                    raise ValueError("delta_add transformer block ranges are invalid")
-                overlap = covered.intersection(range(start, end + 1))
-                if overlap:
-                    raise ValueError(f"delta_add transformer block ranges overlap at {min(overlap)}")
-                covered.update(range(start, end + 1))
-                self._bounded(item.get("donor"), "delta_add block donor")
-        elif self.method.kind == "cosine_gated":
-            donor_min = self._bounded(parameters.get("donor_min"), "donor_min")
-            donor_max = self._bounded(parameters.get("donor_max"), "donor_max")
-            if donor_min > donor_max:
-                raise ValueError("donor_min cannot exceed donor_max")
-            lower = parameters.get("lower_percentile", 5)
-            upper = parameters.get("upper_percentile", 95)
-            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in (lower, upper)):
-                raise ValueError("cosine percentiles must be numbers")
-            if not 0 <= float(lower) < float(upper) <= 100:
-                raise ValueError("cosine percentiles must satisfy 0 <= lower < upper <= 100")
+            raise ValueError(
+                "v2 merge recipes require method and cannot define operator"
+            )
+        if self.method.kind == "slerp":
+            self._validate_slerp(set(aliases))
         else:
-            self._bounded(parameters.get("novelty_cap"), "novelty_cap")
-        if self.output.factorization == "exact_concat" and all(item.rank is not None for item in self.inputs):
+            if self.method.donors is not None:
+                raise ValueError(f"{self.method.kind} does not support donors")
+            if len(self.inputs) != 2:
+                raise ValueError(f"{self.method.kind} requires exactly two inputs")
+            if (
+                self.method.donor is None
+                or self.method.anchor == self.method.donor
+                or {self.method.anchor, self.method.donor} != set(aliases)
+            ):
+                raise ValueError(
+                    "merge method anchor and donor must name the two distinct inputs"
+                )
+            parameters = self.method.parameters
+            if self.method.kind in {"weighted_sum", "norm_balanced"}:
+                anchor_weight = self._bounded(
+                    parameters.get("anchor_weight"), "anchor_weight"
+                )
+                donor_weight = self._bounded(
+                    parameters.get("donor_weight"), "donor_weight"
+                )
+                if abs(anchor_weight + donor_weight - 1.0) > 1e-6:
+                    raise ValueError(f"{self.method.kind} weights must sum to 1.0")
+            elif self.method.kind == "delta_add":
+                self._bounded(parameters.get("text_fusion_donor"), "text_fusion_donor")
+                ranges = parameters.get("transformer_blocks")
+                if not isinstance(ranges, list) or not ranges:
+                    raise ValueError("delta_add requires transformer_blocks")
+                covered: set[int] = set()
+                for item in ranges:
+                    if not isinstance(item, dict):
+                        raise ValueError(
+                            "delta_add transformer block ranges must be objects"
+                        )
+                    start, end = item.get("start"), item.get("end")
+                    if (
+                        any(
+                            isinstance(value, bool) or not isinstance(value, int)
+                            for value in (start, end)
+                        )
+                        or start < 0
+                        or end < start
+                    ):
+                        raise ValueError(
+                            "delta_add transformer block ranges are invalid"
+                        )
+                    overlap = covered.intersection(range(start, end + 1))
+                    if overlap:
+                        raise ValueError(
+                            f"delta_add transformer block ranges overlap at {min(overlap)}"
+                        )
+                    covered.update(range(start, end + 1))
+                    self._bounded(item.get("donor"), "delta_add block donor")
+            elif self.method.kind == "cosine_gated":
+                donor_min = self._bounded(parameters.get("donor_min"), "donor_min")
+                donor_max = self._bounded(parameters.get("donor_max"), "donor_max")
+                if donor_min > donor_max:
+                    raise ValueError("donor_min cannot exceed donor_max")
+                lower = parameters.get("lower_percentile", 5)
+                upper = parameters.get("upper_percentile", 95)
+                if any(
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                    for value in (lower, upper)
+                ):
+                    raise ValueError("cosine percentiles must be numbers")
+                if not 0 <= float(lower) < float(upper) <= 100:
+                    raise ValueError(
+                        "cosine percentiles must satisfy 0 <= lower < upper <= 100"
+                    )
+            else:
+                self._bounded(parameters.get("novelty_cap"), "novelty_cap")
+        if self.output.factorization == "exact_concat" and all(
+            item.rank is not None for item in self.inputs
+        ):
             exact_rank = sum(int(item.rank) for item in self.inputs)
             if self.output.rank < exact_rank:
-                raise ValueError(f"exact_concat output rank must be at least {exact_rank}")
+                raise ValueError(
+                    f"exact_concat output rank must be at least {exact_rank}"
+                )
         return self
 
 
@@ -579,17 +795,11 @@ class JobCreate(BaseModel):
     payload: dict[str, Any] = {}
 
 
-
-
-
-
 class InlinePromptCreate(BaseModel):
     id: str = Field(min_length=1, max_length=240)
     text: str = Field(min_length=1, max_length=64_000)
     position: int = Field(ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 
 
 class AxisRequest(BaseModel):
@@ -610,7 +820,13 @@ class PlanPayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_axes(self):
-        if set(self.axes) - {"x", "y", "z"} or "x" not in self.axes or "y" not in self.axes or self.axes.get("x") is None or self.axes.get("y") is None:
+        if (
+            set(self.axes) - {"x", "y", "z"}
+            or "x" not in self.axes
+            or "y" not in self.axes
+            or self.axes.get("x") is None
+            or self.axes.get("y") is None
+        ):
             raise ValueError("axes must contain non-null x and y and may contain z")
         return self
 
@@ -625,15 +841,16 @@ class GridCreateRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
     plan: PlanPayload
 
+
 class GridQueueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     idempotency_key: str = Field(min_length=1, max_length=200)
-    billing_acknowledgement: Literal["I understand FAL may bill this run even if checkpoint fetch fails"]
+    billing_acknowledgement: Literal[
+        "I understand FAL may bill this run even if checkpoint fetch fails"
+    ]
     plan_version: int = Field(ge=1)
     plan_digest: str = Field(min_length=8, max_length=80)
     cell_ordinals: list[int] | None = None
-
-
 
 
 class EvalCreateRequest(BaseModel):
