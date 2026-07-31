@@ -82,6 +82,7 @@ describe("workspace navigation", () => {
   it("renders linked FAL/eval previews and leaves fallback activity unlinked", async () => {
     const activity = [
       { id: "event-eval", action: "fal.admission_admitted", summary: "Generation admitted", object_label: "Eval run 42", object_href: "#/eval/eval-42", preview_asset_id: "revision-eval-42", profile_name: "Operator", created_at: "2026-07-13T10:00:00Z" },
+      { id: "event-deleted", action: "asset.deleted", summary: "Asset Deleted", object_label: "deleted.png", object_href: "#/image/deleted", preview_asset_id: "revision-deleted", profile_name: "Operator", created_at: "2026-07-13T09:30:00Z" },
       { id: "event-other", action: "workspace.updated", summary: "Workspace metadata updated", object_label: "Workspace One", object_href: null, preview_asset_id: null, profile_name: null, created_at: "2026-07-13T09:00:00Z" },
     ];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -107,6 +108,7 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("heading", { name: "Generation admitted" })).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-13T10:00:00Z"]')).toBeInTheDocument();
     expect(screen.queryByText("fal.admission_admitted")).not.toBeInTheDocument();
+    expect(screen.queryByText("Asset Deleted")).not.toBeInTheDocument();
     expect(screen.getByText(/Workspace metadata updated/).closest("a")).toBeNull();
     expect(screen.getByText("Workspace · Updated")).toBeInTheDocument();
   });

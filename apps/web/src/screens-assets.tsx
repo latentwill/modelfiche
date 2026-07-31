@@ -38,6 +38,16 @@ import type { DitherColor } from "./components/dither-kit/palette";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
+function isGridOutput(metadata: Row, asset: Row = {}) {
+  const grid = metadata.grid && typeof metadata.grid === "object" ? metadata.grid as Row : {};
+  return [metadata.grid_cell_id, metadata.grid_definition_id, metadata.grid_id, grid.cell_id, grid.definition_id, asset.grid_cell_id, asset.grid_definition_id, asset.grid_id]
+    .some(value => Boolean(String(value ?? "").trim()));
+}
+
+function originDisplayLabel(originType: string, metadata: Row, asset?: Row) {
+  if (originType.toUpperCase() !== "EVAL") return originType;
+  return isGridOutput(metadata, asset) ? "GRID" : "IMAGE";
+}
 const errorText = (reason: unknown) => reason instanceof Error ? reason.message : String(reason);
 const DEFAULT_VISIBLE_SCENE_CAPTION_PROMPT = "Caption each image in one concise sentence describing only what is visibly present in the scene: subjects, objects, actions, setting, and spatial relationships. Do not describe style, lighting, mood, quality, or camera characteristics.";
 const formatBytes = (value: unknown) => {
@@ -1092,7 +1102,7 @@ export function ModelScreen({ id }: { id: string }) {
   const falReadiness = readiness.fal && typeof readiness.fal === "object" ? readiness.fal as Row : {};
   const readyForGeneration = Boolean(falReadiness.available);
   return <Page title={str(resource.data?.name, "Model")} subtitle={`${str(latestVersion.base_model, "Base model unknown")} · ${str(project.data?.title ?? project.data?.name, "Project")}`} actions={<>
-    {projectId && readyForGeneration ? <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "model", projectId, modelId: id, modelVersionId: idOf(latestVersion) })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/grids?project=${projectId}&model=${id}&model_version=${idOf(latestVersion)}`}><Grid3X3 size={15} /> Grid</a></> : <button disabled title={projectId ? "Register this version with a compatible FAL endpoint before generation" : "The model is not attached to a project"}>Generation unavailable</button>}
+    {projectId && readyForGeneration ? <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "model", projectId, modelId: id, modelVersionId: idOf(latestVersion) })}><ImagePlus size={15} /> Generate</a><a className="button vela-button" href={`#/grids?project=${projectId}&model=${id}&model_version=${idOf(latestVersion)}`}><Grid3X3 size={15} /> Grid</a></> : <button disabled title={projectId ? "Register this version with a compatible FAL endpoint before generation" : "The model is not attached to a project"}>Generation unavailable</button>}
     {idOf(latestVersion) ? <a className="button vela-button" href={`#/transfers?mode=export&model_version=${idOf(latestVersion)}`}><Download size={15} />Export version</a> : <button disabled title="Register a model version before exporting"><Download size={15} />Export unavailable</button>}
   </>}>
     <Notice error={resource.error} loading={resource.loading} />
@@ -1459,7 +1469,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
     return () => window.removeEventListener("keydown", keydown);
   }, [id, previous && idOf(previous), next && idOf(next), ratingBusy, closeHref]);
   const originType = str(metadata.origin_type ?? (galleryContext.data?.current ? (galleryContext.data.current as Row).origin_type : undefined), "ASSET");
-  const displayOriginType = originType.toUpperCase() === "EVAL" ? "GRID" : originType;
+  const displayOriginType = originDisplayLabel(originType, metadata, asset.data ?? undefined);
   const hasTrainingMetadata = originType.toUpperCase() !== "DATASET";
   const isMerge = str(metadata.provenance_kind, "").toLowerCase() === "merge" || Boolean(metadata.merge_operation_id);
   const prompt = str(metadata.prompt ?? metadata.caption, "");
@@ -1472,7 +1482,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
       <aside id="storage_details" className="image-review-inspector"><h2 id="image-review-title">Image review <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{displayOriginType}</span></h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details image-primary-metadata">{hasTrainingMetadata ? <><dt>Model</dt><dd>{relationName("model")}</dd><dt>Model version</dt><dd>{relationName("model_version", str(metadata.model_version_name, "Unknown"))}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Step</dt><dd>{str(metadata.checkpoint_step, "Not recorded")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>LoRA scale</dt><dd>{loraScaleFromMetadata(metadata) ?? "Not recorded"}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></> : <><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></>}</dl>
         {isMerge && <dl className="details image-primary-metadata"><dt>Provenance</dt><dd>Merge output</dd><dt>Merge method</dt><dd>{str(metadata.merge_operator, "Not recorded")}</dd><dt>Merge recipe</dt><dd>{str(metadata.merge_notation, "Not recorded")}</dd></dl>}
         <details className="image-all-metadata"><summary>All image metadata</summary><Json value={allImageMetadata} /></details>
-        {replay && <a className="button vela-button" href={generatorHref("image", replay.context, id)}><ImagePlus size={15} /> Generate with these settings</a>}
+        {replay && <a className="button vela-button" href={generatorHref("image", replay.context, id)}><ImagePlus size={15} /> Generate</a>}
         <div className="rating-control"><span>Image rating (keys 1–5)</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={() => void rate(value)}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
         <div className="image-delete-control"><button className="vela-button vela-button-danger" disabled={deleteBusy} onClick={async () => { if (!confirm(`Delete ${str(asset.data?.name, "this image")}? This removes DAM metadata and supported local content.`)) return; setDeleteBusy(true); setDeleteError(""); try { const result = await api<Row>(`/api/assets/${id}?report=true&delete_content=true`, { method: "DELETE" }); const retained = rows(result.storage).filter(item => item.status !== "deleted"); onDeleteNotice(retained.length ? `${retained.length} storage object(s) retained; DAM metadata deleted.` : "Image and local content deleted."); const destination = next ? hrefFor(next) : previous ? hrefFor(previous) : closeHref; await onDeleted(); location.hash = destination.slice(1); } catch (reason) { setDeleteError(errorText(reason)); } finally { setDeleteBusy(false); } }}><Trash2 size={15} />{deleteBusy ? "Deleting…" : "Delete image"}</button>{deleteError && <div className="vela-notice vela-notice-error" role="alert">{deleteError}</div>}</div>
         <section><h3>Comments</h3><div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div><Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form></section>
@@ -1494,7 +1504,7 @@ export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsse
       return str(ref.name, "");
     };
     const originType = str(metadata.origin_type ?? asset.origin_type, "ASSET").toUpperCase();
-    const displayOriginType = originType === "EVAL" ? "GRID" : originType;
+    const displayOriginType = originDisplayLabel(originType, metadata, asset);
     const baseModel = refName("base_model");
     const model = refName("model");
     const checkpoint = refName("checkpoint");

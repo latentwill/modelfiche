@@ -35,6 +35,16 @@ describe("gallery navigation contracts", () => {
     expect(screen.getByRole("link")).not.toHaveAttribute("data-origin");
   });
 
+  it("labels only grid-provenance eval outputs as GRID", () => {
+    render(<AssetGrid assets={[
+      { id: "image", metadata: { origin_type: "EVAL", relationships: { base_model: { name: "Flux" } } } },
+      { id: "grid", metadata: { origin_type: "EVAL", grid_cell_id: "cell-1", relationships: { base_model: { name: "Flux" } } } },
+    ]} />);
+    expect(screen.getByText("Flux · IMAGE")).toBeInTheDocument();
+    expect(screen.getByText("Flux · GRID")).toBeInTheDocument();
+  });
+
+
   it("shows LoRA scale and offers exact generation replay for eligible images", () => {
     render(<AssetGrid assets={[{
       id: "a1", name: "generated.png", project_id: "p1",
@@ -186,10 +196,15 @@ describe("gallery navigation contracts", () => {
     render(<App />);
 
     const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
-    await waitFor(() => expect(dialog).toHaveTextContent("GRID"));
+    await waitFor(() => expect(dialog).toHaveTextContent("IMAGE"));
     expect(dialog).toHaveTextContent(checkpoint);
     expect(dialog).not.toHaveTextContent(".png");
     expect(Array.from(dialog.querySelectorAll("dt"), field => field.textContent)).not.toContain("File");
-    expect(screen.getByRole("link", { name: "Generate with these settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Generate" })).toBeInTheDocument();
+    const metadata = dialog.querySelector(".image-all-metadata");
+    const rating = dialog.querySelector(".rating-control");
+    expect(metadata).not.toBeNull();
+    expect(rating).not.toBeNull();
+    expect(metadata!.compareDocumentPosition(rating!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

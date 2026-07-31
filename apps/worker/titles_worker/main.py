@@ -6,7 +6,24 @@ import sys
 from pathlib import Path
 
 
+def configure_storage_environment() -> None:
+    """Keep worker-relative storage paths aligned with the application root."""
+    local_root = os.getenv("TITLES_LOCAL_ROOT")
+    if not local_root:
+        return
+    root = Path(local_root).expanduser().resolve()
+    for name, child in {
+        "TITLES_ASSET_ROOT": "assets",
+        "TITLES_CACHE_ROOT": "cache",
+        "TITLES_EXPORT_ROOT": "exports",
+        "TITLES_CONFIG_ROOT": "config",
+        "TITLES_WANDB_UPLOAD_ROOT": "wandb-uploads",
+    }.items():
+        os.environ.setdefault(name, str(root / child))
+
+
 def main() -> None:
+    configure_storage_environment()
     api_root = Path(__file__).resolve().parents[2] / "api"
     if str(api_root) not in sys.path:
         sys.path.insert(0, str(api_root))

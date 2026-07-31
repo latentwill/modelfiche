@@ -823,6 +823,10 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-focus-workspace .image-primary-metadata dd { min-width: 0; }
 .vela-focus-workspace .image-primary-metadata { max-width: 100%; grid-template-columns: minmax(70px, max-content) minmax(0, 1fr); }
 .vela-focus-workspace .image-primary-metadata dd { overflow-wrap: anywhere; word-break: break-word; }
+.vela-focus-workspace .image-primary-metadata { row-gap: 10px; }
+.vela-focus-workspace .image-primary-metadata :is(dt, dd) { line-height: 1.35; }
+.vela-focus-workspace .image-review-inspector .image-all-metadata { margin-top: 16px; }
+.vela-focus-workspace .image-review-inspector .rating-control { margin-top: 16px; }
 .vela-focus-workspace .details { margin-top: 15px; }
 .vela-focus-workspace .details dt { color: var(--vela-muted); font-family: var(--vela-font-mono); }
 .vela-focus-workspace .rating-control { padding-block: 12px; border-block: 1px solid var(--vela-border); }
@@ -1115,28 +1119,16 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-run-tag,
 .vela-theme :is(.vela-meta, .caption-version-state) { border-radius: 0; }
 
-/* Entry Console / Input Sheet. Editable areas remain fully opaque and clean. */
+/* Editable form controls remain opaque and clean. */
 .vela-form,
 .vela-theme form {
   position: relative;
-  counter-reset: mf-field;
   padding: var(--vela-space-4);
   border: 3px double var(--mf-border-strong);
   background: var(--mf-surface);
 }
-.vela-form::before,
-.vela-theme form::before {
-  content: "ENTRY CONSOLE / INPUT SHEET";
-  grid-column: 1 / -1;
-  padding: 0 0 8px;
-  border-bottom: 1px solid var(--mf-border);
-  color: var(--mf-ink-muted);
-  font: 9px var(--vela-font-mono);
-  letter-spacing: .12em;
-}
-.vela-field { counter-increment: mf-field; gap: 6px; }
+.vela-field { gap: 6px; }
 .vela-field > span { display: flex; gap: 8px; color: var(--mf-ink-strong); font: 700 10px var(--vela-font-mono); letter-spacing: .07em; }
-.vela-field > span::before { content: counter(mf-field, decimal-leading-zero) "."; color: var(--mf-accent); }
 .vela-theme :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
   border: 1px solid var(--mf-border);
   border-bottom: 2px solid var(--mf-border-strong);
