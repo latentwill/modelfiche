@@ -42,15 +42,15 @@ describe("workspace navigation", () => {
     fireEvent.click(workspaceSwitcher);
     expect(screen.getByRole("option", { name: "Workspace One" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: "Personal" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("href", "#/project/project-1");
+    expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("href", "#/project/project-1?workspace=workspace-1");
     expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("aria-current", "page");
     window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: { ...projects[0], title: "Renamed Project" } }));
     await waitFor(() => expect(screen.getByRole("link", { name: "Renamed Project" })).toBeInTheDocument());
     expect(screen.queryByRole("link", { name: "Project One" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "#/models?project=project-1");
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "#/models?workspace=workspace-1&project=project-1");
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings");
-    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "#/docs");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings?workspace=workspace-1");
+    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "#/docs?workspace=workspace-1");
     expect(screen.queryByRole("link", { name: "Setup" })).not.toBeInTheDocument();
     expect(screen.getByText(/Local cache/)).toBeInTheDocument();
 
@@ -60,9 +60,9 @@ describe("workspace navigation", () => {
     const createItems = screen.getAllByRole("menuitem").map(item => item.textContent);
     expect(createItems).not.toContain("Eval");
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
-    expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/import?source=s3&project=project-1");
-    expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/import?source=local&project=project-1");
-    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/transfers?mode=import");
+    expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/import?workspace=workspace-1&source=s3&project=project-1");
+    expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/import?workspace=workspace-1&source=local&project=project-1");
+    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/transfers?workspace=workspace-1&mode=import");
     expect(screen.queryByRole("menuitem", { name: "Import" })).not.toBeInTheDocument();
   });
   it("links the transfer import shortcut to the S3 browser with project context", async () => {
@@ -102,8 +102,12 @@ describe("workspace navigation", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: "Eval run 42" })).toBeInTheDocument());
     const evalLink = screen.getByRole("link", { name: "Eval run 42" });
     expect(evalLink).toHaveAttribute("href", "#/eval/eval-42");
-    expect(evalLink).toContainElement(screen.getByTestId("asset-image-revision-eval-42"));
-    expect(evalLink).toHaveTextContent("Generation admitted");
+    expect(evalLink).not.toContainElement(screen.getByTestId("asset-image-revision-eval-42"));
+    const galleryLink = screen.getByRole("link", { name: "Open Eval run 42 in gallery" });
+    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("#/gallery?"));
+    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("eval=eval-42"));
+    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("asset=revision-eval-42"));
+    expect(galleryLink).toContainElement(screen.getByTestId("asset-image-revision-eval-42"));
     expect(screen.getByText("by Operator")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Generation admitted" })).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-13T10:00:00Z"]')).toBeInTheDocument();

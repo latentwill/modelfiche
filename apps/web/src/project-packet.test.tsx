@@ -36,11 +36,11 @@ describe("project packet timestamp", () => {
 
     const failed = render(<LatestTrainingRun projectId="project-1" loading={false} runs={[{ id: "run-failed", name: "Broken", status: "failed", created_at: "2026-07-12T00:00:00Z" }]} />);
     expect(failed.getByRole("alert")).toHaveTextContent("Training run failed");
-    expect(failed.getByRole("link", { name: /Broken/ })).toHaveAttribute("href", "#/run/run-failed");
+    expect(failed.getByRole("link", { name: /Broken/ })).toHaveAttribute("href", "#/run/run-failed?project=project-1");
     failed.unmount();
 
     const completed = render(<LatestTrainingRun projectId="project-1" loading={false} runs={[{ id: "run-ok", name: "Finished", status: "completed", created_at: "2026-07-12T00:00:00Z", result_model_id: "model-1", result_model_name: "vcribb" }]} />);
-    expect(completed.getByRole("link", { name: "Result model vcribb" })).toHaveAttribute("href", "#/model/model-1");
+    expect(completed.getByRole("link", { name: "Result model vcribb" })).toHaveAttribute("href", "#/model/model-1?project=project-1");
     expect(completed.getByRole("link", { name: "View all training runs" })).toHaveAttribute("href", "#/runs?project=project-1");
   });
 });
@@ -124,7 +124,7 @@ describe("import workflow routing", () => {
   it("uses the legacy route as a chooser while preserving project context", () => {
     const view = render(<ImportScreen initialProject="project 7" />);
     expect(view.getByRole("heading", { name: "Import data" })).toBeInTheDocument();
-    expect(view.getByRole("link", { name: "Import from S3 storage" })).toHaveAttribute("href", "#/import?source=s3&project=project%207");
-    expect(view.getByRole("link", { name: "Import from local folder" })).toHaveAttribute("href", "#/import?source=local&project=project%207");
+    expect(view.getByRole("link", { name: "Import from S3 storage" })).toHaveAttribute("href", "#/import?source=s3&project=project+7");
+    expect(view.getByRole("link", { name: "Import from local folder" })).toHaveAttribute("href", "#/import?source=local&project=project+7");
   });
 });

@@ -186,9 +186,8 @@ def update_project(project_id: str, body: schemas.ProjectUpdate, db: DB, x_profi
 def assets(db: DB, project_id: str | None = None, kind: str | None = None, q: str | None = None, limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
     query = select(models.Asset).options(selectinload(models.Asset.locations)).where(models.Asset.workspace_id == current_workspace(db).id).order_by(models.Asset.created_at.desc())
     if project_id:
-        query = query.where(models.Asset.project_id == project_id)
-    if kind:
         query = query.where(models.Asset.kind == kind)
+        query = query.where(models.Asset.project_id == project_id)
         if kind == "image":
             query = query.where(or_(
                 models.Asset.mime_type.startswith("image/"),

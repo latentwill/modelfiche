@@ -422,3 +422,61 @@ def test_s3_dataset_import_hydrates_existing_referenced_dataset(client: TestClie
         assert hydrated.status == "published"
         assert hydrated.source_uri == "s3://titlesxyz/title-lora/datasets/kzapata/krea2-captions-v002"
         assert item_count == 1
+
+
+def test_unified_training_reference_reuses_populated_canonical_dataset(client: TestClient):
+    project = client.post("/api/projects", json={"title": "dawnjian"}).json()
+    with app_module.SessionLocal() as db:
+        workspace = db.scalar(select(models.Workspace).order_by(models.Workspace.created_at))
+        asset = models.Asset(
+            workspace_id=workspace.id,
+            project_id=project["id"],
+            kind=models.AssetKind.image,
+            name="source.png",
+            mime_type="image/png",
+        )
+        canonical = models.Dataset(project_id=project["id"], name="dawnjian")
+        unified = models.Dataset(project_id=project["id"], name="dawnjian_unified")
+        db.add_all([asset, canonical, unified])
+        db.flush()
+        canonical_version = models.DatasetVersion(
+            dataset_id=canonical.id,
+            version_number=1,
+            name="dawnjian",
+            source_uri="s3://titlesxyz/title-lora/datasets/dawnjian",
+            caption_format="text",
+            status="published",
+        )
+        unified_version = models.DatasetVersion(
+            dataset_id=unified.id,
+            version_number=1,
+            name="dawnjian_unified",
+            source_uri="training-path:///workspace/aitk/datasets/dawnjian_unified",
+            caption_format="text",
+            status="referenced",
+        )
+        db.add_all([canonical_version, unified_version])
+        db.flush()
+        db.add(
+            models.DatasetItem(
+                dataset_version_id=canonical_version.id,
+                asset_id=asset.id,
+                caption="source image",
+                caption_format="text",
+                included=True,
+                position=0,
+            )
+        )
+        run = models.TrainingRun(
+            project_id=project["id"],
+            dataset_version_id=unified_version.id,
+            name="dawnjian-krea2-unified-overfit",
+            status="completed",
+            normalized_config={"dataset_sources": ["/workspace/aitk/datasets/dawnjian_unified"]},
+        )
+        db.add(run)
+        db.flush()
+
+        SQLAlchemyImportSink(db)._link_dataset(run)
+
+        assert run.dataset_version_id == canonical_version.id

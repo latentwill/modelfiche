@@ -116,7 +116,6 @@ class SQLAlchemyEvalOutputSink:
                     subject_type="asset",
                     subject_id=asset.id,
                     details={
-                        "summary": f"Generated {filename}",
                         "provider": "fal",
                         "endpoint": definition.endpoint,
                         "eval_run_id": run.id,

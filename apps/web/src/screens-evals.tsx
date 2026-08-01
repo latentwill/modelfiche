@@ -6,7 +6,7 @@ import {
   Star,
   X,
 } from "lucide-react";
-import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { api, idOf, jsonBody, listOf, query, routeQuery, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { useResource, pollWhileActive } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
@@ -25,7 +25,7 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] { const n
 function ProjectEvalDetail({ id, projectId, resource }: { id: string; projectId: string; resource: { data: Row | null; loading: boolean; error?: string } }) {
   const assessment = resource.data?.assessment && typeof resource.data.assessment === "object" ? resource.data.assessment as Row : {};
   const reviews = rows(resource.data?.reviews);
-  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><h1>{str(resource.data?.name, "Assessment")}</h1><span>{str(resource.data?.status, "Loading")} · project {projectId}</span></div><a className="vela-button" href={`#/grids?project=${encodeURIComponent(projectId)}`}><ArrowLeft size={15} /> Project Grids</a></header><main className="vela-main"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !resource.data} emptyText="Assessment unavailable" /><Panel title="Assessment provenance"><dl className="details"><dt>Project</dt><dd>{projectId}</dd><dt>Generation run</dt><dd>{str(resource.data?.run_id, "Unknown")}</dd><dt>Plan</dt><dd>{str(resource.data?.plan_id, "Unknown")}</dd><dt>Plan version</dt><dd>{str(resource.data?.plan_version, "Unknown")}</dd><dt>Plan digest</dt><dd>{str(resource.data?.plan_digest, "Unknown")}</dd></dl></Panel><Panel title="Assessment"><pre>{JSON.stringify(assessment, null, 2)}</pre><DataTable rows={reviews} columns={[["profile_name", "Reviewer"], ["rating", "Rating"], ["decision", "Decision"], ["body", "Comment"], ["updated_at", "Updated"]]} /></Panel></main></div>;
+  return <div className="comparison-viewer vela-route-stage"><header className="viewer-topbar"><div><h1>{str(resource.data?.name, "Assessment")}</h1><span>{str(resource.data?.status, "Loading")} · project {projectId}</span></div><a className="vela-button" href={`#/grids${routeQuery({ project: projectId })}`}><ArrowLeft size={15} /> Project Grids</a></header><main className="vela-main"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !resource.data} emptyText="Assessment unavailable" /><Panel title="Assessment provenance"><dl className="details"><dt>Project</dt><dd>{projectId}</dd><dt>Generation run</dt><dd>{str(resource.data?.run_id, "Unknown")}</dd><dt>Plan</dt><dd>{str(resource.data?.plan_id, "Unknown")}</dd><dt>Plan digest</dt><dd>{str(resource.data?.plan_digest, "Unknown")}</dd><dt>Status</dt><dd>{str(resource.data?.status, "Unknown")}</dd></dl></Panel>{reviews.length ? <Panel title="Reviews"><DataTable rows={reviews} columns={[["reviewer", "Reviewer"], ["decision", "Decision"], ["notes", "Notes"], ["created_at", "Created"]]} /></Panel> : null}</main></div>;
 }
 
 
@@ -70,7 +70,7 @@ export function EvalScreen({ id, projectId: routeProjectId = "" }: { id: string;
   }, [promptIds]);
   const shown = Object.entries(grouped).filter(([key]) => selected.includes(key)).slice(0, 4);
   const projectId = str(resource.data?.project_id, "");
-  const returnHref = `#/grids${projectId ? `?project=${projectId}` : ""}`;
+  const returnHref = `#/grids${routeQuery({ project: projectId })}`;
   const cancelDisabledReason = resource.loading
     ? "Eval data is still loading"
     : resource.error
@@ -91,7 +91,7 @@ export function EvalScreen({ id, projectId: routeProjectId = "" }: { id: string;
         </div>
         <div className="viewer-actions">
           <a className="vela-button" href={returnHref}><ArrowLeft size={15} /> Project Grids</a>
-          <a className="vela-button" href={`#/transfers?mode=export&eval=${id}&project=${projectId}`}>Export</a>
+          <a className="vela-button" href={`#/transfers${routeQuery({ mode: "export", eval: id, project: projectId })}`}>Export</a>
           <AsyncAction
             label="Cancel"
             successLabel="Canceled"
@@ -173,9 +173,7 @@ export function EvalComparisonScreen({ id }: { id: string }) {
   const shownPrompts = filteredPrompts.slice(safePage * 12, safePage * 12 + 12);
   const context = request.context && typeof request.context === "object" ? request.context as Row : {};
   const projectId = str(resource.data?.project_id ?? context.projectId ?? context.project_id, "");
-  const returnParams = new URLSearchParams();
-  if (projectId) returnParams.set("project", projectId);
-  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href={`#/grids${returnParams.size ? `?${returnParams}` : ""}`}><ArrowLeft size={15} /> Project Grids</a>}>
+  return <Page title="Eval comparison" subtitle="Matching prompts are aligned across selected model checkpoints." actions={<a className="vela-button" href={`#/grids${routeQuery({ project: projectId })}`}><ArrowLeft size={15} /> Project Grids</a>}>
     <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !runs.length} emptyText="No comparison results yet" emptyHint="This comparison updates while queued checkpoint work completes." />
     {!!runs.length && <>
       <Panel title="Comparison filters"><div className="form-grid"><Field label="Prompt contains"><input value={queryText} onChange={event => setQueryText(event.target.value)} /></Field><Field label="Model checkpoints"><select multiple value={visibleModels} onChange={event => setVisibleModels(Array.from(event.target.selectedOptions, option => option.value))}>{runs.map(run => <option key={str(run.model_version_id)} value={str(run.model_version_id)}>{str(run.model_name)} · {str(run.model_version_name)}</option>)}</select></Field></div></Panel>

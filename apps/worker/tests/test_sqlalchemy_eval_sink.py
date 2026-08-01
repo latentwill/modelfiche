@@ -97,3 +97,4 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         assert activity.workspace_id == workspace.id
         assert activity.project_id == project.id
         assert activity.details["endpoint"] == "fal-ai/test-model"
+        assert "summary" not in activity.details

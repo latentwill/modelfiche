@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, Clipboard, Download, FolderSearch, Grid3X3, ImagePlus, Import, PlugZap, RefreshCw, RotateCcw, Settings2, Square, Trash2, Upload, X } from "lucide-react";
-import { ApiError, api, apiDownload, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { ApiError, api, apiDownload, idOf, jsonBody, listOf, patchBody, query, routeQuery, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
@@ -66,7 +66,7 @@ export function ProjectsScreen() {
       <Field label="Trigger words" hint="Comma separated"><input name="trigger_words" /></Field>
     </Form>{message && <div className="vela-notice" role="status"><strong>Project ready</strong><span>{message}</span></div>}</Panel>
     <Panel title="All projects"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !projects.length} />
-      <DataTable rows={projects} columns={[["title", "Name"], ["state", "State"], ["datasets_count", "Datasets"], ["runs_count", "Runs"], ["updated_at", "Updated"]]} onRow={row => { location.hash = `project/${idOf(row)}`; }} />
+      <DataTable rows={projects} columns={[["title", "Name"], ["state", "State"], ["datasets_count", "Datasets"], ["runs_count", "Runs"], ["updated_at", "Updated"]]} onRow={row => { location.hash = `project/${idOf(row)}${routeQuery({})}`; }} />
     </Panel>
   </Page>;
 }
@@ -100,10 +100,13 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
     };
   }, [editing, project.data, id]);
   const runRows = rows(runs.data); const datasetRows = rows(datasets.data); const modelRows = rows(models.data); const gridRows = rows(grids.data);
+  const projectQuery = (params: Record<string, unknown> = {}) => routeQuery({ ...params, project: id });
+  const projectRoute = (route: string, params: Record<string, unknown> = {}) => `#/${route}${routeQuery({ ...params, project: id })}`;
+  const projectEntityRoute = (route: string, entityId: string, params: Record<string, unknown> = {}) => `#/${route}/${encodeURIComponent(entityId)}${routeQuery({ ...params, project: id })}`;
   const archived = project.data?.state === "archived";
-  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/grids?project=${id}&scope=project`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={`#/import?project=${id}`}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a></>}>
+  return <Page title={str(project.data?.title ?? project.data?.name, "Project")} subtitle={`${Array.isArray(project.data?.trigger_words) && project.data.trigger_words.length ? project.data.trigger_words.join(", ") : "No trigger words"}`} actions={archived ? <button disabled title="Restore the project before generating or importing"><Upload size={15} /> Actions unavailable</button> : <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "project", projectId: id })}><ImagePlus size={15} /> + Image</a><a className="button vela-button" href={`#/grids${projectQuery({ scope: "project" })}`}><Grid3X3 size={15} /> Grid</a><a className="button vela-button" href={projectRoute("import")}><Upload size={15} /> Import</a><a className="button vela-button" href={`#/project/${id}${routeQuery({ edit: 1 })}`}>Edit project</a></>}>
     <Notice error={project.error || projectActionError} loading={project.loading} />
-    {archived && <a className="button vela-button" href={`#/project/${id}?edit=1`}>Edit project</a>}
+    {archived && <a className="button vela-button" href={`#/project/${id}${routeQuery({ edit: 1 })}`}>Edit project</a>}
     <ActiveTrainingPanel projectId={id} />
     <div className="project-visual-grid" aria-label="Project image collections">
       <ProjectImagePanel title={PROJECT_IMAGE_COLLECTION_ORDER[0]} assets={rows(datasetImages.data)} loading={datasetImages.loading} error={datasetImages.error} href={projectGalleryHref(id, "dataset_image", { include_dataset_assets: true })} returnTarget={`project/${id}`} />
@@ -112,11 +115,11 @@ export function ProjectScreen({ id, editing = false }: { id: string; editing?: b
     </div>
     <LatestTrainingRun projectId={id} runs={runRows} loading={runs.loading} error={runs.error} />
     <div className="project-resource-grid">
-      <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={`#/dataset/${idOf(dataset)}`} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div>{!datasets.loading && !datasets.error && !datasetRows.length && <div className="vela-empty"><a className="button vela-button vela-button-primary" href={`#/transfers?mode=import&project=${id}`}>Create a dataset</a></div>}<a className="vela-text-button" href={`#/datasets?project=${id}`}>View datasets</a></Panel>
-      <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={`#/model/${idOf(model)}`} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models?project=${id}`}>View models</a></Panel>
-      <Panel title="Grids"><Notice error={grids.error} loading={grids.loading} empty={!gridRows.length} /><DataTable rows={gridRows.slice(0, 6)} columns={[["name", "Grid"], ["status", "Status"], ["request_count", "Images"]]} onRow={row => { location.hash = `grid/${idOf(row)}?project=${id}`; }} /></Panel>
+      <Panel title="Datasets"><Notice error={datasets.error} loading={datasets.loading} /><div className="comparison-stack">{datasetRows.slice(0, 4).map(dataset => <a href={projectEntityRoute("dataset", idOf(dataset))} key={idOf(dataset)}><strong>{str(dataset.name)}</strong><span>{str(dataset.current_version, "No version")}</span><span>{str(dataset.item_count, "0")} images</span></a>)}</div>{!datasets.loading && !datasets.error && !datasetRows.length && <div className="vela-empty"><a className="button vela-button vela-button-primary" href={projectRoute("transfers", { mode: "import" })}>Create a dataset</a></div>}<a className="vela-text-button" href={`#/datasets${projectQuery()}`}>View datasets</a></Panel>
+      <Panel title="Model files"><Notice error={models.error} loading={models.loading} empty={!models.loading && !modelRows.length} /><div className="comparison-stack">{modelRows.slice(0, 4).map(model => <a href={projectEntityRoute("model", idOf(model))} key={idOf(model)}><strong>{str(model.name)}</strong><Status value={model.lifecycle_state} /><span>{str(model.latest_version, "No version")}</span></a>)}</div><a className="vela-text-button" href={`#/models${projectQuery()}`}>View models</a></Panel>
+      <Panel title="Grids"><Notice error={grids.error} loading={grids.loading} empty={!gridRows.length} /><DataTable rows={gridRows.slice(0, 6)} columns={[["name", "Grid"], ["status", "Status"], ["request_count", "Images"]]} onRow={row => { location.hash = `grid/${idOf(row)}${projectQuery()}`; }} /></Panel>
     </div>
-    {project.data && editing && <div ref={editorRef} id="project-settings" tabIndex={-1}><Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { const updated = await api<Row>(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); project.setData(updated); window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: updated })); setProjectMessage("Project updated."); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel></div>}
+    {project.data && editing && <div ref={editorRef} id="project-settings" tabIndex={-1}><Panel title="Edit project"><div className="vela-section-heading"><span /><a className="vela-icon-button" href={`#/project/${id}${routeQuery({})}`} aria-label="Close project editor"><X size={16} /></a></div><Form key={str(project.data.updated_at)} submit="Save project" onSubmit={async form => { const updated = await api<Row>(`/api/projects/${id}`, patchBody({ title: form.get("title"), description: form.get("description"), trigger_words: String(form.get("trigger_words") ?? "").split(",").map(value => value.trim()).filter(Boolean) })); project.setData(updated); window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: updated })); setProjectMessage("Project updated."); }}><div className="form-grid"><Field label="Title"><input name="title" required defaultValue={str(project.data.title)} /></Field><Field label="Trigger words" hint="Comma separated"><input name="trigger_words" defaultValue={Array.isArray(project.data.trigger_words) ? project.data.trigger_words.join(", ") : ""} /></Field></div><Field label="Description"><textarea name="description" defaultValue={str(project.data.description, "")} /></Field></Form><div className="actions"><button disabled={projectBusy} onClick={async () => { const next = archived ? "active" : "archived"; if (!archived && !window.confirm("Archive this project? Existing data is preserved.")) return; setProjectBusy(true); setProjectActionError(""); try { await api(`/api/projects/${id}`, patchBody({ state: next })); setProjectMessage(next === "active" ? "Project restored." : "Project archived."); await project.reload(); } catch (reason) { setProjectActionError(reason instanceof Error ? reason.message : String(reason)); } finally { setProjectBusy(false); } }}><Archive size={15} />{projectBusy ? "Updating..." : archived ? "Restore project" : "Archive project"}</button></div>{projectMessage && <div className="vela-notice" role="status"><strong>Project</strong><span>{projectMessage}</span></div>}</Panel></div>}
   </Page>;
 }
 
@@ -152,15 +155,15 @@ export function LatestTrainingRun({ projectId, runs, loading, error }: { project
   return <Panel title="Latest training run" className="latest-training-run-panel">
     <Notice error={error} loading={loading} />
     {!loading && !error && !latest && <div className="vela-empty"><span>No training runs yet</span><small>Imported or newly created runs will appear here.</small></div>}
-    {!loading && !error && latest && <LatestTrainingRunDetails run={latest} failed={failed} completed={completed} />}
+    {!loading && !error && latest && <LatestTrainingRunDetails run={latest} projectId={projectId} failed={failed} completed={completed} />}
     <div className="latest-run-footer">
-      {completed && Boolean(latest?.result_model_id) && <a className="latest-run-result" href={`#/model/${str(latest?.result_model_id)}`}><span>Result model</span><strong>{str(latest?.result_model_name)}</strong></a>}
-      <a className="button vela-button vela-button-primary latest-run-all" href={`#/runs?project=${projectId}`}>View all training runs <span aria-hidden="true">→</span></a>
+      {completed && Boolean(latest?.result_model_id) && <a className="latest-run-result" href={`#/model/${str(latest?.result_model_id)}${routeQuery({ project: projectId })}`}><span>Result model</span><strong>{str(latest?.result_model_name)}</strong></a>}
+      <a className="button vela-button vela-button-primary latest-run-all" href={`#/runs${routeQuery({ project: projectId })}`}>View all training runs <span aria-hidden="true">→</span></a>
     </div>
   </Panel>;
 }
 
-function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed: boolean; completed: boolean }) {
+function LatestTrainingRunDetails({ run, projectId, failed, completed }: { run: Row; projectId: string; failed: boolean; completed: boolean }) {
   const runId = idOf(run);
   const latestLoss = run.latest_loss && typeof run.latest_loss === "object" && !Array.isArray(run.latest_loss) ? run.latest_loss as Row : null;
   const lossMetric = str(latestLoss?.name, "");
@@ -175,7 +178,7 @@ function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed
   const timestamp = trainingRunTimestamp(run);
   const normalized = (config.data?.normalized ?? {}) as Row;
   return <div className="latest-training-run">
-    <div className="latest-run-summary"><div className="comparison-stack"><a href={`#/run/${runId}`}><strong>{str(run.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : run.status} /><span>{completed ? "Completed" : "Started"} <time dateTime={str(timestamp, "")}>{formatCanonicalTimestamp(timestamp)}</time></span><span>{str(run.dataset_version_name ?? run.dataset_name, "Dataset not linked")} · {str(run.base_model, "Base model not recorded")}</span></a></div>
+    <div className="latest-run-summary"><div className="comparison-stack"><a href={`#/run/${runId}${routeQuery({ project: projectId })}`}><strong>{str(run.name, "Training run")}</strong><Status value={failed ? "failed" : completed ? "completed" : run.status} /><span>{completed ? "Completed" : "Started"} <time dateTime={str(timestamp, "")}>{formatCanonicalTimestamp(timestamp)}</time></span><span>{str(run.dataset_version_name ?? run.dataset_name, "Dataset not linked")} · {str(run.base_model, "Base model not recorded")}</span></a></div>
     <dl className="details latest-run-details"><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Steps</dt><dd>{str(run.current_step ?? normalized.steps ?? normalized.max_train_steps, "Not recorded")}</dd><dt>Learning rate</dt><dd>{scientificNotation(run.learning_rate ?? normalized.learning_rate)}</dd></dl></div>
     <Notice error={samples.error || metrics.error || config.error} loading={samples.loading || metrics.loading || config.loading} />
     <div className="latest-run-visuals"><div className="latest-run-loss"><LossGraph points={metrics.data?.points} /></div>
@@ -184,13 +187,14 @@ function LatestTrainingRunDetails({ run, failed, completed }: { run: Row; failed
   </div>;
 }
 
+
 export function formatCanonicalTimestamp(value: unknown) {
   const date = new Date(str(value, ""));
   return Number.isNaN(date.valueOf()) ? "Timestamp unavailable" : date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
 }
 
 function projectGalleryHref(projectId: string, category: string, extra: Record<string, unknown> = {}) {
-  return `#/gallery${query({ project: projectId, category, page: 1, ...extra })}`;
+  return `#/gallery${routeQuery({ project: projectId, category, page: 1, ...extra })}`;
 }
 
 function ProjectImagePanel({ title, assets, loading, error, href, returnTarget }: { title: string; assets: Row[]; loading: boolean; error?: string; href: string; returnTarget: string }) {
@@ -303,12 +307,12 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
   }
 
   if (mode === "chooser") {
-    const projectQuery = initialProject ? `&project=${encodeURIComponent(initialProject)}` : "";
+    const projectQuery = (params: Record<string, unknown> = {}) => routeQuery({ ...params, project: initialProject });
     return <Page title="Import data" subtitle="Choose where the files or records should come from.">
       <Panel title="Choose an import workflow">
         <div className="actions" aria-label="Import source choices">
-          <a className="button vela-button vela-button-primary" href={`#/import?source=s3${projectQuery}`}>Import from S3 storage</a>
-          <a className="button vela-button" href={`#/import?source=local${projectQuery}`}>Import from local folder</a>
+          <a className="button vela-button vela-button-primary" href={`#/import${projectQuery({ source: "s3" })}`}>Import from S3 storage</a>
+          <a className="button vela-button" href={`#/import${projectQuery({ source: "local" })}`}>Import from local folder</a>
         </div>
       </Panel>
     </Page>;
@@ -321,7 +325,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
         <div className="form-grid"><Field label="Project"><SelectRecords name="project" records={rows(projectsResource.data)} labelKey="title" required value={projectId} onChange={setProjectId} /></Field><Field label="Dataset name"><input value={localName} onChange={event => setLocalName(event.target.value)} /></Field><Field label="Folder"><div className="local-import-dropzone" onDragOver={event => event.preventDefault()} onDrop={event => void handleLocalDrop(event)}><input type="file" multiple accept="image/*,.txt,.json" {...({ webkitdirectory: "" } as Record<string, string>)} onChange={event => { const files = Array.from(event.target.files ?? []).map(file => ({ file, path: file.webkitRelativePath || file.name })); setSelectedLocalFiles(files); }} /><p className="muted">Choose a folder or drop it here. Nested paths are preserved.</p>{localFiles.length > 0 && <p role="status">{localFiles.length} file(s) selected.</p>}</div></Field></div>
         <div className="actions"><button className="vela-button-primary" onClick={() => void importLocalFolder()} disabled={!projectId || !localName.trim() || !localFiles.length || Boolean(busy)}><Upload size={15} />{busy === "import" ? `Importing ${localProgress}%` : `Import folder (${localFiles.length} files)`}</button></div>
         {localProgress > 0 && <progress max={100} value={localProgress} aria-label="Local folder import progress" />}
-        {localResult && <div className="vela-notice" role="status"><strong>{str(localResult.state)}</strong><span>{str(localResult.imported, "0")} imported, {str(localResult.duplicates, "0")} duplicates, {rows(localResult.failures).length} failures. <a href={`#/dataset/${str(localResult.dataset_id)}`}>Open dataset</a></span></div>}
+        {localResult && <div className="vela-notice" role="status"><strong>{str(localResult.state)}</strong><span>{str(localResult.imported, "0")} imported, {str(localResult.duplicates, "0")} duplicates, {rows(localResult.failures).length} failures. <a href={`#/dataset/${str(localResult.dataset_id)}${routeQuery({ project: projectId })}`}>Open dataset</a></span></div>}
         {localResult && rows(localResult.failures).length > 0 && <Json value={localResult.failures} />}
       </Panel>
     </Page>;
@@ -330,7 +334,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
   const canBrowse = Boolean(sourceId && !busy);
   const canInspect = Boolean(sourceId && prefix && !busy);
   const importDisabledReason = !projectId ? "Select a project before importing." : !sourceId ? "Select a storage source before importing." : !prefix ? "Choose a prefix before importing." : !str((preview as Row)?.review_token, "") ? "Detect and review the S3 prefix before importing." : busy ? "Wait for the current storage operation to finish." : undefined;
-  return <Page title="Import from S3 storage" subtitle="Browse an S3-compatible source, inspect a prefix, then queue a dataset or training-run import." actions={<a className="button" href="#/settings"><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
+  return <Page title="Import from S3 storage" subtitle="Browse an S3-compatible source, inspect a prefix, then queue a dataset or training-run import." actions={<a className="button" href={`#/settings${routeQuery({})}`}><Settings2 size={15} aria-hidden="true" /> Manage sources</a>}>
     <Notice error={error || sourcesResource.error || projectsResource.error} />
     <Panel title="S3 storage source">
       <div className="form-grid">
@@ -364,7 +368,7 @@ export function ImportScreen({ initialProject = "", source = "" }: { initialProj
       {cursor && <button onClick={() => void browse(cursor)} disabled={Boolean(busy)} title={busy ? "Wait for the current storage operation to finish." : undefined}>Next page</button>}
     </Panel>
     {preview !== null && <Panel title="Detection preview"><div className="vela-notice" role="status"><strong>Review required before import</strong><span>Detected kind: {str((preview as Row)?.kind, "unknown")}. This preview binds the import to the observed S3 prefix; rerun detection if the prefix changes.</span></div><Json value={preview} /><button className="vela-button-primary" onClick={() => void importPrefix()} disabled={Boolean(importDisabledReason)} title={importDisabledReason}><Upload size={15} aria-hidden="true" />{busy === "import" ? "Queuing..." : "Start import"}</button></Panel>}
-    {job !== null && <Panel title="Import queued"><div className="vela-notice" role="status"><strong>Worker job created</strong><span>The import will continue in the background.</span></div><Json value={job} />{Boolean((job as Row)?.id) && <a className="button" href={`#/jobs/${String((job as Row).id)}`}>View import job</a>}</Panel>}
+    {job !== null && <Panel title="Import queued"><div className="vela-notice" role="status"><strong>Worker job created</strong><span>The import will continue in the background.</span></div><Json value={job} />{Boolean((job as Row)?.id) && <a className="button" href={`#/jobs/${String((job as Row).id)}${routeQuery({ project: projectId })}`}>View import job</a>}</Panel>}
   </Page>;
 }
 
@@ -505,12 +509,12 @@ export function SettingsScreen() {
   return <Page title="Settings" subtitle="One focused setup area at a time." actions={<Status value={health.data?.ok ? "healthy" : "attention"} />}>
     <Notice error={testError || settings.error || health.error || workspaces.error} loading={settings.loading || health.loading || workspaces.loading} />
     <nav className="settings-section-nav" aria-label="Settings sections">
-      <a href="#/settings?section=general" aria-current={section === "general" ? "page" : undefined}>General</a>
-      <a href="#/settings?section=storage" aria-current={section === "storage" ? "page" : undefined}>Storage</a>
-      <a href="#/settings?section=generation" aria-current={section === "generation" ? "page" : undefined}>Generation</a>
-      <a href="#/training-new">Training and RunPod</a>
-      <a href="#/settings?section=profiles" aria-current={section === "profiles" ? "page" : undefined}>Profiles</a>
-      <a href="#/settings?section=diagnostics" aria-current={section === "diagnostics" ? "page" : undefined}>Diagnostics</a>
+      <a href={`#/settings${routeQuery({ section: "general" })}`} aria-current={section === "general" ? "page" : undefined}>General</a>
+      <a href={`#/settings${routeQuery({ section: "storage" })}`} aria-current={section === "storage" ? "page" : undefined}>Storage</a>
+      <a href={`#/settings${routeQuery({ section: "generation" })}`} aria-current={section === "generation" ? "page" : undefined}>Generation</a>
+      <a href={`#/training-new${routeQuery({})}`}>Training and RunPod</a>
+      <a href={`#/settings${routeQuery({ section: "profiles" })}`} aria-current={section === "profiles" ? "page" : undefined}>Profiles</a>
+      <a href={`#/settings${routeQuery({ section: "diagnostics" })}`} aria-current={section === "diagnostics" ? "page" : undefined}>Diagnostics</a>
     </nav>
     <div className="settings-sections">
       {section === "general" && <>
@@ -593,7 +597,7 @@ export function SettingsScreen() {
             <div><strong>Backup</strong><Status value={backupReady ? "ready" : "attention"} /></div>
             <div><strong>Agent CLI</strong><Status value={agentCli.configured ? "ready" : "attention"} /></div>
           </div>
-          <div className="actions"><button type="button" className="primary" onClick={() => void downloadSupportBundle()}><Download size={14} />Download redacted support bundle</button><a className="button vela-button" href="#/readiness">Open readiness checks</a></div>
+          <div className="actions"><button type="button" className="primary" onClick={() => void downloadSupportBundle()}><Download size={14} />Download redacted support bundle</button><a className="button vela-button" href={`#/readiness${routeQuery({})}`}>Open readiness checks</a></div>
         </Panel>
         <Panel title="Update and rollback">
           <p>Current version: <strong>{str(health.data?.version, "Unavailable")}</strong></p>

@@ -91,6 +91,33 @@ describe("dataset caption generation controls", () => {
   });
 });
 
+describe("dataset image action layout", () => {
+  it("keeps the gallery action outside the image area", async () => {
+    const item = { id: "item-layout", filename: "colorful.png", caption: "A colorful abstract composition", included: true, asset_revision_id: "asset-layout" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/datasets/dataset-layout/drafts/active")) return response(null);
+      if (path.includes("/api/datasets/dataset-layout/versions")) return response([{ id: "version-layout", version_number: 1, name: "Imported", item_count: 1, caption_format: "text", status: "published" }]);
+      if (path.includes("/api/datasets/dataset-layout")) return response({ id: "dataset-layout", project_id: "project-layout", name: "Layout dataset", current_version_id: "version-layout", versions: [{ id: "version-layout", version_number: 1, name: "Imported", item_count: 1, caption_format: "text", status: "published" }] });
+      if (path.includes("/api/dataset-versions/version-layout/items")) return response({ items: [item], total: 1 });
+      if (path.includes("/api/operator-settings")) return response({ captioning: {}, llm: {} });
+      return response({});
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DatasetScreen id="dataset-layout" />);
+    await waitFor(() => expect(document.querySelector(".caption-item img")).not.toBeNull());
+    const image = document.querySelector(".caption-item img")!;
+    const card = image.closest("article") as HTMLElement;
+    const imageArea = card.querySelector(".caption-image") as HTMLElement;
+    const action = card.querySelector(".caption-open-link") as HTMLAnchorElement;
+    expect(imageArea).not.toContainElement(action);
+    expect(card.querySelector(".caption-heading .caption-open-link")).toBe(action);
+    expect(action).toHaveAttribute("href", expect.stringContaining("#/gallery"));
+    expect(screen.getByRole("textbox", { name: "Caption for colorful.png" })).toBeInTheDocument();
+  });
+});
+
 describe("dataset pagination and immutable batch previews", () => {
   it("reaches every item, scopes selection truthfully, invalidates stale input, and renders JSON captions", async () => {
     const items = Array.from({ length: 54 }, (_, index) => ({

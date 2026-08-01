@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Clipboard, Download, ExternalLink, ShieldCheck, TriangleAlert } from "lucide-react";
-import { api, idOf, jsonBody, listOf, str } from "./api";
+import { api, idOf, jsonBody, listOf, routeQuery, str } from "./api";
 import { useResource } from "./hooks";
 import { Dropdown, Field, Notice, Page, Panel, Status } from "./ui";
 
@@ -73,7 +73,7 @@ export function TrainingLaunchCreateScreen({ params }: { params: URLSearchParams
         supported_endpoint_ids: [],
         expected_duration_seconds: maxHours * 3600,
       }));
-      location.hash = `training/${idOf(launch)}`;
+      location.hash = `training/${idOf(launch)}${routeQuery({ project: (launch as Row).project_id })}`;
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   }
@@ -83,7 +83,7 @@ export function TrainingLaunchCreateScreen({ params }: { params: URLSearchParams
       <div className="training-wizard-main">
         <Panel title="1. Confirm training data">
           <Notice error={dataset.error} loading={dataset.loading} />
-          {!datasetId && <div className="vela-empty"><span>Choose a published dataset first</span><small>Open a dataset and select Start training.</small><a className="button vela-button" href="#/datasets">Browse datasets</a></div>}
+          {!datasetId && <div className="vela-empty"><span>Choose a published dataset first</span><small>Open a dataset and select Start training.</small><a className="button vela-button" href={`#/datasets${routeQuery({ project: params.get("project") })}`}>Browse datasets</a></div>}
           {dataset.data && <>
             <dl className="details training-summary"><dt>Dataset</dt><dd>{str(dataset.data.name)}</dd><dt>Project</dt><dd>{str(dataset.data.project_name)}</dd><dt>Version</dt><dd>{str(version?.name, "Select a version")}</dd><dt>Images</dt><dd>{str(version?.item_count ?? dataset.data.item_count, "0")}</dd><dt>State</dt><dd><Status value={version?.status ?? "unknown"} /></dd></dl>
             <Field label="Published version" hint="Training remains permanently linked to this exact immutable version."><Dropdown value={versionId} onChange={setVersionId} options={versions.map(item => ({ value: idOf(item), label: `v${str(item.version_number)} · ${str(item.name)}`, description: `${str(item.item_count, "0")} images · ${str(item.caption_format, "text")} captions`, disabled: item.status !== "published" }))} /></Field>
@@ -106,7 +106,7 @@ export function TrainingLaunchCreateScreen({ params }: { params: URLSearchParams
               <Field label="Signing identity" hint="ModelFiche stores only the public key; the agent keeps the private key."><Dropdown value={credentialId} onChange={setCredentialId} options={credentials.map(item => ({ value: idOf(item), label: str(item.alias), description: str(item.key_id) }))} /></Field>
               <Field label="Training storage" hint="Checkpoints and recovery files use this verified destination."><Dropdown value={sourceId} onChange={setSourceId} options={sources.map(item => ({ value: idOf(item), label: str(item.name), description: str(item.bucket) }))} /></Field>
             </div>
-            {!setupReady && <div className="vela-notice vela-notice-error" role="alert"><strong>Setup needs attention</strong><span>Open Terminal and run <code>{SETUP_COMMAND}</code>, then use Settings for storage and resolve the remaining checks.</span><div className="actions"><button onClick={() => void navigator.clipboard.writeText(SETUP_COMMAND).then(() => setSetupCopied(true)).catch(() => setError("Clipboard access was denied. Select and copy the setup command manually."))}><Clipboard size={14} />{setupCopied ? "Copied" : "Copy setup command"}</button><a className="button vela-button" href="#/settings">Open settings</a></div></div>}
+            {!setupReady && <div className="vela-notice vela-notice-error" role="alert"><strong>Setup needs attention</strong><span>Open Terminal and run <code>{SETUP_COMMAND}</code>, then use Settings for storage and resolve the remaining checks.</span><div className="actions"><button onClick={() => void navigator.clipboard.writeText(SETUP_COMMAND).then(() => setSetupCopied(true)).catch(() => setError("Clipboard access was denied. Select and copy the setup command manually."))}><Clipboard size={14} />{setupCopied ? "Copied" : "Copy setup command"}</button><a className="button vela-button" href={`#/settings${routeQuery({})}`}>Open settings</a></div></div>}
           </>}
         </Panel>
         {error && <div className="vela-notice vela-notice-error" role="alert"><strong>Launch not created</strong><span>{error}</span></div>}
@@ -145,11 +145,11 @@ export function TrainingLaunchScreen({ id }: { id: string }) {
   async function remove() {
     if (!window.confirm("Delete this unstarted launch and its unused dataset export? This cannot be undone.")) return;
     setBusy("delete"); setActionError("");
-    try { await api(`/api/training-launches/${id}`, { method: "DELETE" }); location.hash = "runs"; }
+    try { await api(`/api/training-launches/${id}`, { method: "DELETE" }); location.hash = `runs${routeQuery({ project: launch.data?.project_id })}`; }
     catch (reason) { setActionError(reason instanceof Error ? reason.message : String(reason)); setBusy(""); }
   }
 
-  return <Page title={str(launch.data?.manifest?.run && (launch.data.manifest.run as Row).name, "Training preparation")} subtitle="One readiness view from dataset export to secure AI Toolkit handoff" actions={<>{launch.data?.run_id && <a className="button vela-button" href={`#/run/${str(launch.data.run_id)}`}><ExternalLink size={15} />Open DAM run</a>}<button className="vela-button" disabled={!launch.data || busy === "cancel"} onClick={() => void cancel()}>Cancel</button><button className="vela-button vela-button-danger" disabled={!launch.data || busy === "delete"} onClick={() => void remove()}>Delete stub</button></>}>
+  return <Page title={str(launch.data?.manifest?.run && (launch.data.manifest.run as Row).name, "Training preparation")} subtitle="One readiness view from dataset export to secure AI Toolkit handoff" actions={<>{launch.data?.run_id && <a className="button vela-button" href={`#/run/${str(launch.data.run_id)}${routeQuery({ project: launch.data?.project_id })}`}><ExternalLink size={15} />Open DAM run</a>}<button className="vela-button" disabled={!launch.data || busy === "cancel"} onClick={() => void cancel()}>Cancel</button><button className="vela-button vela-button-danger" disabled={!launch.data || busy === "delete"} onClick={() => void remove()}>Delete stub</button></>}>
     <Notice error={launch.error || preflight.error} loading={launch.loading || preflight.loading} />
     {actionError && <div className="vela-notice vela-notice-error" role="alert">{actionError}</div>}
     {preflight.data && <>

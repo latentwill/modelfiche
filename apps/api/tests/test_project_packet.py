@@ -127,6 +127,86 @@ def test_fal_admission_activity_resolves_eval_run_and_latest_image(client: TestC
     assert event["object_href"] == f"#/eval/{run.id}"
     assert event["object_label"] == "FAL quality"
     assert event["preview_asset_id"] == latest_image["id"]
+    assert event["summary"] == "Generation admitted"
+
+
+def test_generation_activity_consolidates_admission_and_hides_filename(client: TestClient):
+    profile, project = _profile_and_project(client)
+    image = client.post(
+        "/api/assets",
+        json={"project_id": project["id"], "kind": "image", "name": "generated-output.png", "mime_type": "image/png"},
+    ).json()
+    with app_module.SessionLocal.begin() as session:
+        workspace_id = session.get(models.Project, project["id"]).workspace_id
+        prompt_set = models.PromptSet(project_id=project["id"], name="Generation prompts")
+        session.add(prompt_set)
+        session.flush()
+        definition = models.EvalDefinition(
+            project_id=project["id"],
+            name="Generation run",
+            endpoint="fal-ai/test",
+            prompt_set_id=prompt_set.id,
+        )
+        session.add(definition)
+        session.flush()
+        run = models.EvalRun(definition_id=definition.id, status="running")
+        session.add(run)
+        session.flush()
+        session.add_all(
+            [
+                models.ActivityEvent(
+                    workspace_id=workspace_id,
+                    project_id=project["id"],
+                    profile_id=profile["id"],
+                    action="fal.admission_admitted",
+                    subject_type="fal_admission",
+                    subject_id="admission-generation",
+                    details={"eval_run_id": run.id, "job_id": "job-generation"},
+                    created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+                models.ActivityEvent(
+                    workspace_id=workspace_id,
+                    project_id=project["id"],
+                    profile_id=None,
+                    action="asset.generated",
+                    subject_type="asset",
+                    subject_id=image["id"],
+                    details={
+                        "summary": "Generated generated-output.png",
+                        "provider": "fal",
+                        "endpoint": "fal-ai/test",
+                        "eval_run_id": run.id,
+                    },
+                    created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+
+    events = client.get("/api/activity", params={"project_id": project["id"]}).json()
+    generated = [event for event in events if event["action"] == "image.generated"]
+    assert len(generated) == 1
+    event = generated[0]
+    assert event["event_type"] == "image.generated"
+    assert event["summary"] == "Image generated"
+    assert event["details"] == {
+        "eval_run_id": run.id,
+        "job_id": "job-generation",
+        "provider": "fal",
+        "endpoint": "fal-ai/test",
+    }
+    assert event["profile_id"] == profile["id"]
+    assert event["object_href"] == f"#/eval/{run.id}"
+    assert event["object_label"] == "Generation run"
+    assert event["preview_asset_id"] == image["id"]
+    assert "generated-output.png" not in str(event)
+    assert not any(event["action"] == "fal.admission_admitted" for event in events)
+
+    image_events = client.get(
+        "/api/activity",
+        params={"project_id": project["id"], "subject_type": "asset", "subject_id": image["id"]},
+    ).json()
+    assert [event["action"] for event in image_events].count("image.generated") == 1
+    assert not any(event["action"] == "fal.admission_admitted" for event in image_events)
 
 
 def test_fal_admission_activity_falls_back_to_job(client: TestClient):

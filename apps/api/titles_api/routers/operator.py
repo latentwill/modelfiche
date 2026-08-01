@@ -81,7 +81,11 @@ def dashboard(db: DB, project_id: str | None = None):
                 "id": event.id,
                 "event_type": event.action,
                 "action": event.action,
-                "summary": event.details.get("summary") or event.action.replace(".", " ").replace("_", " ").title(),
+                "summary": event.details.get("summary") or (
+                    "Generation admitted"
+                    if event.action == "fal.admission_admitted"
+                    else event.action.replace(".", " ").replace("_", " ").title()
+                ),
                 "subject_type": event.subject_type,
                 "subject_id": event.subject_id,
                 "project_id": event.project_id,

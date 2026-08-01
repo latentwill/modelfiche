@@ -59,8 +59,8 @@ describe("model versions", () => {
     render(<ModelScreen id="model-1" />);
     const versionLinks = await screen.findAllByRole("link", { name: /Portrait step 250/ });
     expect(versionLinks).not.toHaveLength(0);
-    expect(versionLinks.every(link => link.getAttribute("href") === "#/model-version/version-1")).toBe(true);
-    expect(screen.getByRole("link", { name: "portrait_000000250.safetensors" })).toHaveAttribute("href", "#/checkpoint/checkpoint-250");
+    expect(versionLinks.every(link => link.getAttribute("href") === "#/model-version/version-1?project=project-1")).toBe(true);
+    expect(screen.getByRole("link", { name: "portrait_000000250.safetensors" })).toHaveAttribute("href", "#/checkpoint/checkpoint-250?project=project-1");
   });
 
   it("shows readiness, typed lineage, persisted production decision, and consequence gating", async () => {
@@ -77,10 +77,10 @@ describe("model versions", () => {
     expect(await screen.findByRole("heading", { name: "Portrait step 250" })).toBeInTheDocument();
     expect(screen.getByText("A verified local copy is already available.")).toBeInTheDocument();
     expect(screen.getByText("Not registered with FAL.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Checkpoint artifact" })).toHaveAttribute("href", "#/checkpoint/checkpoint-250");
-    expect(screen.getByRole("link", { name: "Portrait inputs · Initial import" })).toHaveAttribute("href", "#/dataset/dataset-1");
+    expect(screen.getByRole("link", { name: "Checkpoint artifact" })).toHaveAttribute("href", "#/checkpoint/checkpoint-250?project=project-1");
+    expect(screen.getByRole("link", { name: "Portrait inputs · Initial import" })).toHaveAttribute("href", "#/dataset/dataset-1?project=project-1");
     expect(await screen.findByText(/approved by Ada Operator/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Portrait training" }).every(link => link.getAttribute("href") === "#/run/run-1")).toBe(true);
+    expect(screen.getAllByRole("link", { name: "Portrait training" }).map(link => link.getAttribute("href"))).toEqual(expect.arrayContaining(["#/run/run-1?project=project-1", "#/run/run-1"]));
 
     const archive = screen.getByRole("button", { name: "Archive registration" });
     expect(archive).toBeDisabled();

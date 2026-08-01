@@ -26,11 +26,12 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api, idOf, jsonBody, listOf, patchBody, query, str } from "./api";
+import { api, idOf, jsonBody, listOf, patchBody, query, routeQuery, str } from "./api";
+import { galleryOpenHref, safeReturnTarget } from "./gallery-routing";
 import { AssetImage } from "./asset-image";
 import { useResource, useRunLive } from "./hooks";
 import { DataTable, Dropdown, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status, useFocusWorkspace } from "./ui";
-import { generationReplayFromMetadata, generatorHref, loraScaleFromMetadata } from "./generation";
+import { generationReplayFromMetadata, generatorHref, loraScaleFromMetadata, normalizedParametersFromMetadata } from "./generation";
 import { DitherLossChart } from "./dither-loss-chart";
 import { LineageList } from "./lineage";
 import { DitherStackedBar, type DitherBarSegment } from "./dither-stacked-bar";
@@ -208,11 +209,11 @@ export function DatasetsScreen({ projectId = "" }: { projectId?: string }) {
   return <Page
     title="Datasets"
     subtitle="Versioned training images and captions"
-    actions={<a className="button vela-button vela-button-primary" href="#/transfers?mode=import"><FolderInput size={15} />Import dataset</a>}
+    actions={<a className="button vela-button vela-button-primary" href={`#/transfers${routeQuery({ mode: "import", project: projectId })}`}><FolderInput size={15} />Import dataset</a>}
   >
     <Panel title="Dataset registry">
       <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data.length} />
-      {!!data.length && <DataTable rows={data} columns={[["name", "Name"], ["project_name", "Project"], ["current_version", "Version"], ["item_count", "Items"], ["updated_at", "Updated"]]} onRow={row => { location.hash = `dataset/${idOf(row)}`; }} />}
+      {!!data.length && <DataTable rows={data} columns={[["name", "Name"], ["project_name", "Project"], ["current_version", "Version"], ["item_count", "Items"], ["updated_at", "Updated"]]} onRow={row => { location.hash = `dataset/${idOf(row)}${routeQuery({ project: projectId })}`; }} />}
     </Panel>
   </Page>;
 }
@@ -557,8 +558,8 @@ export function DatasetScreen({ id }: { id: string }) {
   }
   const subtitle = `${str(data?.project_name, "Project dataset")} · ${totalItems} images · ${activeDraft ? "Working draft" : `v${str(activeVersion?.version_number ?? data?.current_version, "-")}`}`;
   return <Page title={str(data?.name, "Dataset")} subtitle={subtitle} actions={<>
-    {activeVersionId && !activeDraft ? <a className="button vela-button" href={`#/transfers?mode=export&dataset_version=${activeVersionId}`}><Download size={15} />Export version</a> : <button disabled title="Select a published dataset version before exporting"><Download size={15} />Export unavailable</button>}
-    {!activeDraft && activeVersion?.status === "published" && <a className="button vela-button vela-button-primary" href={`#/training-new?dataset=${id}&version=${activeVersionId}`}><Sparkles size={15} />Start training</a>}
+    {activeVersionId && !activeDraft ? <a className="button vela-button" href={`#/transfers${routeQuery({ mode: "export", dataset_version: activeVersionId, project: data?.project_id })}`}><Download size={15} />Export version</a> : <button disabled title="Select a published dataset version before exporting"><Download size={15} />Export unavailable</button>}
+    {!activeDraft && activeVersion?.status === "published" && <a className="button vela-button vela-button-primary" href={`#/training-new${routeQuery({ dataset: id, version: activeVersionId, project: data?.project_id })}`}><Sparkles size={15} />Start training</a>}
     {!activeDraft && !draft && <button className="vela-button" onClick={() => void createDraft()} disabled={!activeVersionId || busy === "draft"} title={!activeVersionId ? "Import a dataset version before editing captions" : undefined}><Plus size={15} />{busy === "draft" ? "Creating..." : "Clone as new version"}</button>}
     {!activeDraft && draft && <button className="vela-button" onClick={() => { setSelectedVersionId(str(draft.base_version_id)); setViewingDraft(true); setSelected([]); setPreview(null); }}><Plus size={15} />Return to working draft</button>}
   </>}>
@@ -643,7 +644,7 @@ export function DatasetScreen({ id }: { id: string }) {
         </div>)}</div>}
       </div>}
     </Panel>
-    {rows(data?.training_runs).length > 0 && <Panel title="Training runs using this dataset"><DataTable rows={rows(data?.training_runs)} columns={[["name", "Run"], ["status", "Status"], ["dataset_version_id", "Dataset version"]]} onRow={row => { location.hash = `run/${idOf(row)}`; }} /></Panel>}
+    {rows(data?.training_runs).length > 0 && <Panel title="Training runs using this dataset"><DataTable rows={rows(data?.training_runs)} columns={[["name", "Run"], ["status", "Status"], ["dataset_version_id", "Dataset version"]]} onRow={row => { location.hash = `run/${idOf(row)}${routeQuery({ project: data?.project_id })}`; }} /></Panel>}
 
     {activeDraft && <Panel title="Batch caption operations">
       <div className="selection-toolbar">
@@ -689,7 +690,7 @@ export function DatasetScreen({ id }: { id: string }) {
           </Field>
         </div>
         <Notice error={captionCatalog.error} loading={captionCatalog.loading} empty={!captionCatalog.loading && !captionCatalog.error && captionModelOptions.length === 0} emptyText="No caption-capable models were returned." emptyHint="Save the provider and API key in Settings, then reload the model list." />
-        <div className="actions caption-catalog-actions"><button type="button" onClick={() => void captionCatalog.reload()} disabled={captionCatalog.loading}><RefreshCw size={14} />{captionCatalog.loading ? "Loading models…" : "Reload models"}</button><a className="button" href="#/settings"><Settings2 size={14} />Provider settings</a></div>
+        <div className="actions caption-catalog-actions"><button type="button" onClick={() => void captionCatalog.reload()} disabled={captionCatalog.loading}><RefreshCw size={14} />{captionCatalog.loading ? "Loading models…" : "Reload models"}</button><a className="button" href={`#/settings${routeQuery({})}`}><Settings2 size={14} />Provider settings</a></div>
         <Field label="Caption prompt" hint="Tell the model which visible details to include. JSON format additionally requires a JSON-only response."><textarea aria-label="Caption prompt" value={captionPrompt} onChange={event => setCaptionPrompt(event.target.value)} /></Field>
         <div className="form-grid">
           <Field label="Preset name" hint="Saving the same name replaces its prompt."><input aria-label="Caption preset name" value={captionPresetName} onChange={event => setCaptionPresetName(event.target.value)} placeholder="e.g. Visible scene" /></Field>
@@ -763,14 +764,15 @@ function CaptionItem({ item, datasetId, projectId, draftId, selected, onSelect, 
   const [error, setError] = useState("");
   const assetId = item.asset_revision_id ?? item.asset_id ?? item.id;
   const filename = str(item.filename ?? item.name, "Dataset image");
+  const imageHref = galleryOpenHref({ ...item, dataset_id: datasetId, project_id: projectId }, "dataset_image");
   useEffect(() => setCaption(captionPresentation(item, filename).rendered), [item.caption, item.caption_format, filename]);
   return <article className={`caption-item ${selected ? "selected" : ""}`}>
     <div className="caption-image">
       <label className="caption-select"><input type="checkbox" checked={selected} onChange={event => onSelect(event.target.checked)} aria-label={`Select ${filename}`} /></label>
-      <a href={galleryOpenHref({ ...item, dataset_id: datasetId, project_id: projectId }, "dataset_image")} title={`Open ${filename} in the image reviewer`}><AssetImage assetRevisionId={String(assetId)} alt={presentation.alt} loading="lazy" /><span>Open image</span></a>
+      <a href={imageHref} aria-label={`Open ${filename} in the image reviewer`} title={`Open ${filename} in the image reviewer`}><AssetImage assetRevisionId={String(assetId)} alt={presentation.alt} loading="lazy" /></a>
     </div>
     <div className="caption-copy">
-      <div className="caption-heading"><strong>{filename}</strong><Status value={presentation.format.toUpperCase()} /></div>
+      <div className="caption-heading"><strong>{filename}</strong><span className="caption-heading-actions"><a className="caption-open-link" href={imageHref} aria-label={`Open ${filename} in the image reviewer`}>Open image</a><Status value={presentation.format.toUpperCase()} /></span></div>
       {presentation.format === "json" && !draftId
         ? <pre className="caption-json" aria-label={`JSON caption for ${filename}`}>{presentation.rendered}</pre>
         : <textarea className={presentation.format === "json" ? "caption-json-editor" : undefined} aria-label={`${presentation.format === "json" ? "JSON caption" : "Caption"} for ${filename}`} value={caption} readOnly={!draftId} title={!draftId ? "Create a new version to edit this caption" : undefined} onChange={event => setCaption(event.target.value)} />}
@@ -799,7 +801,7 @@ export function RunsScreen({ projectId = "" }: { projectId?: string }) {
   return <Page title="Training runs" subtitle="Imported trainer output, checkpoints, samples, and normalized configuration">
     <Panel title="Run registry">
       <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data.length} />
-      {!!data.length && <DataTable rows={data} columns={[["name", "Run"], ["project_name", "Project"], ["trainer", "Trainer"], ["base_model", "Base model"], ["status", "Status"], ["checkpoint_count", "Checkpoints"]]} onRow={row => { location.hash = `run/${idOf(row)}`; }} />}
+      {!!data.length && <DataTable rows={data} columns={[["name", "Run"], ["project_name", "Project"], ["trainer", "Trainer"], ["base_model", "Base model"], ["status", "Status"], ["checkpoint_count", "Checkpoints"]]} onRow={row => { location.hash = `run/${idOf(row)}${routeQuery({ project: projectId })}`; }} />}
     </Panel>
   </Page>;
 }
@@ -928,11 +930,11 @@ export function RunScreen({ id }: { id: string }) {
   const lastEventText = Number.isNaN(lastEventDate.valueOf()) ? "Unavailable" : lastEventDate.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
   const latestLossValue = str(latestLoss?.value_text ?? latestLoss?.value ?? metrics.data?.final_value, "Unavailable");
   if (!run.data && run.loading) return <Page title="Training run" subtitle="Loading imported run details"><section aria-busy="true"><Notice loading /></section></Page>;
-  if (!run.data && run.error) return <Page title="Run unavailable" subtitle={`Run ${id}`}><Notice error={run.error} /><div className="actions"><a className="button vela-button" href="#/runs">Back to runs</a><button onClick={() => void run.reload()}>Retry</button></div></Page>;
+  if (!run.data && run.error) return <Page title="Run unavailable" subtitle={`Run ${id}`}><Notice error={run.error} /><div className="actions"><a className="button vela-button" href={`#/runs${routeQuery({ project: runView.project_id })}`}>Back to runs</a><button onClick={() => void run.reload()}>Retry</button></div></Page>;
   return <Page title={str(runView.name, isMerge ? "Checkpoint merge" : "Training run")} subtitle={isMerge ? `${str(runView.base_model, "Unknown base")} · ${str(mergeSummary.notation, str(mergeSummary.operator, "Merge recipe"))}` : `${str(runView.base_model, "Unknown base")} · ${str(runView.dataset_version_name, "No dataset")} · ${str(runView.trainer, "Unknown trainer")}`} actions={<>
-    {!isMerge && (datasetId ? <a className="button vela-button" href={`#/dataset/${datasetId}`}><Database size={15} />Dataset</a> : <button disabled title={datasetError || (datasetLoading ? "Resolving the linked dataset version" : "This run does not reference an available dataset version")}><Database size={15} />{datasetLoading ? "Finding dataset..." : "Dataset unavailable"}</button>)}
-    {!isMerge && <a className="button vela-button" href={`#/samples/${id}?return=${encodeURIComponent(`run/${id}`)}`}><FileImage size={15} />Samples</a>}
-    {runView.project_id ? <a className="button vela-button" href={`#/transfers?mode=export&project=${str(runView.project_id)}`}><Download size={15} />Export project</a> : <button disabled title="This run is not attached to an exportable project"><Download size={15} />Export unavailable</button>}
+    {!isMerge && (datasetId ? <a className="button vela-button" href={`#/dataset/${datasetId}${routeQuery({ project: runView.project_id })}`}><Database size={15} />Dataset</a> : <button disabled title={datasetError || (datasetLoading ? "Resolving the linked dataset version" : "This run does not reference an available dataset version")}><Database size={15} />{datasetLoading ? "Finding dataset..." : "Dataset unavailable"}</button>)}
+    {!isMerge && <a className="button vela-button" href={`#/samples/${id}${routeQuery({ step: undefined, return: `run/${id}`, project: runView.project_id })}`}><FileImage size={15} />Samples</a>}
+    {runView.project_id ? <a className="button vela-button" href={`#/transfers${routeQuery({ mode: "export", project: runView.project_id })}`}><Download size={15} />Export project</a> : <button disabled title="This run is not attached to an exportable project"><Download size={15} />Export unavailable</button>}
     {!isMerge && <button className="vela-button vela-button-primary" onClick={() => void refreshRun()} disabled={busy === "refresh"}><RefreshCw size={15} />{busy === "refresh" ? "Refreshing..." : "Refresh import"}</button>}
   </>}>
     <ActionMessage message={message} error={actionError} />
@@ -979,28 +981,28 @@ export function RunScreen({ id }: { id: string }) {
         const readiness = selectedCheckpoint.readiness_summary && typeof selectedCheckpoint.readiness_summary === "object" ? selectedCheckpoint.readiness_summary as Row : {};
         const local = readiness.local && typeof readiness.local === "object" ? readiness.local as Row : {};
         const registered = selectedCheckpoint.registered_version && typeof selectedCheckpoint.registered_version === "object" ? selectedCheckpoint.registered_version as Row : null;
-        return <div className="checkpoint-detail"><dl className="details"><dt>Artifact file</dt><dd>{str(selectedCheckpoint.filename ?? selectedCheckpoint.name)}</dd><dt>Size</dt><dd>{formatBytes(selectedCheckpoint.size)}</dd><dt>Local readiness</dt><dd><Status value={local.status ?? selectedCheckpoint.state} /> {str(local.reason)}</dd><dt>Registered version</dt><dd>{registered ? <a href={`#/model-version/${idOf(registered)}`}>{str(registered.name)}</a> : "Not registered"}</dd></dl><div className="actions"><a className="button vela-button" href={`#/checkpoint/${idOf(selectedCheckpoint)}`}><ExternalLink size={14} />Open checkpoint artifact</a>{registered && <a className="button vela-button" href={`#/model-version/${idOf(registered)}`}>Open registered version</a>}</div></div>;
+        return <div className="checkpoint-detail"><dl className="details"><dt>Artifact file</dt><dd>{str(selectedCheckpoint.filename ?? selectedCheckpoint.name)}</dd><dt>Size</dt><dd>{formatBytes(selectedCheckpoint.size)}</dd><dt>Local readiness</dt><dd><Status value={local.status ?? selectedCheckpoint.state} /> {str(local.reason)}</dd><dt>Registered version</dt><dd>{registered ? <a href={`#/model-version/${idOf(registered)}${routeQuery({ project: runView.project_id })}`}>{str(registered.name)}</a> : "Not registered"}</dd></dl><div className="actions"><a className="button vela-button" href={`#/checkpoint/${idOf(selectedCheckpoint)}${routeQuery({ project: runView.project_id })}`}><ExternalLink size={14} />Open checkpoint artifact</a>{registered && <a className="button vela-button" href={`#/model-version/${idOf(registered)}${routeQuery({ project: runView.project_id })}`}>Open registered version</a>}</div></div>;
       })()}
     </Panel>
 
     {!isMerge && <Panel title="Samples by checkpoint">
       <Notice error={samples.error} loading={samples.loading} empty={!samples.loading && !sampleRows.length} />
       {!samples.loading && !sampleRows.length && <div className="vela-notice" role="status"><strong>No sample images were archived</strong><span>The run can still contain valid checkpoints and metrics; its source prefix contains no sample-image artifacts to import.</span></div>}
-      {!!sampleSteps.length && <div className="sample-step-strip">{sampleSteps.map(step => <a href={`#/samples/${id}?step=${encodeURIComponent(step)}&return=${encodeURIComponent(`run/${id}`)}`} key={step}><strong>Step {step}</strong><span>{sampleRows.filter(sample => str(sample.training_step, "unassigned") === step).length} images</span></a>)}</div>}
+      {!!sampleSteps.length && <div className="sample-step-strip">{sampleSteps.map(step => <a href={`#/samples/${id}${routeQuery({ step, return: `run/${id}`, project: runView.project_id })}`} key={step}><strong>Step {step}</strong><span>{sampleRows.filter(sample => str(sample.training_step, "unassigned") === step).length} images</span></a>)}</div>}
       {!!sampleRows.length && <AssetGrid assets={sampleRows.slice(0, 12)} />}
     </Panel>}
 
     {!isMerge && <div className="dashboard-lower vela-dashboard-grid">
-      <Panel title="Normalized configuration"><Notice error={config.error} loading={config.loading} />{config.data && <ConfigDetails value={(config.data.normalized ?? config.data.normalized_config ?? config.data) as Row} datasetId={datasetId} />}</Panel>
+      <Panel title="Normalized configuration"><Notice error={config.error} loading={config.loading} />{config.data && <ConfigDetails value={(config.data.normalized ?? config.data.normalized_config ?? config.data) as Row} datasetId={datasetId} projectId={runProjectId} />}</Panel>
       <Panel title="Training config"><Notice error={config.error} loading={config.loading} />{!config.loading && <details className="config-disclosure"><summary>Show raw training configuration</summary><Json value={config.data?.raw ?? config.data?.raw_config ?? run.data?.raw_config ?? (config.data?.normalized as Row | undefined)?.training_config ?? { state: "Not imported" }} /></details>}</Panel>
     </div>}
     <Panel title="Typed lineage"><Notice error={lineage.error} loading={lineage.loading} empty={!lineage.loading && !rows(lineage.data).length} emptyText="No lineage indexed" emptyHint="No persisted or source-derived relationships were found for this run." />{!!rows(lineage.data).length && <LineageList value={lineage.data} />}</Panel>
   </Page>;
 }
 
-function ConfigDetails({ value, datasetId }: { value: Row; datasetId?: string }) {
+function ConfigDetails({ value, datasetId, projectId }: { value: Row; datasetId?: string; projectId?: string }) {
   const entries = Object.entries(value).filter(([key]) => key !== "training_config");
-  return <><dl className="details">{entries.slice(0, 14).map(([key, item]) => <Fragment key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{key === "learning_rate" ? scientificNotation(item) : key === "dataset_sources" && datasetId ? <a href={`#/dataset/${datasetId}`}>{Array.isArray(item) ? item.map(source => String(source).split("/").filter(Boolean).at(-1)).join(", ") : "Open dataset"}</a> : typeof item === "object" ? JSON.stringify(item) : str(item)}</dd></Fragment>)}</dl>{value.training_config && <details className="config-disclosure"><summary>Show complete training config</summary><Json value={value.training_config} /></details>}</>;
+  return <><dl className="details">{entries.slice(0, 14).map(([key, item]) => <Fragment key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{key === "learning_rate" ? scientificNotation(item) : key === "dataset_sources" && datasetId ? <a href={`#/dataset/${datasetId}${routeQuery({ project: projectId })}`}>{Array.isArray(item) ? item.map(source => String(source).split("/").filter(Boolean).at(-1)).join(", ") : "Open dataset"}</a> : typeof item === "object" ? JSON.stringify(item) : str(item)}</dd></Fragment>)}</dl>{value.training_config && <details className="config-disclosure"><summary>Show complete training config</summary><Json value={value.training_config} /></details>}</>;
 }
 
 export function CheckpointScreen({ id }: { id: string }) {
@@ -1034,17 +1036,17 @@ export function CheckpointScreen({ id }: { id: string }) {
   }
 
   if (!resource.data && resource.loading) return <Page title="Checkpoint" subtitle="Loading checkpoint artifact"><section aria-busy="true"><Notice loading /></section></Page>;
-  if (!resource.data && resource.error) return <Page title="Checkpoint unavailable" subtitle={`Checkpoint ${id}`}><Notice error={resource.error} /><div className="actions"><a className="button vela-button" href="#/runs">Back to runs</a><button onClick={() => void resource.reload()}>Retry</button></div></Page>;
+  if (!resource.data && resource.error) return <Page title="Checkpoint unavailable" subtitle={`Checkpoint ${id}`}><Notice error={resource.error} /><div className="actions"><a className="button vela-button" href={`#/runs${routeQuery({ project: checkpointProjectId })}`}>Back to runs</a><button onClick={() => void resource.reload()}>Retry</button></div></Page>;
 
   return <Page title={`Checkpoint step ${str(resource.data?.step, "")}`} subtitle={`${str(resource.data?.run_name, "Training run")} · Run artifact`} actions={canHydrate
     ? <button className="vela-button vela-button-primary" onClick={() => void hydrate()} disabled={hydrating || !hydrationReviewed} title={!hydrationReviewed ? "Review the transfer consequence below before hydrating" : undefined}><Download size={15} />{hydrating ? "Queuing..." : "Hydrate locally"}</button>
     : <span className="checkpoint-readiness-static" role="status"><Status value={localReadiness.status ?? resource.data?.state} />{str(localReadiness.reason)}</span>}>
     <ActionMessage message={message} error={actionError} />
-    <Panel title="Run checkpoint artifact"><dl className="details"><dt>Filename</dt><dd>{str(artifact.filename, "Missing asset record")}</dd><dt>Checkpoint ID</dt><dd>{str(artifact.checkpoint_id)}</dd><dt>Asset ID</dt><dd>{str(artifact.asset_id)}</dd><dt>Revision</dt><dd>{str(artifact.checkpoint_revision_id, "No materialized revision")}</dd><dt>Training step</dt><dd>{str(artifact.step)}</dd><dt>Artifact state</dt><dd><Status value={artifact.state} /></dd><dt>Local readiness</dt><dd><Status value={localReadiness.status ?? "unknown"} /> {str(localReadiness.reason)}</dd><dt>Size</dt><dd>{formatBytes(remoteReadiness.size ?? storage[0]?.size)}</dd><dt>Storage</dt><dd>{storage.length ? storage.map(location => `${str(location.provider)} · ${str(location.hydration_state)} · ${str(location.object_key ?? location.relative_path ?? location.uri)}`).join("; ") : "No storage location recorded"}</dd><dt>SHA-256</dt><dd>{str(artifact.sha256, "Not recorded")}</dd><dt>Source run</dt><dd>{resource.data?.run_id ? <a href={`#/run/${str(resource.data.run_id)}`}>{str(resource.data.run_name, "Open run")}</a> : "Unavailable"}</dd><dt>Dataset version</dt><dd>{dataset?.dataset_id ? <a href={`#/dataset/${str(dataset.dataset_id)}`}>{str(dataset.dataset_name)} · {str(dataset.dataset_version_name)}</a> : "Not linked"}</dd></dl><details className="config-disclosure"><summary>Artifact metadata</summary><Json value={artifact.metadata ?? {}} /></details></Panel>
+    <Panel title="Run checkpoint artifact"><dl className="details"><dt>Filename</dt><dd>{str(artifact.filename, "Missing asset record")}</dd><dt>Checkpoint ID</dt><dd>{str(artifact.checkpoint_id)}</dd><dt>Asset ID</dt><dd>{str(artifact.asset_id)}</dd><dt>Revision</dt><dd>{str(artifact.checkpoint_revision_id, "No materialized revision")}</dd><dt>Training step</dt><dd>{str(artifact.step)}</dd><dt>Artifact state</dt><dd><Status value={artifact.state} /></dd><dt>Local readiness</dt><dd><Status value={localReadiness.status ?? "unknown"} /> {str(localReadiness.reason)}</dd><dt>Size</dt><dd>{formatBytes(remoteReadiness.size ?? storage[0]?.size)}</dd><dt>Storage</dt><dd>{storage.length ? storage.map(location => `${str(location.provider)} · ${str(location.hydration_state)} · ${str(location.object_key ?? location.relative_path ?? location.uri)}`).join("; ") : "No storage location recorded"}</dd><dt>SHA-256</dt><dd>{str(artifact.sha256, "Not recorded")}</dd><dt>Source run</dt><dd>{resource.data?.run_id ? <a href={`#/run/${str(resource.data.run_id)}${routeQuery({ project: checkpointProjectId })}`}>{str(resource.data.run_name, "Open run")}</a> : "Unavailable"}</dd><dt>Dataset version</dt><dd>{dataset?.dataset_id ? <a href={`#/dataset/${str(dataset.dataset_id)}${routeQuery({ project: checkpointProjectId })}`}>{str(dataset.dataset_name)} · {str(dataset.dataset_version_name)}</a> : "Not linked"}</dd></dl><details className="config-disclosure"><summary>Artifact metadata</summary><Json value={artifact.metadata ?? {}} /></details></Panel>
     {canHydrate && <section className="checkpoint-hydration-review" aria-labelledby="checkpoint-hydration-heading"><div><h2 id="checkpoint-hydration-heading">Hydration review</h2><p>Download {formatBytes(remoteReadiness.size ?? storage[0]?.size)} from {str(remoteReadiness.provider, "the recorded remote source")} into managed local storage. Existing source data is not deleted.</p></div><label><input type="checkbox" checked={hydrationReviewed} onChange={event => setHydrationReviewed(event.target.checked)} /> I reviewed the artifact size, source, and local-storage consequence.</label></section>}
-    {registeredVersion ? <Panel title="Registered model version"><p>This checkpoint artifact is already registered as one intentional reusable version.</p><dl className="details"><dt>Version</dt><dd><a href={`#/model-version/${idOf(registeredVersion)}`}>{str(registeredVersion.name)}</a></dd><dt>Model</dt><dd>{registeredVersion.model_id ? <a href={`#/model/${str(registeredVersion.model_id)}`}>{str(registeredVersion.model_name, "Open model")}</a> : str(registeredVersion.model_name)}</dd><dt>Lifecycle</dt><dd><Status value={registeredVersion.lifecycle_state} /></dd></dl><a className="button vela-button" href={`#/model-version/${idOf(registeredVersion)}`}>Open registered version</a></Panel> : <Panel title="Register model version">
+    {registeredVersion ? <Panel title="Registered model version"><p>This checkpoint artifact is already registered as one intentional reusable version.</p><dl className="details"><dt>Version</dt><dd><a href={`#/model-version/${idOf(registeredVersion)}${routeQuery({ project: checkpointProjectId })}`}>{str(registeredVersion.name)}</a></dd><dt>Model</dt><dd>{registeredVersion.model_id ? <a href={`#/model/${str(registeredVersion.model_id)}${routeQuery({ project: checkpointProjectId })}`}>{str(registeredVersion.model_name, "Open model")}</a> : str(registeredVersion.model_name)}</dd><dt>Lifecycle</dt><dd><Status value={registeredVersion.lifecycle_state} /></dd></dl><a className="button vela-button" href={`#/model-version/${idOf(registeredVersion)}${routeQuery({ project: checkpointProjectId })}`}>Open registered version</a></Panel> : <Panel title="Register model version">
       <Notice error={models.error} loading={models.loading} />
-      {!models.loading && !modelRows.length && <div className="vela-empty"><span>No compatible model</span><small>Create a model in this checkpoint's project before registering a version.</small><a className="button vela-button" href={`#/models${query({ project: checkpointProjectId })}`}><Plus size={14} />Create model</a></div>}
+      {!models.loading && !modelRows.length && <div className="vela-empty"><span>No compatible model</span><small>Create a model in this checkpoint's project before registering a version.</small><a className="button vela-button" href={`#/models${routeQuery({ project: checkpointProjectId })}`}><Plus size={14} />Create model</a></div>}
       {!!modelRows.length && <Form submit="Register version" onSubmit={async form => {
         if (form.get("registration_review") !== "on") throw new Error("Review and acknowledge the registration consequence.");
         await api("/api/model-versions", jsonBody({
@@ -1077,7 +1079,7 @@ export function ModelsScreen({ projectId = "" }: { projectId?: string }) {
         await resource.reload();
       }}><Field label="Project"><Dropdown aria-label="Project" name="project_id" required defaultValue={projectId} options={[{ value: "", label: "Select..." }, ...projectRows.map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} /></Field><Field label="Name"><input name="name" required placeholder="Model name" /></Field><Field label="Description"><textarea name="description" placeholder="Subject, style, and intended use" /></Field></Form>}
     </Panel>
-    <Panel title="Model registry"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data.length} />{!!data.length && <DataTable rows={data} columns={[["name", "Name"], ["project_name", "Project"], ["base_model", "Base model"], ["latest_version", "Latest version"], ["lifecycle_state", "State"]]} onRow={row => { location.hash = `model/${idOf(row)}`; }} />}</Panel>
+    <Panel title="Model registry"><Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !data.length} />{!!data.length && <DataTable rows={data} columns={[["name", "Name"], ["project_name", "Project"], ["base_model", "Base model"], ["latest_version", "Latest version"], ["lifecycle_state", "State"]]} onRow={row => { location.hash = `model/${idOf(row)}${routeQuery({ project: projectId })}`; }} />}</Panel>
   </Page>;
 }
 
@@ -1097,46 +1099,46 @@ export function ModelScreen({ id }: { id: string }) {
 
 
   if (!resource.data && resource.loading) return <Page title="Model" subtitle="Loading registered model details"><section aria-busy="true"><Notice loading /></section></Page>;
-  if (!resource.data && resource.error) return <Page title="Model unavailable" subtitle={`Model ${id}`}><Notice error={resource.error} /><div className="actions"><a className="button vela-button" href="#/models">Back to models</a><button onClick={() => void resource.reload()}>Retry</button></div></Page>;
+  if (!resource.data && resource.error) return <Page title="Model unavailable" subtitle={`Model ${id}`}><Notice error={resource.error} /><div className="actions"><a className="button vela-button" href={`#/models${routeQuery({ project: projectId })}`}>Back to models</a><button onClick={() => void resource.reload()}>Retry</button></div></Page>;
   const readiness = latestVersion.readiness_summary && typeof latestVersion.readiness_summary === "object" ? latestVersion.readiness_summary as Row : {};
   const falReadiness = readiness.fal && typeof readiness.fal === "object" ? readiness.fal as Row : {};
   const readyForGeneration = Boolean(falReadiness.available);
   return <Page title={str(resource.data?.name, "Model")} subtitle={`${str(latestVersion.base_model, "Base model unknown")} · ${str(project.data?.title ?? project.data?.name, "Project")}`} actions={<>
-    {projectId && readyForGeneration ? <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "model", projectId, modelId: id, modelVersionId: idOf(latestVersion) })}><ImagePlus size={15} /> Generate</a><a className="button vela-button" href={`#/grids?project=${projectId}&model=${id}&model_version=${idOf(latestVersion)}`}><Grid3X3 size={15} /> Grid</a></> : <button disabled title={projectId ? "Register this version with a compatible FAL endpoint before generation" : "The model is not attached to a project"}>Generation unavailable</button>}
-    {idOf(latestVersion) ? <a className="button vela-button" href={`#/transfers?mode=export&model_version=${idOf(latestVersion)}`}><Download size={15} />Export version</a> : <button disabled title="Register a model version before exporting"><Download size={15} />Export unavailable</button>}
+    {projectId && readyForGeneration ? <><a className="button vela-button vela-button-primary" href={generatorHref("image", { kind: "model", projectId, modelId: id, modelVersionId: idOf(latestVersion) })}><ImagePlus size={15} /> Generate</a><a className="button vela-button" href={`#/grids${routeQuery({ project: projectId, model: id, model_version: idOf(latestVersion) })}`}><Grid3X3 size={15} /> Grid</a></> : <button disabled title={projectId ? "Register this version with a compatible FAL endpoint before generation" : "The model is not attached to a project"}>Generation unavailable</button>}
+    {idOf(latestVersion) ? <a className="button vela-button" href={`#/transfers${routeQuery({ mode: "export", model_version: idOf(latestVersion), project: projectId })}`}><Download size={15} />Export version</a> : <button disabled title="Register a model version before exporting"><Download size={15} />Export unavailable</button>}
   </>}>
     <Notice error={resource.error} loading={resource.loading} />
     <ObjectImageStrip assets={rows(preview.data)} label="Latest model outputs" />
     {resource.data && <Panel title="Artifact contract"><dl className="details"><dt>Type</dt><dd>{str(latestVersion.artifact_type, "lora").replaceAll("_", " ")}</dd><dt>Format</dt><dd>{str(latestVersion.artifact_format, "Not recorded")}</dd><dt>Method</dt><dd>{str(latestVersion.method, "Not recorded")}</dd></dl></Panel>}
-    {resource.data && <Panel title="Model record"><Notice error={project.error} loading={project.loading} /><dl className="details"><dt>Description</dt><dd>{str(resource.data.description, "No description")}</dd><dt>Latest trigger words</dt><dd>{Array.isArray(latestVersion.trigger_words) && latestVersion.trigger_words.length ? latestVersion.trigger_words.join(", ") : "None registered"}</dd><dt>Base model</dt><dd>{str(latestVersion.base_model, "Not registered")}</dd><dt>Project</dt><dd>{projectId ? <a href={`#/project/${projectId}`}>{str(project.data?.title ?? project.data?.name, "Open project")}</a> : "Not assigned"}</dd><dt>Versions</dt><dd>{versions.length}</dd></dl></Panel>}
+    {resource.data && <Panel title="Model record"><Notice error={project.error} loading={project.loading} /><dl className="details"><dt>Description</dt><dd>{str(resource.data.description, "No description")}</dd><dt>Latest trigger words</dt><dd>{Array.isArray(latestVersion.trigger_words) && latestVersion.trigger_words.length ? latestVersion.trigger_words.join(", ") : "None registered"}</dd><dt>Base model</dt><dd>{str(latestVersion.base_model, "Not registered")}</dd><dt>Project</dt><dd>{projectId ? <a href={`#/project/${projectId}${routeQuery({})}`}>{str(project.data?.title ?? project.data?.name, "Open project")}</a> : "Not assigned"}</dd><dt>Versions</dt><dd>{versions.length}</dd></dl></Panel>}
 
     <Panel title="Training run data">
       <Notice error={runs.error} loading={runs.loading} empty={!runs.loading && !relatedRuns.length} />
-      {relatedRuns.map((run, index) => <ModelTrainingRun key={idOf(run)} run={run} modelId={id} track={modelTrack} initiallyExpanded={index === 0} />)}
+      {relatedRuns.map((run, index) => <ModelTrainingRun key={idOf(run)} run={run} projectId={projectId} modelId={id} track={modelTrack} initiallyExpanded={index === 0} />)}
     </Panel>
 
     <Panel title="Eval Runs">
       <Notice error={evals.error} loading={evals.loading} empty={!evals.loading && !rows(evals.data).length} />
-      {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => <a href={`#/eval/${idOf(evaluation)}`} key={idOf(evaluation)}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={String(output.asset_revision_id ?? output.asset_id)} alt="Eval output" />)}</div><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.plan_digest ?? evaluation.digest, "Immutable plan")} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a>)}</div>}
+      {!!rows(evals.data).length && <div className="eval-run-strip">{rows(evals.data).map(evaluation => { const evalId = idOf(evaluation); const evalHref = `#/eval/${evalId}${routeQuery({ project: projectId })}`; return <article className="eval-run-card" key={evalId}><a className="eval-run-preview" href={galleryOpenHref({ ...rows(evaluation.outputs)[0], project_id: projectId, eval_run_id: evalId }, "eval_output")} aria-label={`Open ${str(evaluation.name, "eval output")} in gallery`}><div className="eval-thumbs">{rows(evaluation.outputs).slice(0, 4).map(output => <AssetImage key={idOf(output)} assetRevisionId={String(output.asset_revision_id ?? output.asset_id)} alt="Eval output" />)}</div></a><a className="eval-run-info" href={evalHref}><strong>{str(evaluation.name, "Eval run")}</strong><span>{str(evaluation.plan_digest ?? evaluation.digest, "Immutable plan")} · {str(evaluation.output_count, "0")} outputs</span><Status value={evaluation.status} /></a></article>; })}</div>}
     </Panel>
 
     <Panel title="Registered model versions">
       <Notice loading={resource.loading} empty={!resource.loading && !versions.length} emptyText="No registered versions" emptyHint="Open a run checkpoint artifact to intentionally register a reusable model version." />
-      {!!versions.length && <ModelVersionTable versions={versions} />}
+      {!!versions.length && <ModelVersionTable versions={versions} projectId={projectId} />}
     </Panel>
   </Page>;
 }
 
-function ModelVersionTable({ versions }: { versions: Row[] }) {
+function ModelVersionTable({ versions, projectId }: { versions: Row[]; projectId: string }) {
   return <>
     <div className="model-version-table-wrap" role="region" aria-label="Registered model versions" tabIndex={0}><table className="vela-table model-version-table"><thead><tr><th>Registered version</th><th>Type</th><th>Checkpoint artifact</th><th>Step</th><th>Lifecycle</th><th>Local readiness</th><th>FAL readiness</th></tr></thead><tbody>{versions.map(version => {
       const readiness = version.readiness_summary && typeof version.readiness_summary === "object" ? version.readiness_summary as Row : {};
       const local = readiness.local && typeof readiness.local === "object" ? readiness.local as Row : {};
       const fal = readiness.fal && typeof readiness.fal === "object" ? readiness.fal as Row : {};
       return <tr key={idOf(version)}>
-        <td><a className="model-version-link" href={`#/model-version/${idOf(version)}`}><strong>{str(version.name, "Open version")}</strong><small>{idOf(version)}</small></a></td>
+        <td><a className="model-version-link" href={`#/model-version/${idOf(version)}${routeQuery({ project: projectId })}`}><strong>{str(version.name, "Open version")}</strong><small>{idOf(version)}</small></a></td>
         <td>{str(version.artifact_type, "lora").replaceAll("_", " ")}</td>
-        <td>{version.checkpoint_id ? <a href={`#/checkpoint/${str(version.checkpoint_id)}`}>{str(version.filename, "Open checkpoint")}</a> : str(version.filename, "Unavailable")}</td>
+        <td>{version.checkpoint_id ? <a href={`#/checkpoint/${str(version.checkpoint_id)}${routeQuery({ project: projectId })}`}>{str(version.filename, "Open checkpoint")}</a> : str(version.filename, "Unavailable")}</td>
         <td>{str(version.checkpoint_step, "Not recorded")}</td>
         <td><Status value={version.lifecycle_state} /></td>
         <td><Status value={local.status ?? "unknown"} /></td>
@@ -1147,7 +1149,7 @@ function ModelVersionTable({ versions }: { versions: Row[] }) {
       const readiness = version.readiness_summary && typeof version.readiness_summary === "object" ? version.readiness_summary as Row : {};
       const local = readiness.local && typeof readiness.local === "object" ? readiness.local as Row : {};
       const fal = readiness.fal && typeof readiness.fal === "object" ? readiness.fal as Row : {};
-      return <a href={`#/model-version/${idOf(version)}`} key={idOf(version)}><strong>{str(version.name, "Open version")}</strong><small>{str(version.artifact_type, "lora").replaceAll("_", " ")} · {str(version.filename, "Checkpoint unavailable")} · Step {str(version.checkpoint_step, "not recorded")}</small><span><Status value={version.lifecycle_state} /><Status value={local.status ?? "unknown"} /><Status value={fal.status ?? "not registered"} /></span></a>;
+      return <a href={`#/model-version/${idOf(version)}${routeQuery({ project: projectId })}`} key={idOf(version)}><strong>{str(version.name, "Open version")}</strong><small>{str(version.artifact_type, "lora").replaceAll("_", " ")} · {str(version.filename, "Checkpoint unavailable")} · Step {str(version.checkpoint_step, "not recorded")}</small><span><Status value={version.lifecycle_state} /><Status value={local.status ?? "unknown"} /><Status value={fal.status ?? "not registered"} /></span></a>;
     })}</div>
   </>;
 }
@@ -1194,7 +1196,7 @@ function MergeFlowChart({ summary }: { summary: Row }) {
 }
 
 
-function ModelTrainingRun({ run, modelId, track, initiallyExpanded }: { run: Row; modelId: string; track: string; initiallyExpanded: boolean }) {
+function ModelTrainingRun({ run, projectId, modelId, track, initiallyExpanded }: { run: Row; projectId: string; modelId: string; track: string; initiallyExpanded: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const runId = idOf(run);
   const isMerge = str(run.run_kind) === "checkpoint_merge";
@@ -1208,11 +1210,11 @@ function ModelTrainingRun({ run, modelId, track, initiallyExpanded }: { run: Row
     <div className="training-run-body">
       {isMerge ? <>
         <dl className="details"><dt>Kind</dt><dd>Checkpoint merge</dd><dt>Operator</dt><dd>{str(mergeSummary.operator).replaceAll("_", " ")}</dd><dt>Inputs</dt><dd>{str(rows(mergeSummary.inputs).length, "0")}</dd><dt>Recipe digest</dt><dd><code>{str(mergeSummary.recipe_digest).slice(0, 16)}</code></dd></dl>
-        <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open merge run</a>{str((mergeSummary.output as Row | undefined)?.model_version_id) && <a className="button vela-button" href={`#/model-version/${str((mergeSummary.output as Row).model_version_id)}`}><ExternalLink size={14} />Open output version</a>}</div>
+        <div className="actions"><a className="button vela-button" href={`#/run/${runId}${routeQuery({ project: projectId })}`}><ExternalLink size={14} />Open merge run</a>{str((mergeSummary.output as Row | undefined)?.model_version_id) && <a className="button vela-button" href={`#/model-version/${str((mergeSummary.output as Row).model_version_id)}${routeQuery({ project: projectId })}`}><ExternalLink size={14} />Open output version</a>}</div>
         {expanded && <section className="vela-section"><div className="vela-section-heading"><h3>Merge recipe and flow</h3></div><MergeFlowChart summary={mergeSummary} /></section>}
       </> : <>
         <dl className="details"><dt>Base</dt><dd>{str(run.base_model)}</dd><dt>Checkpoints</dt><dd>{str(run.checkpoint_count, "0")}</dd><dt>Samples</dt><dd>{str(run.sample_count, "0")}</dd><dt>Dataset</dt><dd>{str(run.dataset_version_name, "Not linked")}</dd></dl>
-        <div className="actions"><a className="button vela-button" href={`#/run/${runId}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}?return=${encodeURIComponent(`model/${modelId}`)}`}><FileImage size={14} />View all samples</a></div>
+        <div className="actions"><a className="button vela-button" href={`#/run/${runId}${routeQuery({ project: projectId })}`}><ExternalLink size={14} />Open run and loss graph</a><a className="button vela-button" href={`#/samples/${runId}${routeQuery({ return: `model/${modelId}`, project: projectId })}`}><FileImage size={14} />View all samples</a></div>
         {expanded && <>
           <div className="model-training-visuals">
             <section className="vela-section model-training-chart"><div className="vela-section-heading"><h3>{track ? `${track[0].toUpperCase()}${track.slice(1)} loss` : "Loss graph"}</h3></div><Notice error={metrics.error} loading={metrics.loading} /><LossGraph points={metrics.data?.points} /></section>
@@ -1297,10 +1299,7 @@ function galleryFiltersFromParams(params: URLSearchParams, projectId: string, de
   return filters;
 }
 
-export function safeReturnTarget(value: string | null) {
-  if (!value || value.startsWith("/") || value.startsWith("#") || /^[a-z]+:/i.test(value)) return "";
-  return value;
-}
+export { galleryOpenHref, safeReturnTarget } from "./gallery-routing";
 export function metadataWithoutImageFilenames(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(metadataWithoutImageFilenames);
   if (!value || typeof value !== "object") return value;
@@ -1312,7 +1311,7 @@ export function metadataWithoutImageFilenames(value: unknown): unknown {
 
 
 export function galleryHash(filters: GalleryFilters, page: number, pageSize: number, assetId = "", returnTarget = "") {
-  return `#/gallery${query({
+  return `#/gallery${routeQuery({
     project: filters.project_id,
     model: filters.model_id,
     dataset: filters.dataset_id,
@@ -1331,13 +1330,6 @@ export function galleryHash(filters: GalleryFilters, page: number, pageSize: num
   })}`;
 }
 
-export function galleryOpenHref(asset: Row, category = "") {
-  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata as Row : {};
-  const origin = str(asset.origin_type ?? metadata.origin_type, "").toUpperCase();
-  const resolvedCategory = category || (origin === "EVAL" ? "eval_output" : origin === "SAMPLE" ? "sample" : origin === "DATASET" ? "dataset_image" : "");
-  const returnTarget = typeof location !== "undefined" ? safeReturnTarget(location.hash.replace(/^#\/?/, "")) : "";
-  return `#/gallery${query({ project: asset.project_id ?? metadata.project_id, dataset: asset.dataset_id ?? metadata.dataset_id, eval: asset.eval_run_id ?? metadata.eval_run_id, category: resolvedCategory, include_dataset_assets: resolvedCategory === "dataset_image" ? true : "", asset: asset.asset_revision_id ?? asset.asset_id ?? asset.id, return: returnTarget })}`;
-}
 
 export function isGalleryShortcutTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, .vela-dropdown, [contenteditable=true]"));
@@ -1387,7 +1379,7 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
   useEffect(() => { localStorage.setItem("titles.gallery.filters", JSON.stringify(filters)); }, [filters]);
   useEffect(() => { localStorage.setItem("titles.gallery.pageSize", String(pageSize)); }, [pageSize]);
   useEffect(() => { localStorage.setItem("titles.gallery.page", String(page)); }, [page]);
-  return <Page title="Gallery" subtitle="Training samples, grids, and generated assets; dataset members are opt-in" actions={<a className="button vela-button vela-button-primary" href="#/transfers?mode=import"><Upload size={15} />Import assets</a>}>
+  return <Page title="Gallery" subtitle="Training samples, grids, and generated assets; dataset members are opt-in" actions={<a className="button vela-button vela-button-primary" href={`#/transfers${routeQuery({ mode: "import", project: projectId })}`}><Upload size={15} />Import assets</a>}>
     <Panel title="Filters">
       <Notice error={projects.error} loading={projects.loading} />
       <div className="form-grid">
@@ -1475,17 +1467,41 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const prompt = str(metadata.prompt ?? metadata.caption, "");
   const promptPresentation = captionPresentation({ caption: prompt, caption_format: metadata.caption_format }, str(asset.data?.name, "Selected image"));
   const replay = generationReplayFromMetadata({ ...metadata, project_id: metadata.project_id ?? asset.data?.project_id });
+  const generationParameters = normalizedParametersFromMetadata(metadata);
+  const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object" ? metadata.provider_metadata as Row : {};
+  const providerResponse = providerMetadata.response && typeof providerMetadata.response === "object" ? providerMetadata.response as Row : {};
+  const imageSeed = generationParameters.seed ?? providerResponse.seed;
   const allImageMetadata = useMemo(() => metadataWithoutImageFilenames({ asset: asset.data, image: context.data?.image, metadata, storage: context.data?.storage }), [asset.data, context.data?.image, metadata, context.data?.storage]);
   return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby="image-review-title"><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a ref={closeButton} className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
-    <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></nav><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={promptPresentation.alt} /></div>{prompt && (promptPresentation.format === "json" ? <pre className="image-review-prompt caption-json">{promptPresentation.rendered}</pre> : <p className="image-review-prompt">{prompt}</p>)}
-      <div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div>
-      <aside id="storage_details" className="image-review-inspector"><h2 id="image-review-title">Image review <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{displayOriginType}</span></h2><Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} /><dl className="details image-primary-metadata">{hasTrainingMetadata ? <><dt>Model</dt><dd>{relationName("model")}</dd><dt>Model version</dt><dd>{relationName("model_version", str(metadata.model_version_name, "Unknown"))}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Step</dt><dd>{str(metadata.checkpoint_step, "Not recorded")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>LoRA scale</dt><dd>{loraScaleFromMetadata(metadata) ?? "Not recorded"}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></> : <><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></>}</dl>
-        {isMerge && <dl className="details image-primary-metadata"><dt>Provenance</dt><dd>Merge output</dd><dt>Merge method</dt><dd>{str(metadata.merge_operator, "Not recorded")}</dd><dt>Merge recipe</dt><dd>{str(metadata.merge_notation, "Not recorded")}</dd></dl>}
+    <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></nav><div className="image-review-visual"><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={promptPresentation.alt} /></div>{prompt && (promptPresentation.format === "json" ? <pre className="image-review-prompt caption-json">{promptPresentation.rendered}</pre> : <p className="image-review-prompt">{prompt}</p>)}<div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div></div>
+      <aside id="storage_details" className="image-review-inspector">
+        <header className="image-review-inspector-header">
+          <h2 id="image-review-title">Image review</h2>
+          <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{displayOriginType}</span>
+        </header>
+        <Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} />
+        <section className="image-review-meta-block" aria-labelledby="image-primary-metadata-heading">
+          <div className="image-review-section-heading"><h3 id="image-primary-metadata-heading">Metadata</h3><span>{hasTrainingMetadata ? "Generation" : "Source"}</span></div>
+          <dl className="details image-primary-metadata">{hasTrainingMetadata ? <><dt>Model</dt><dd>{relationName("model")}</dd><dt>Model version</dt><dd>{relationName("model_version", str(metadata.model_version_name, "Unknown"))}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Step</dt><dd>{str(metadata.checkpoint_step, "Not recorded")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>LoRA scale</dt><dd>{loraScaleFromMetadata(metadata) ?? "Not recorded"}</dd><dt>Seed</dt><dd>{str(imageSeed, "Not recorded")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></> : <><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></>}</dl>
+        </section>
+        {isMerge && <section className="image-review-meta-block image-review-provenance" aria-labelledby="image-provenance-heading">
+          <div className="image-review-section-heading"><h3 id="image-provenance-heading">Provenance</h3><span>Merge</span></div>
+          <dl className="details image-primary-metadata"><dt>Output</dt><dd>Merge output</dd><dt>Method</dt><dd>{str(metadata.merge_operator, "Not recorded")}</dd><dt>Recipe</dt><dd>{str(metadata.merge_notation, "Not recorded")}</dd></dl>
+        </section>}
         <details className="image-all-metadata"><summary>All image metadata</summary><Json value={allImageMetadata} /></details>
-        {replay && <a className="button vela-button" href={generatorHref("image", replay.context, id)}><ImagePlus size={15} /> Generate</a>}
-        <div className="rating-control"><span>Image rating (keys 1–5)</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={() => void rate(value)}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>{ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
-        <div className="image-delete-control"><button className="vela-button vela-button-danger" disabled={deleteBusy} onClick={async () => { if (!confirm(`Delete ${str(asset.data?.name, "this image")}? This removes DAM metadata and supported local content.`)) return; setDeleteBusy(true); setDeleteError(""); try { const result = await api<Row>(`/api/assets/${id}?report=true&delete_content=true`, { method: "DELETE" }); const retained = rows(result.storage).filter(item => item.status !== "deleted"); onDeleteNotice(retained.length ? `${retained.length} storage object(s) retained; DAM metadata deleted.` : "Image and local content deleted."); const destination = next ? hrefFor(next) : previous ? hrefFor(previous) : closeHref; await onDeleted(); location.hash = destination.slice(1); } catch (reason) { setDeleteError(errorText(reason)); } finally { setDeleteBusy(false); } }}><Trash2 size={15} />{deleteBusy ? "Deleting…" : "Delete image"}</button>{deleteError && <div className="vela-notice vela-notice-error" role="alert">{deleteError}</div>}</div>
-        <section><h3>Comments</h3><div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div><Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form></section>
+        <div className={`image-review-action-row ${replay ? "has-replay" : "delete-only"}`} aria-label="Image actions">
+          {replay && <a className="button vela-button image-review-generate" aria-label="Generate" href={generatorHref("image", replay.context, id)}><ImagePlus size={15} /> <span>Generate</span></a>}
+          <div className="image-delete-control"><button className="vela-button vela-button-danger" disabled={deleteBusy} onClick={async () => { if (!confirm(`Delete ${str(asset.data?.name, "this image")}? This removes DAM metadata and supported local content.`)) return; setDeleteBusy(true); setDeleteError(""); try { const result = await api<Row>(`/api/assets/${id}?report=true&delete_content=true`, { method: "DELETE" }); const retained = rows(result.storage).filter(item => item.status !== "deleted"); onDeleteNotice(retained.length ? `${retained.length} storage object(s) retained; DAM metadata deleted.` : "Image and local content deleted."); const destination = next ? hrefFor(next) : previous ? hrefFor(previous) : closeHref; await onDeleted(); location.hash = destination.slice(1); } catch (reason) { setDeleteError(errorText(reason)); } finally { setDeleteBusy(false); } }}><Trash2 size={15} />{deleteBusy ? "Deleting…" : "Delete image"}</button>{deleteError && <div className="vela-notice vela-notice-error" role="alert">{deleteError}</div>}</div>
+        </div>
+        <section className="image-review-rating-block" aria-labelledby="image-rating-heading">
+          <div className="rating-control"><span id="image-rating-heading">Rating</span>{[1,2,3,4,5].map(value => <button className="vela-rating-button" aria-label={`${value} stars`} aria-pressed={currentRating === value} disabled={ratingBusy} key={value} onClick={() => void rate(value)}><Star size={16} fill={currentRating >= value ? "currentColor" : "none"} /></button>)}</div>
+          {ratingError && <div className="vela-notice vela-notice-error" role="alert">{ratingError}</div>}
+        </section>
+        <section className="image-review-comments" aria-labelledby="image-comments-heading">
+          <div className="image-review-section-heading"><h3 id="image-comments-heading">Comments</h3><span>{rows(comments.data).length} previous</span></div>
+          <div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div>
+          <Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form>
+        </section>
       </aside></main>
   </div>;
 }

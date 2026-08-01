@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus } from "lucide-react";
-import { api, idOf, jsonBody, listOf, str } from "./api";
+import { api, idOf, jsonBody, listOf, routeQuery, str } from "./api";
 import { AssetImage } from "./asset-image";
 import { pollWhileActive, useResource } from "./hooks";
 import { Dropdown, Field, Form, Notice, Page, Panel, Status } from "./ui";
@@ -295,7 +295,7 @@ export function GenerationQueue({ items, error, loading, onRetry }: { items: Row
       const checkpointLabel = str(model.checkpointLabel, "");
       const workflow = str(item.workflow);
       const failed = str(item.status).toLowerCase() === "failed";
-      const workflowLink = workflow === "eval" ? <a href={`#/eval-comparison/${idOf(item)}`}>Eval</a> : workflow === "grid" ? <a href={`#/grid/${encodeURIComponent(str(item.grid_definition_id))}?project=${encodeURIComponent(str(item.project_id))}`}>Grid</a> : workflow;
+      const workflowLink = workflow === "eval" ? <a href={`#/eval-comparison/${idOf(item)}${routeQuery({ project: item.project_id })}`}>Eval</a> : workflow === "grid" ? <a href={`#/grid/${encodeURIComponent(str(item.grid_definition_id))}${routeQuery({ project: item.project_id })}`}>Grid</a> : workflow;
       return <tr key={idOf(item)}><td><time dateTime={str(item.created_at, "")}>{formatQueueTimestamp(item.created_at)}</time></td><td>{workflowLink}</td><td>{projectLabel}{modelLabel ? ` / ${modelLabel}` : ""}</td><td>{checkpointLabel || `${modelIds.length} model${modelIds.length === 1 ? "" : "s"}`}</td><td><Status value={str(item.status)} /></td><td>{item.error ? str(item.error) : `${str(progress.completed, "0")} / ${str(progress.total, "-")}`}</td>{onRetry && <td>{failed ? <button type="button" disabled={Boolean(retrying)} onClick={() => void retry(item)}>{retrying === idOf(item) ? "Retrying…" : "Retry failed work"}</button> : "—"}</td>}</tr>;
     })}</tbody></table></div>}
   </Panel>;

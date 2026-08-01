@@ -1,4 +1,4 @@
-import { api, jsonBody, str } from "./api";
+import { api, jsonBody, routeQuery, str } from "./api";
 
 export type GenerationWorkflow = "image" | "eval" | "grid";
 export type GenerationProviderId = "fal" | (string & {});
@@ -217,13 +217,13 @@ export function connectedFalGenerationModels(rows: Record<string, unknown>[], pr
 }
 
 export function generatorHref(workflow: GenerationWorkflow, context: GenerationContext, prefillAssetId?: string) {
-  const params = new URLSearchParams({ workflow, project: context.projectId });
+  const params: Record<string, unknown> = { workflow, project: context.projectId };
   if (context.kind === "model") {
-    params.set("model", context.modelId);
-    if (context.modelVersionId) params.set("model_version", context.modelVersionId);
+    params.model = context.modelId;
+    if (context.modelVersionId) params.model_version = context.modelVersionId;
   }
-  if (prefillAssetId) params.set("prefill_asset", prefillAssetId);
-  return `#/generate?${params}`;
+  if (prefillAssetId) params.prefill_asset = prefillAssetId;
+  return `#/generate${routeQuery(params)}`;
 }
 
 export function loraScaleFromMetadata(metadata: Record<string, unknown>): number | undefined {

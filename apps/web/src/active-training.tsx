@@ -1,4 +1,4 @@
-import { idOf, listOf, query, str } from "./api";
+import { idOf, listOf, query, routeQuery, str } from "./api";
 import { useResource } from "./hooks";
 import { Notice, Panel, Status } from "./ui";
 
@@ -69,7 +69,7 @@ export function ActiveTrainingPanel({ projectId = "" }: { projectId?: string }) 
   return <Panel title="Active training" className="active-training-panel">
     <Notice error={resource.error} loading={resource.loading && !resource.runs.length} />
     {!!resource.runs.length && <div className="active-training-list" aria-label="Active training runs">
-      {resource.runs.map(run => <ActiveTrainingLink key={idOf(run)} run={run} />)}
+      {resource.runs.map(run => <ActiveTrainingLink key={idOf(run)} run={run} projectId={projectId} />)}
     </div>}
   </Panel>;
 }
@@ -78,18 +78,18 @@ export function ActiveTrainingNavigation({ projectId }: { projectId: string }) {
   const resource = useActiveRuns(projectId, 4);
   if (!resource.runs.length) return null;
   return <div className="vela-tree-group active-training-navigation">
-    <a className="vela-nav-group" href={`#/runs${query({ project: projectId })}`}>Active training</a>
-    {resource.runs.map(run => <a className="vela-nav-item" key={idOf(run)} href={`#/run/${idOf(run)}`} aria-label={`${str(run.name, "Training run")}, status ${str(run.status, "unknown")}`}>
+    <a className="vela-nav-group" href={`#/runs${routeQuery({ project: projectId })}`}>Active training</a>
+    {resource.runs.map(run => <a className="vela-nav-item" key={idOf(run)} href={`#/run/${idOf(run)}${routeQuery({ project: projectId })}`} aria-label={`${str(run.name, "Training run")}, status ${str(run.status, "unknown")}`}>
       <span className="vela-nav-text">{str(run.name, "Training run")}</span>
       <span className="active-training-indicator" aria-hidden="true">{str(run.status).toLowerCase() === "running" ? "LIVE" : "WAIT"}</span>
     </a>)}
   </div>;
 }
 
-function ActiveTrainingLink({ run }: { run: Row }) {
+function ActiveTrainingLink({ run, projectId = "" }: { run: Row; projectId?: string }) {
   const latestLoss = run.latest_loss && typeof run.latest_loss === "object" ? run.latest_loss as Row : null;
   const lossName = str(latestLoss?.name, "Loss");
-  return <a className="active-training-card" href={`#/run/${idOf(run)}`} aria-label={`Open ${str(run.name, "training run")}, status ${str(run.status, "unknown")}`}>
+  return <a className="active-training-card" href={`#/run/${idOf(run)}${routeQuery({ project: projectId || undefined })}`} aria-label={`Open ${str(run.name, "training run")}, status ${str(run.status, "unknown")}`}>
     <span className="active-training-heading"><strong>{str(run.name, "Training run")}</strong><Status value={run.status} /></span>
     <span className="active-training-metrics">
       <span><small>Step</small><strong>{str(run.current_step, "—")}</strong></span>

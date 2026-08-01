@@ -1,4 +1,6 @@
 const ACTIVITY_LABELS: Record<string, string> = {
+  "ASSET.GENERATED": "Image Generated",
+  "IMAGE.GENERATED": "Image Generated",
   "FAL.ADMISSION_ADMITTED": "Generation admitted",
   "FAL.ADMISSION_REJECTED": "Generation rejected",
   "FAL.REQUEST_SUBMITTED": "Generation submitted",

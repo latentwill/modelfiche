@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useLayoutEffect, useState } from "react";
+import { activeWorkspaceId, routeQuery, setActiveWorkspaceId } from "./api";
 import { useHashRoute } from "./hooks";
 import { WorkbenchShell, useThemeController } from "./shell";
 
@@ -39,7 +40,16 @@ export function App() {
   const id = parts[1] || "";
   const params = new URLSearchParams(rawQuery);
   const routedSection = section === "evals" ? "grids" : section;
+  const routeWorkspaceId = params.get("workspace") ?? "";
+  const [resolvedRouteWorkspaceId, setResolvedRouteWorkspaceId] = useState(() => activeWorkspaceId());
+  useLayoutEffect(() => {
+    if (routeWorkspaceId && activeWorkspaceId() !== routeWorkspaceId) setActiveWorkspaceId(routeWorkspaceId);
+    setResolvedRouteWorkspaceId(routeWorkspaceId || activeWorkspaceId());
+  }, [routeWorkspaceId]);
   const { theme, toggleTheme } = useThemeController();
+  if (routeWorkspaceId && resolvedRouteWorkspaceId !== routeWorkspaceId) {
+    return <div className="vela-theme"><main className="vela-main" aria-busy="true">Selecting workspace…</main></div>;
+  }
   let content;
   if (routedSection === "image") {
     const galleryParams = new URLSearchParams(params);
@@ -84,6 +94,6 @@ function renderScreen(section: string, id: string, params: URLSearchParams) {
     case "docs": return <DocsScreen />;
     case "readiness": return <ReadinessScreen />;
     case "settings": return <SettingsScreen />;
-    default: return <main><h1>Not found</h1><a href="#/projects">Return to projects</a></main>;
+    default: return <main><h1>Not found</h1><a href={`#/projects${routeQuery({})}`}>Return to projects</a></main>;
   }
 }

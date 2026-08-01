@@ -522,27 +522,56 @@ class SQLAlchemyImportSink:
         return {}
 
     def _link_dataset(self, run: models.TrainingRun) -> None:
+        sources = run.normalized_config.get("dataset_sources", []) if isinstance(run.normalized_config, dict) else []
+        source_path = str(sources[0]) if sources else ""
+        source_name = PurePosixPath(source_path).name if source_path else ""
         if run.dataset_version_id:
             linked_version = self.session.get(models.DatasetVersion, run.dataset_version_id)
             linked_dataset = self.session.get(models.Dataset, linked_version.dataset_id) if linked_version else None
             if linked_dataset and linked_dataset.project_id == run.project_id:
-                return
+                # A training-path reference can be created before its source dataset
+                # import. Re-evaluate an empty unified reference once the canonical
+                # dataset exists, but preserve every populated or non-alias link.
+                if not (
+                    source_name
+                    and self._is_unified_dataset_reference(source_name)
+                    and linked_version is not None
+                    and not self._dataset_version_has_items(linked_version.id)
+                ):
+                    return
             run.dataset_version_id = None
-        sources = run.normalized_config.get("dataset_sources", []) if isinstance(run.normalized_config, dict) else []
-        source_names = [PurePosixPath(str(source)).name for source in sources if source]
         if sources:
-            source_path = str(sources[0])
-            source_name = PurePosixPath(source_path).name
             resolved_name = f"{run.name}-dataset" if source_name.lower() in {"dataset", "datasets", "data"} else source_name
-            project_versions = self.session.execute(select(models.DatasetVersion, models.Dataset).join(models.Dataset, models.Dataset.id == models.DatasetVersion.dataset_id).where(models.Dataset.project_id == run.project_id).order_by(models.DatasetVersion.version_number.desc())).all()
-            matches = [(version, dataset) for version, dataset in project_versions if dataset.name == resolved_name or resolved_name.lower().endswith("-" + dataset.name.lower())]
-            if len({dataset.id for _version, dataset in matches}) == 1:
+            reference_names = self._training_dataset_name_candidates(source_name)
+            reference_names_lower = {name.casefold() for name in reference_names}
+            project_versions = self.session.execute(
+                select(models.DatasetVersion, models.Dataset)
+                .join(models.Dataset, models.Dataset.id == models.DatasetVersion.dataset_id)
+                .where(models.Dataset.project_id == run.project_id)
+                .order_by(models.DatasetVersion.version_number.desc())
+            ).all()
+            matches = [
+                (version, dataset)
+                for version, dataset in project_versions
+                if dataset.name.casefold() in reference_names_lower
+                or any(resolved_name.casefold().endswith(f"-{candidate.casefold()}") for candidate in reference_names)
+            ]
+            unique_dataset_ids = {dataset.id for _version, dataset in matches}
+            for candidate in reference_names:
+                populated = [
+                    (version, dataset)
+                    for version, dataset in matches
+                    if dataset.name.casefold() == candidate.casefold() and self._dataset_version_has_items(version.id)
+                ]
+                if populated:
+                    run.dataset_version_id = populated[0][0].id
+                    return
+            if len(unique_dataset_ids) == 1:
                 run.dataset_version_id = matches[0][0].id
                 return
         if not sources:
             return
-        source_path = str(sources[0])
-        source_name = PurePosixPath(source_path).name
+        source_name = source_name or "dataset"
         if source_name.lower() in {"dataset", "datasets", "data"}:
             source_name = f"{run.name}-dataset"
         dataset = self.session.scalar(select(models.Dataset).where(models.Dataset.project_id == run.project_id, models.Dataset.name == source_name))
@@ -558,6 +587,28 @@ class SQLAlchemyImportSink:
             self.session.flush()
         run.dataset_version_id = version.id
 
+    def _dataset_version_has_items(self, version_id: str) -> bool:
+        return self.session.scalar(
+            select(models.DatasetItem.id)
+            .where(models.DatasetItem.dataset_version_id == version_id)
+            .limit(1)
+        ) is not None
+
+    @staticmethod
+    def _is_unified_dataset_reference(source_name: str) -> bool:
+        normalized = source_name.casefold().replace("-", "_")
+        return normalized.endswith("_unified") and normalized.removesuffix("_unified").strip("_") != ""
+
+    @classmethod
+    def _training_dataset_name_candidates(cls, source_name: str) -> list[str]:
+        candidates = [source_name]
+        if cls._is_unified_dataset_reference(source_name):
+            base_name = source_name
+            while base_name.casefold().replace("-", "_").endswith("_unified"):
+                base_name = base_name[:-len("_unified")].rstrip("-_ ")
+            if base_name:
+                candidates.append(base_name)
+        return list(dict.fromkeys(candidates))
     def _run_project_id(self, context: ImportContext, evidence: str) -> str:
         requested_project = self.session.get(models.Project, context.project_id)
         if requested_project is None:

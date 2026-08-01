@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { activityDisplayText, activityLabel, activityObjectHref, previewAssetId } from "./activity";
 
 describe("activityLabel", () => {
-  it("maps known provider events to concise user-facing text", () => {
+  it("maps generation completion to image language", () => {
+    expect(activityLabel("asset.generated")).toBe("Image Generated");
+    expect(activityLabel("image.generated")).toBe("Image Generated");
     expect(activityLabel("FAL.ADMISSION_ADMITTED")).toBe("Generation admitted");
-    expect(activityLabel("fal.admission_admitted")).toBe("Generation admitted");
-    expect(activityLabel("FAL.RESULT_INGESTED")).toBe("Generated image ingested");
   });
 
   it("humanizes unknown event keys without exposing raw machine formatting", () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API_BASE, api } from "./api";
+import { API_BASE, activeWorkspaceId, api } from "./api";
 
 type ResourceOptions<T> = {
   pollInterval?: number;
@@ -197,6 +197,20 @@ export function useRunLive(runId: string) {
   return { data, connection, error, revision };
 }
 
+function workspaceRouteHref(href: string) {
+  const workspaceId = activeWorkspaceId();
+  if (!workspaceId || typeof window === "undefined") return href;
+  const target = new URL(href, window.location.href);
+  if (!target.hash.startsWith("#/")) return href;
+  const [path, rawQuery = ""] = target.hash.slice(2).split("?", 2);
+  const params = new URLSearchParams(rawQuery);
+  if (params.has("workspace")) return href;
+  params.set("workspace", workspaceId);
+  const query = params.toString();
+  target.hash = `#/${path}${query ? `?${query}` : ""}`;
+  return target.href;
+}
+
 export function useHashRoute() {
   const read = () => window.location.hash.replace(/^#\/?/, "") || "projects";
   const [route, setRoute] = useState(read);
@@ -211,7 +225,7 @@ export function useHashRoute() {
       if (!target) return;
       event.preventDefault();
       history.replaceState({ ...(history.state ?? {}), modelficheRoute: { scrollY: window.scrollY, focusId: document.activeElement instanceof HTMLElement ? document.activeElement.id : "" } }, "", window.location.href);
-      history.pushState({ modelficheRoute: { scrollY: 0, focusId: "" } }, "", target.href);
+      history.pushState({ modelficheRoute: { scrollY: 0, focusId: "" } }, "", workspaceRouteHref(target.href));
       modeRef.current = "push";
       setRoute(read());
     };

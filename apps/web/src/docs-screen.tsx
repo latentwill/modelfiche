@@ -1,13 +1,14 @@
 import { Bot, ExternalLink, Terminal } from "lucide-react";
+import { routeQuery } from "./api";
 import { Page, Panel } from "./ui";
 
 const REPOSITORY = "https://github.com/latentwill/modelfiche";
 
 const operatorWorkflows = [
-  { title: "Import and organize", body: "Connect a verified S3 source or choose a local folder, preview the detected content, then create a durable import.", href: "#/transfers?mode=import", label: "Open imports" },
-  { title: "Build a dataset", body: "Create a draft, edit captions and inclusion state, then publish an immutable dataset version.", href: "#/datasets", label: "Open datasets" },
-  { title: "Generate and compare", body: "Select a project checkpoint, resolve the request plan, then queue Image, Eval, or Grid work.", href: "#/generate", label: "Open generation" },
-  { title: "Prepare training", body: "Verify signing and outbound storage, create a launch, and generate a checksummed AI Toolkit trainer packet.", href: "#/training-new", label: "Open training" },
+  { title: "Import and organize", body: "Connect a verified S3 source or choose a local folder, preview the detected content, then create a durable import.", href: "#/transfers", params: { mode: "import" }, label: "Open imports" },
+  { title: "Build a dataset", body: "Create a draft, edit captions and inclusion state, then publish an immutable dataset version.", href: "#/datasets", params: {}, label: "Open datasets" },
+  { title: "Generate and compare", body: "Select a project checkpoint, resolve the request plan, then queue Image, Eval, or Grid work.", href: "#/generate", params: {}, label: "Open generation" },
+  { title: "Prepare training", body: "Verify signing and outbound storage, create a launch, and generate a checksummed AI Toolkit trainer packet.", href: "#/training-new", params: {}, label: "Open training" },
 ];
 
 const references = [
@@ -21,13 +22,13 @@ export function DocsScreen() {
   return <Page title="Docs" subtitle="Operator workflows, CLI conventions, and agent-safe automation from one place." actions={<a className="button vela-button" href={`${REPOSITORY}/tree/main/docs`} target="_blank" rel="noreferrer"><ExternalLink size={15} />GitHub docs</a>}>
     <Panel title="Start here" className="docs-intro">
       <p>Modelfiche is a local-first workbench. The browser and <code>mfiche</code> CLI use the same API, validation, durable jobs, activity history, and provider-admission rules.</p>
-      <div className="actions"><a className="button vela-button vela-button-primary" href="#/settings">Open settings</a><a className="button vela-button" href="#/readiness">Run readiness checks</a></div>
+      <div className="actions"><a className="button vela-button vela-button-primary" href={`#/settings${routeQuery({})}`}>Open settings</a><a className="button vela-button" href={`#/readiness${routeQuery({})}`}>Run readiness checks</a></div>
     </Panel>
 
     <section aria-labelledby="operator-workflows-heading">
       <div className="vela-section-heading"><h2 id="operator-workflows-heading">Operator workflows</h2></div>
       <div className="docs-card-grid">
-        {operatorWorkflows.map(workflow => <article className="docs-card" key={workflow.title}><h3>{workflow.title}</h3><p>{workflow.body}</p><a href={workflow.href}>{workflow.label}</a></article>)}
+        {operatorWorkflows.map(workflow => <article className="docs-card" key={workflow.title}><h3>{workflow.title}</h3><p>{workflow.body}</p><a href={`${workflow.href}${routeQuery(workflow.params)}`}>{workflow.label}</a></article>)}
       </div>
     </section>
 

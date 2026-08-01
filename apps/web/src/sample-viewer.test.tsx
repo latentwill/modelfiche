@@ -74,7 +74,7 @@ describe("SampleViewerScreen", () => {
     const selected = await screen.findByRole("button", { name: /Step 500/ });
     await waitFor(() => expect(selected).toHaveAttribute("aria-pressed", "true"));
     expect(screen.getByRole("button", { name: /Step 250/ })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("link", { name: "Close sample viewer" })).toHaveAttribute("href", "#/model/model-1");
+    expect(screen.getByRole("link", { name: "Close sample viewer" })).toHaveAttribute("href", "#/model/model-1?project=project-1");
     expect(view.container.querySelectorAll(".sample-comparison-table tbody tr")).toHaveLength(8);
     expect(view.container.querySelectorAll(".sample-comparison-table thead th")).toHaveLength(2);
 

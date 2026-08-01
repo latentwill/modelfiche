@@ -104,3 +104,6 @@ export function query(params: Record<string, unknown>) {
   const encoded = q.toString();
   return encoded ? `?${encoded}` : "";
 }
+export function routeQuery(params: Record<string, unknown>, workspaceId = activeWorkspaceId()) {
+  return query({ workspace: workspaceId, ...params });
+}

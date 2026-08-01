@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
-import { api, idOf, jsonBody, listOf, query, str } from "./api";
+import { api, idOf, jsonBody, listOf, query, routeQuery, str } from "./api";
 import { ActiveTrainingPanel } from "./active-training";
 import { previewAssetId } from "./activity";
 import { AssetImage } from "./asset-image";
@@ -22,22 +22,22 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
     {createProject && <section className="vela-section"><ProjectCreatePanel onCreated={projects.reload} /></section>}
     <ActiveTrainingPanel />
     <section className="vela-section">
-      <div className="vela-section-heading"><h2>Available projects</h2><a className="vela-text-button" href="#/projects" aria-label="View all projects">View all</a></div>
+      <div className="vela-section-heading"><h2>Available projects</h2><a className="vela-text-button" href={`#/projects${routeQuery({})}`} aria-label="View all projects">View all</a></div>
       <Notice error={projects.error} loading={projects.loading} empty={!displayed.length} />
       <div className="vela-project-grid">{displayed.map(project => <ProjectSummaryCard key={idOf(project)} project={project} />)}</div>
     </section>
     <section className="vela-section">
       <div className="vela-panel">
-        <div className="vela-section-heading"><h2>Recent runs</h2><a className="vela-text-button" href="#/runs" aria-label="View all recent runs">View all</a></div>
+        <div className="vela-section-heading"><h2>Recent runs</h2><a className="vela-text-button" href={`#/runs${routeQuery({})}`} aria-label="View all recent runs">View all</a></div>
         <Notice error={runs.error} loading={runs.loading} empty={!runRows.length} />
-        <div className="vela-run-list">{runRows.map(run => { const previewId = previewAssetId(run.preview_asset_id); return <a className="vela-run-row" href={`#/run/${idOf(run)}`} key={idOf(run)}>{previewId ? <AssetImage assetRevisionId={previewId} alt="" style={{ width: "28px", height: "28px", objectFit: "cover", borderRadius: "50%" }} /> : <span className="vela-run-mark" aria-hidden="true" />}<span className="vela-run-copy"><h3>{str(run.name, "Training run")}<span className="vela-run-tag">{str(run.status, "unknown")}</span></h3><p>{str(run.base_model, "Base model not recorded")}</p></span><span className="vela-run-time">{formatDate(run.updated_at ?? run.created_at)}</span></a>; })}</div>
+        <div className="vela-run-list">{runRows.map(run => { const previewId = previewAssetId(run.preview_asset_id); return <a className="vela-run-row" href={`#/run/${idOf(run)}${routeQuery({ project: run.project_id })}`} key={idOf(run)}>{previewId ? <AssetImage assetRevisionId={previewId} alt="" style={{ width: "28px", height: "28px", objectFit: "cover", borderRadius: "50%" }} /> : <span className="vela-run-mark" aria-hidden="true" />}<span className="vela-run-copy"><h3>{str(run.name, "Training run")}<span className="vela-run-tag">{str(run.status, "unknown")}</span></h3><p>{str(run.base_model, "Base model not recorded")}</p></span><span className="vela-run-time">{formatDate(run.updated_at ?? run.created_at)}</span></a>; })}</div>
       </div>
     </section>
   </main>;
 }
 
 function ProjectCreatePanel({ onCreated }: { onCreated: () => Promise<void> }) {
-  return <Panel title="Create project"><Form submit="Create project" onSubmit={async form => { await api("/api/projects", jsonBody({ title: form.get("name"), description: form.get("description"), trigger_words: splitList(form.get("trigger_words")) })); await onCreated(); location.hash = "dashboard"; }}><div className="form-grid"><Field label="Project name"><input name="name" required autoFocus /></Field><Field label="Trigger words"><input name="trigger_words" /></Field></div><Field label="Description"><textarea name="description" /></Field></Form></Panel>;
+  return <Panel title="Create project"><Form submit="Create project" onSubmit={async form => { await api("/api/projects", jsonBody({ title: form.get("name"), description: form.get("description"), trigger_words: splitList(form.get("trigger_words")) })); await onCreated(); location.hash = `dashboard${routeQuery({})}`; }}><div className="form-grid"><Field label="Project name"><input name="name" required autoFocus /></Field><Field label="Trigger words"><input name="trigger_words" /></Field></div><Field label="Description"><textarea name="description" /></Field></Form></Panel>;
 }
 
 function ProjectSummaryCard({ project }: { project: Row }) {
@@ -55,7 +55,7 @@ function ProjectSummaryCard({ project }: { project: Row }) {
       ? { images: rows(sampleImages.data), label: "training samples" }
       : { images: rows(datasetImages.data), label: "dataset images" };
   const previewImages = previewSource.images.slice(0, 4);
-  return <a className="vela-project-card" href={`#/project/${projectId}`}><div className="vela-project-card-body vela-project-card-heading"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p></div>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest ${previewSource.label}`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Grids <strong>{rows(grids.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
+  return <a className="vela-project-card" href={`#/project/${projectId}${routeQuery({})}`}><div className="vela-project-card-body vela-project-card-heading"><h3>{str(project.title ?? project.name)}</h3><p className="vela-project-summary">{str(project.description, "Training workspace")}</p></div>{previewImages.length ? <div className="vela-project-preview" aria-label={`${previewImages.length} latest ${previewSource.label}`}>{previewImages.map(image => <AssetImage key={idOf(image)} assetRevisionId={idOf(image)} alt="" loading="lazy" />)}</div> : <div className="vela-project-identity"><span>{initials(str(project.title ?? project.name))}</span><small>{str(project.state, "active")}</small></div>}<div className="vela-project-card-body"><div className="vela-project-data"><span className="vela-data-cell">Models <strong>{rows(models.data).length}</strong></span><span className="vela-data-cell">Runs <strong>{rows(runs.data).length}</strong></span><span className="vela-data-cell">Grids <strong>{rows(grids.data).length}</strong></span><span className="vela-data-cell">Datasets <strong>{rows(datasets.data).length}</strong></span></div></div></a>;
 }
 
 
@@ -75,7 +75,7 @@ export function TransfersScreen({ mode = "", params = new URLSearchParams() }: {
     {panel === "import" && <TransferImport params={params} />}
     {panel === "export" && <TransferExport onCreated={transfers.reload} params={params} />}
     <Panel><div className="tabs" role="tablist" aria-label="Transfer filters">{["all", "export", "import"].map(value => <button role="tab" aria-selected={filter === value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
-      <Notice error={jobs.error || transfers.error} loading={jobs.loading || transfers.loading} empty={!data.length} /><DataTable rows={data} columns={[["name", "Transfer"], ["direction_label", "Direction"], ["state", "Status"], ["progress_label", "Progress"], ["created_at", "Started"]]} onRow={job => { if (job.direction === "export" && job.download_ready) window.location.href = `/api/transfers/${idOf(job)}/download`; else location.hash = `jobs/${idOf(job)}?job=1`; }} />
+      <Notice error={jobs.error || transfers.error} loading={jobs.loading || transfers.loading} empty={!data.length} /><DataTable rows={data} columns={[["name", "Transfer"], ["direction_label", "Direction"], ["state", "Status"], ["progress_label", "Progress"], ["created_at", "Started"]]} onRow={job => { if (job.direction === "export" && job.download_ready) window.location.href = `/api/transfers/${idOf(job)}/download`; else location.hash = `jobs/${idOf(job)}${routeQuery({ job: 1, project: job.project_id })}`; }} />
     </Panel>
   </Page>;
 }
@@ -280,17 +280,17 @@ export function SampleViewerScreen({ runId, initialStep = "" }: { runId: string;
   const fatalError = !run.data ? run.error : !samples.data ? samples.error : "";
   if (initialLoading || fatalError) {
     return <div className="comparison-viewer vela-focus-workspace" aria-busy={initialLoading}>
-      <header className="viewer-topbar"><a href={`#/${returnTarget}`}>Return</a><a className="button" aria-label="Close sample viewer" href={`#/${returnTarget}`}><X size={16} /> Close</a></header>
+      <header className="viewer-topbar"><a href={`#/${returnTarget}${routeQuery({ project: run.data?.project_id })}`}>Return</a><a className="button" aria-label="Close sample viewer" href={`#/${returnTarget}${routeQuery({ project: run.data?.project_id })}`}><X size={16} /> Close</a></header>
       <main className="sample-comparison-boundary">
         <h1>Sample viewer</h1>
         <Notice loading={initialLoading} error={fatalError} />
-        {fatalError && <div className="actions"><a className="button vela-button" href={`#/${returnTarget}`}>Back to {returnTarget.startsWith("model/") ? "model" : "run"}</a><button onClick={() => void Promise.all([run.reload(), samples.reload()])}>Retry</button></div>}
+        {fatalError && <div className="actions"><a className="button vela-button" href={`#/${returnTarget}${routeQuery({ project: run.data?.project_id })}`}>Back to {returnTarget.startsWith("model/") ? "model" : "run"}</a><button onClick={() => void Promise.all([run.reload(), samples.reload()])}>Retry</button></div>}
       </main>
     </div>;
   }
 
   return <div className="comparison-viewer vela-focus-workspace">
-    <header className="viewer-topbar"><a href={`#/${returnTarget}`}>{str(run.data?.name, "Training run")}</a><div className="viewer-actions">{Boolean(run.data?.model_id) && <a className="button" href={`#/model/${str(run.data?.model_id)}`}>Model</a>}<a className="button" aria-label="Close sample viewer" href={`#/${returnTarget}`}><X size={16} /> Close</a></div></header>
+    <header className="viewer-topbar"><a href={`#/${returnTarget}${routeQuery({ project: run.data?.project_id })}`}>{str(run.data?.name, "Training run")}</a><div className="viewer-actions">{Boolean(run.data?.model_id) && <a className="button" href={`#/model/${str(run.data?.model_id)}${routeQuery({ project: run.data?.project_id })}`}>Model</a>}<a className="button" aria-label="Close sample viewer" href={`#/${returnTarget}${routeQuery({ project: run.data?.project_id })}`}><X size={16} /> Close</a></div></header>
     <main className="sample-comparison-workspace">
       <header className="comparison-toolbar">
         <div><h1>Sample comparison</h1><p>Prompt or sample rows by persisted checkpoint-step columns.</p></div>
@@ -320,7 +320,7 @@ export function forwardSampleComparisonWheel(event: { deltaX: number; deltaY: nu
 function SampleComparisonTable({ columns, rows: promptRows, activeAssetId, projectId, onSelect }: { columns: SampleComparisonColumn[]; rows: SampleComparisonRow[]; activeAssetId: string; projectId: string; onSelect: (assetId: string) => void }) {
   return <div className="sample-comparison-table-wrap" role="region" aria-label="Sample comparison matrix" tabIndex={0} onWheel={forwardSampleComparisonWheel}>
     <table className="sample-comparison-table">
-      <thead><tr><th scope="col">Prompt / sample</th>{columns.map(column => <th scope="col" key={column.id}><strong>{column.label}</strong>{column.checkpointId ? <a href={`#/checkpoint/${column.checkpointId}`}>{column.checkpointFilename || "Open checkpoint"}</a> : <span>{column.checkpointFilename || "Checkpoint unresolved"}</span>}<Status value={column.localStatus || column.checkpointState} />{column.modelVersionId ? <a href={`#/model-version/${column.modelVersionId}`}>{column.modelVersionName || "Registered version"}</a> : <span>Not registered as a model version</span>}</th>)}</tr></thead>
+      <thead><tr><th scope="col">Prompt / sample</th>{columns.map(column => <th scope="col" key={column.id}><strong>{column.label}</strong>{column.checkpointId ? <a href={`#/checkpoint/${column.checkpointId}${routeQuery({ project: projectId })}`}>{column.checkpointFilename || "Open checkpoint"}</a> : <span>{column.checkpointFilename || "Checkpoint unresolved"}</span>}<Status value={column.localStatus || column.checkpointState} />{column.modelVersionId ? <a href={`#/model-version/${column.modelVersionId}${routeQuery({ project: projectId })}`}>{column.modelVersionName || "Registered version"}</a> : <span>Not registered as a model version</span>}</th>)}</tr></thead>
       <tbody>{promptRows.map(row => <tr key={row.id}><th scope="row"><strong>{row.label}</strong>{row.ordinal != null && <span>Sample {row.ordinal + 1}</span>}</th>{columns.map(column => { const sample = row.cells[column.id]; const assetId = sample ? str(sample.asset_revision_id ?? sample.asset_id ?? sample.id) : ""; return <td key={column.id}>{sample ? <SampleCell sample={{ ...sample, project_id: sample.project_id ?? projectId }} active={activeAssetId === assetId} label={`${row.label} at ${column.label}`} onSelect={() => onSelect(assetId)} /> : <span className="sample-comparison-missing">Not archived</span>}</td>; })}</tr>)}</tbody>
     </table>
   </div>;

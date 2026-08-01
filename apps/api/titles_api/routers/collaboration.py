@@ -745,6 +745,42 @@ def _activity_enrichment(db: Session, rows: list[models.ActivityEvent]) -> dict[
     return result
 
 
+_GENERATION_FILENAME_FIELDS = frozenset({"summary", "filename", "file_name"})
+
+
+def _generation_eval_id(row: models.ActivityEvent) -> str | None:
+    if row.action != "asset.generated":
+        return None
+    details = row.details if isinstance(row.details, dict) else {}
+    value = details.get("eval_run_id")
+    return str(value) if value else None
+
+
+def _generation_details(
+    generated: models.ActivityEvent,
+    admitted: models.ActivityEvent | None,
+) -> dict[str, Any]:
+    admitted_details = admitted.details if admitted and isinstance(admitted.details, dict) else {}
+    generated_details = generated.details if isinstance(generated.details, dict) else {}
+    details = {
+        key: value
+        for key, value in generated_details.items()
+        if key not in _GENERATION_FILENAME_FIELDS
+    }
+    details.update({
+        key: value
+        for key, value in admitted_details.items()
+        if key not in _GENERATION_FILENAME_FIELDS
+    })
+    return details
+
+
+def _looks_like_image_filename(value: Any) -> bool:
+    return isinstance(value, str) and value.lower().endswith(
+        (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
+    )
+
+
 @router.get("/activity")
 def activity(db: DB, project_id: str | None = None, subject_type: str | None = None, subject_id: str | None = None, profile_id: str | None = None, since: str | None = None, limit: int = Query(100, le=500)):
     query = select(models.ActivityEvent).where(
@@ -765,28 +801,98 @@ def activity(db: DB, project_id: str | None = None, subject_type: str | None = N
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="since must be an ISO-8601 datetime") from exc
         query = query.where(models.ActivityEvent.created_at >= since_value)
-    rows = db.scalars(query.limit(limit)).all()
-    profile_ids = {row.profile_id for row in rows if row.profile_id}
+    rows = db.scalars(query.limit(min(max(limit, 1) * 2, 500))).all()
+    generated_eval_ids = {
+        eval_id
+        for row in rows
+        if (eval_id := _generation_eval_id(row)) is not None
+    }
+    admitted_rows = [
+        row
+        for row in rows
+        if row.action == "fal.admission_admitted"
+        and isinstance(row.details, dict)
+        and row.details.get("eval_run_id") in generated_eval_ids
+    ]
+    admitted_eval_ids = {
+        str(row.details["eval_run_id"])
+        for row in admitted_rows
+        if isinstance(row.details, dict) and row.details.get("eval_run_id")
+    }
+    missing_admitted_eval_ids = generated_eval_ids - admitted_eval_ids
+    if missing_admitted_eval_ids:
+        admitted_query = select(models.ActivityEvent).where(
+            models.ActivityEvent.workspace_id == current_workspace(db).id,
+            models.ActivityEvent.action == "fal.admission_admitted",
+            models.ActivityEvent.details["eval_run_id"].as_string().in_(sorted(missing_admitted_eval_ids)),
+        ).order_by(models.ActivityEvent.created_at.desc())
+        if project_id:
+            admitted_query = admitted_query.where(models.ActivityEvent.project_id == project_id)
+        admitted_rows.extend(db.scalars(admitted_query).all())
+    admitted_by_eval_id: dict[str, models.ActivityEvent] = {}
+    for row in admitted_rows:
+        details = row.details if isinstance(row.details, dict) else {}
+        eval_id = details.get("eval_run_id")
+        if eval_id and str(eval_id) not in admitted_by_eval_id:
+            admitted_by_eval_id[str(eval_id)] = row
+
+    enrichment_rows = [*rows, *admitted_rows]
+    profile_ids = {row.profile_id for row in enrichment_rows if row.profile_id}
     names = {
         profile.id: profile.display_name
         for profile in db.scalars(select(models.UserProfile).where(models.UserProfile.id.in_(profile_ids))).all()
     } if profile_ids else {}
-    enrichment = _activity_enrichment(db, rows)
+    enrichment = _activity_enrichment(db, enrichment_rows)
+    generated_rows = [row for row in rows if _generation_eval_id(row)]
+    hidden_admission_ids = {
+        admitted_by_eval_id[eval_id].id
+        for row in generated_rows
+        if (eval_id := _generation_eval_id(row)) in admitted_by_eval_id
+    }
     result = []
     for row in rows:
+        if row.id in hidden_admission_ids:
+            continue
         details = row.details if isinstance(row.details, dict) else {}
-        result.append({
+        eval_id = _generation_eval_id(row)
+        admitted = admitted_by_eval_id.get(eval_id) if eval_id else None
+        payload = {
             **dump(row),
             "event_type": row.action,
-            "summary": details.get("summary") or row.action.replace(".", " ").replace("_", " ").title(),
+            "summary": details.get("summary") or (
+                "Generation admitted"
+                if row.action == "fal.admission_admitted"
+                else row.action.replace(".", " ").replace("_", " ").title()
+            ),
             "profile_name": names.get(row.profile_id),
             **enrichment.get(({"training_run": "run", "import_job": "import_job"}.get(row.subject_type, row.subject_type), row.subject_id), {
                 "object_href": None,
                 "object_label": None,
                 "preview_asset_id": None,
             }),
-        })
-    return result
+        }
+        if row.action == "asset.generated":
+            generated_enrichment = enrichment.get(("asset", row.subject_id), {})
+            admitted_enrichment = enrichment.get(("fal_admission", admitted.subject_id), {}) if admitted else {}
+            generated_preview_id = generated_enrichment.get("preview_asset_id")
+            object_label = admitted_enrichment.get("object_label") or generated_enrichment.get("object_label")
+            if _looks_like_image_filename(object_label):
+                object_label = "Generated image" if generated_preview_id else None
+            payload.update({
+                "action": "image.generated",
+                "event_type": "image.generated",
+                "summary": "Image generated",
+                "details": _generation_details(row, admitted),
+                "profile_id": admitted.profile_id if admitted else row.profile_id,
+                "profile_name": names.get(admitted.profile_id if admitted else row.profile_id),
+                "object_href": admitted_enrichment.get("object_href") or generated_enrichment.get("object_href"),
+                "object_label": object_label,
+                "preview_asset_id": generated_preview_id or admitted_enrichment.get("preview_asset_id"),
+            })
+        result.append(payload)
+    return result[:max(limit, 1)]
+
+
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)

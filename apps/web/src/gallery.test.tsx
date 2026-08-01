@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { AssetGrid, GalleryScreen, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
+import { AssetGrid, GalleryScreen, ModelScreen, galleryHash, galleryOpenHref, galleryPreviewGeometry, isGalleryShortcutTarget, safeReturnTarget } from "./screens-assets";
 import assetsSource from "./screens-assets.tsx?raw";
 
 vi.mock("./asset-image", () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
@@ -81,6 +81,28 @@ describe("gallery navigation contracts", () => {
     const params = new URLSearchParams(href.split("?", 2)[1]);
     expect(Object.fromEntries(params)).toMatchObject({ project: "project-1", eval: "run-7", category: "eval_output", asset: "eval-asset", return: "eval/run-7?model=model-2" });
   });
+  it("opens model eval thumbnails in the gallery while keeping the eval summary link", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      const body = path.includes("/api/models/model-1")
+        ? { id: "model-1", project_id: "project-1", name: "Model One", versions: [{ id: "version-1", base_model: "Flux" }] }
+        : path.includes("/api/projects/project-1")
+          ? { id: "project-1", title: "Project One" }
+          : path.includes("/api/eval-runs")
+            ? [{ id: "eval-1", name: "Image run", status: "succeeded", output_count: 1, outputs: [{ asset_id: "output-1", asset_revision_id: "output-1" }] }]
+            : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+
+    render(<ModelScreen id="model-1" />);
+
+    const galleryLink = await screen.findByRole("link", { name: "Open Image run in gallery" });
+    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("#/gallery"));
+    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("asset=output-1"));
+    const evalLink = screen.getByRole("link", { name: /Image run.*1 outputs/ });
+    expect(evalLink).toHaveAttribute("href", "#/eval/eval-1?project=project-1");
+  });
 
   it("constrains dataset review to its project and dataset and returns to the exact version", () => {
     location.hash = "#/dataset/dataset-9?version=version-3&page=2";
@@ -121,13 +143,14 @@ describe("gallery navigation contracts", () => {
   });
   it("contains focus and dismisses dataset image review with exact return context", async () => {
     const asset = { id: "asset-1", asset_id: "asset-1", asset_revision_id: "asset-1", project_id: "project-1", dataset_id: "dataset-1", name: "lighthouse.png", kind: "image", mime_type: "image/png", origin_type: "DATASET" };
+    const caption = "{\"description\":\"Orange lighthouse with a long sentence that must remain fully readable and selectable in the single-image gallery review without an ellipsis or clipping\"}";
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       const body = path.includes("/api/gallery/context")
         ? { items: [asset], current: asset, previous: null, next: null }
         : path.includes("/api/assets/asset-1/context")
-          ? { metadata: { caption_format: "json", caption: "{\"description\":\"Orange lighthouse\"}" }, image: { width: 640, height: 480 }, storage: [] }
+          ? { metadata: { caption_format: "json", caption }, image: { width: 640, height: 480 }, storage: [] }
           : path.includes("/api/assets/asset-1")
             ? asset
             : path.includes("/api/gallery")
@@ -140,6 +163,15 @@ describe("gallery navigation contracts", () => {
     render(<GalleryScreen projectId="project-1" params={params} />);
 
     const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
+    const visual = dialog.querySelector(".image-review-visual");
+    expect(visual).toContainElement(dialog.querySelector(".image-review-prompt"));
+    expect(visual).toContainElement(dialog.querySelector(".filmstrip"));
+    expect(Array.from(visual?.children ?? []).map(child => child.classList[0])).toEqual(["image-review-media", "image-review-prompt", "filmstrip"]);
+    expect(dialog.querySelector(".image-nav a:first-child")).toHaveTextContent("Previous");
+    expect(dialog.querySelector(".image-nav a:last-child")).toHaveTextContent("Next");
+    expect(dialog).toHaveTextContent("Rating");
+    expect(dialog).not.toHaveTextContent("Image rating (keys 1–5)");
+    expect(dialog.querySelector(".image-review-prompt")).toHaveTextContent("Orange lighthouse with a long sentence that must remain fully readable and selectable");
     const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
     expect(metadataFields).toEqual(expect.arrayContaining(["Dimensions", "Dataset", "Provider"]));
     expect(metadataFields).not.toEqual(expect.arrayContaining(["File", "Type", "Kind"]));
@@ -183,7 +215,7 @@ describe("gallery navigation contracts", () => {
       const body = path.includes("/api/gallery/context")
         ? { items: [asset], current: asset, previous: null, next: null }
         : path.includes("/api/assets/activity-image/context")
-          ? { metadata: { origin_type: "EVAL", project_id: "project-1", model_id: "model-1", model_version_id: "version-1", checkpoint_revision_id: "revision-1", provider: "fal", endpoint: "fal-ai/krea-2/turbo/lora", prompt: "watercolor portrait", relationships: { checkpoint: { name: checkpoint } } }, image: { width: 1024, height: 1024 }, storage: [] }
+          ? { metadata: { origin_type: "EVAL", project_id: "project-1", model_id: "model-1", model_version_id: "version-1", checkpoint_revision_id: "revision-1", provider: "fal", endpoint: "fal-ai/krea-2/turbo/lora", prompt: "watercolor portrait", seed: 162100712, relationships: { checkpoint: { name: checkpoint } } }, image: { width: 1024, height: 1024 }, storage: [] }
           : path.includes("/api/assets/activity-image")
             ? asset
             : path.includes("/api/gallery")
@@ -200,7 +232,14 @@ describe("gallery navigation contracts", () => {
     expect(dialog).toHaveTextContent(checkpoint);
     expect(dialog).not.toHaveTextContent(".png");
     expect(Array.from(dialog.querySelectorAll("dt"), field => field.textContent)).not.toContain("File");
+    expect(dialog).toHaveTextContent("162100712");
+    expect(Array.from(dialog.querySelectorAll("dt"), field => field.textContent)).toContain("Seed");
     expect(screen.getByRole("link", { name: "Generate" })).toBeInTheDocument();
+    const deleteButton = screen.getByRole("button", { name: "Delete image" });
+    const actionRow = dialog.querySelector(".image-review-action-row");
+    expect(actionRow).not.toBeNull();
+    expect(actionRow).toContainElement(screen.getByRole("link", { name: "Generate" }));
+    expect(actionRow).toContainElement(deleteButton);
     const metadata = dialog.querySelector(".image-all-metadata");
     const rating = dialog.querySelector(".rating-control");
     expect(metadata).not.toBeNull();

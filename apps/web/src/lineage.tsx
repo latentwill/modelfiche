@@ -1,12 +1,24 @@
-import { listOf, str } from "./api";
+import { activeWorkspaceId, listOf, str } from "./api";
 
 type Row = Record<string, unknown>;
+
+function lineageHref(value: string, projectId: string) {
+  if (!value.startsWith("#/")) return value;
+  const [path, rawQuery = ""] = value.split("?", 2);
+  const params = new URLSearchParams(rawQuery);
+  if (projectId && !params.has("project") && !path.startsWith("#/project/")) params.set("project", projectId);
+  const workspaceId = activeWorkspaceId();
+  if (workspaceId && !params.has("workspace")) params.set("workspace", workspaceId);
+  const query = params.toString();
+  return `${path}${query ? `?${query}` : ""}`;
+}
 
 function entity(row: Row, side: "source" | "target") {
   const label = str(row[`${side}_label`] ?? row[`${side}_id`], "Unknown object");
   const href = str(row[`${side}_href`], "");
+  const projectId = str(row.project_id, "");
   const type = str(row[`${side}_type`], "object").replaceAll("_", " ");
-  return <span className="lineage-entity"><small>{type}</small>{href ? <a href={href}>{label}</a> : <strong>{label}</strong>}</span>;
+  return <span className="lineage-entity"><small>{type}</small>{href ? <a href={lineageHref(href, projectId)}>{label}</a> : <strong>{label}</strong>}</span>;
 }
 
 function metadataEntries(value: unknown) {
