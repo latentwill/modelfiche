@@ -107,8 +107,8 @@ three values and start the stack through the secret manager:
 
 ```bash
 TITLES_REMOTE_ACCESS_ORIGIN=https://modelfiche.example.com
-TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client-id
-TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/client-secret
+TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client id
+TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/password
 op run --env-file=.env.1password -- mfiche start
 ```
 

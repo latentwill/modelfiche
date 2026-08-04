@@ -33,8 +33,8 @@ remote origin, the CLI sends the service credential and exact mutation Origin:
 
 ```bash
 TITLES_REMOTE_ACCESS_ORIGIN=https://modelfiche.example.com
-TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client-id
-TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/client-secret
+TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client id
+TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/password
 op run --env-file=.env.1password -- \
   mfiche --api-url https://modelfiche.example.com --json doctor
 ```
