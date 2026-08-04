@@ -10,9 +10,9 @@ runtime instructions.
   workflows, interpret output, and recover from errors.
 - [Agent guide](AGENT_GUIDE.md) — deterministic JSON-first automation contract,
   safety rules, and copy-ready recipes.
-- [W&B-compatible AI Toolkit logging](WANDB_COMPATIBILITY.md) — signed trainer
-  environments, outbound checkpoint handoff, optional live telemetry, and
-  protocol verification.
+- [W&B-compatible trainer logging](WANDB_COMPATIBILITY.md) — AI Toolkit and
+  kef-krea2 signed environments, outbound checkpoint handoff, optional live
+  telemetry, and protocol verification.
 - [FAL endpoint schemas](../FAL_ENDPOINT_SCHEMAS.md) — supported generation
   adapters and endpoint-specific request fields.
 

@@ -190,7 +190,7 @@ Before transfer:
 - do not print or commit the environment;
 - copy the packet over an encrypted channel;
 - provide only the S3 credentials named in `manifest.json`;
-- run the included sync helper beside AI Toolkit.
+- run the included sync helper beside the selected trainer.
 
 Observe through `run live`, `run metrics`, `run samples`, and `run checkpoints`.
 No inbound tunnel is needed for checkpoint handoff.

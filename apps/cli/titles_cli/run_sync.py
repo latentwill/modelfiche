@@ -42,7 +42,9 @@ def _step(path: Path) -> int:
     digits = re.findall(r"\d+", path.stem)
     if digits:
         return int(digits[-1])
-    raise ValueError(f"checkpoint filename does not include a training step: {path.name}")
+    raise ValueError(
+        f"checkpoint filename does not include a training step: {path.name}"
+    )
 
 
 def _client(destination: dict[str, Any], credentials: dict[str, Any]):
@@ -50,7 +52,9 @@ def _client(destination: dict[str, Any], credentials: dict[str, Any]):
     secret = os.getenv(str(credentials["secret_key"]))
     session = os.getenv(str(credentials.get("session_token") or "")) or None
     if not access or not secret:
-        raise RuntimeError("training storage credentials are unavailable in the named environment variables")
+        raise RuntimeError(
+            "training storage credentials are unavailable in the named environment variables"
+        )
     return boto3.client(
         "s3",
         endpoint_url=destination.get("endpoint_url"),
@@ -58,7 +62,9 @@ def _client(destination: dict[str, Any], credentials: dict[str, Any]):
         aws_access_key_id=access,
         aws_secret_access_key=secret,
         aws_session_token=session,
-        config=Config(s3={"addressing_style": destination.get("addressing_style", "auto")}),
+        config=Config(
+            s3={"addressing_style": destination.get("addressing_style", "auto")}
+        ),
     )
 
 
@@ -84,11 +90,17 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
     bucket = str(destination["bucket"])
     run_prefix = str(destination["prefix"])
     if not checkpoint_root.is_dir():
-        return {"uploaded": 0, "checkpoint_count": 0, "message": "checkpoint directory is not present yet"}
+        return {
+            "uploaded": 0,
+            "checkpoint_count": 0,
+            "message": "checkpoint directory is not present yet",
+        }
     client = _client(destination, backup["credential_environment"])
     descriptors: list[dict[str, Any]] = []
     now = time.time()
-    candidates = sorted({*checkpoint_root.rglob("*.safetensors"), *checkpoint_root.rglob("*.ckpt")})
+    candidates = sorted(
+        {*checkpoint_root.rglob("*.safetensors"), *checkpoint_root.rglob("*.ckpt")}
+    )
     for path in candidates:
         stat = path.stat()
         if now - stat.st_mtime < stable_seconds:
@@ -100,17 +112,38 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
         try:
             head = client.head_object(Bucket=bucket, Key=key)
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") not in {"404", "NoSuchKey", "NotFound"}:
+            if exc.response.get("Error", {}).get("Code") not in {
+                "404",
+                "NoSuchKey",
+                "NotFound",
+            }:
                 raise
             head = None
         if head is None:
-            client.upload_file(str(path), bucket, key, ExtraArgs={"Metadata": {"sha256": digest, "step": str(step)}})
+            client.upload_file(
+                str(path),
+                bucket,
+                key,
+                ExtraArgs={"Metadata": {"sha256": digest, "step": str(step)}},
+            )
             head = client.head_object(Bucket=bucket, Key=key)
         if int(head.get("ContentLength", -1)) != stat.st_size:
             raise RuntimeError(f"remote size verification failed for {path.name}")
-        descriptors.append({"object_key": key, "sha256": digest, "size": stat.st_size, "step": step, "name": path.stem})
+        descriptors.append(
+            {
+                "object_key": key,
+                "sha256": digest,
+                "size": stat.st_size,
+                "step": step,
+                "name": path.stem,
+            }
+        )
     if not descriptors:
-        return {"uploaded": 0, "checkpoint_count": 0, "message": "no stable checkpoints are ready"}
+        return {
+            "uploaded": 0,
+            "checkpoint_count": 0,
+            "message": "no stable checkpoints are ready",
+        }
     handoff = backup["checkpoint_handoff"]
     manifest_prefix = str(handoff["manifest_prefix"])
     generation = _generation(client, bucket, manifest_prefix)
@@ -123,16 +156,24 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
     raw = json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
     digest = hashlib.sha256(raw).hexdigest()
     manifest_key = f"{manifest_prefix}{generation}.json"
-    receipt = client.put_object(Bucket=bucket, Key=manifest_key, Body=raw, ContentType="application/json", Metadata={"sha256": digest})
-    callback_body = json.dumps({
-        "schema_version": "modelfiche.checkpoint-manifest.v1",
-        "generation": generation,
-        "manifest_key": manifest_key,
-        "manifest_sha256": digest,
-        "manifest_etag": str(receipt.get("ETag", "")).strip('"') or None,
-        "manifest_version_id": receipt.get("VersionId"),
-        "checkpoint_count": len(descriptors),
-    }).encode("utf-8")
+    receipt = client.put_object(
+        Bucket=bucket,
+        Key=manifest_key,
+        Body=raw,
+        ContentType="application/json",
+        Metadata={"sha256": digest},
+    )
+    callback_body = json.dumps(
+        {
+            "schema_version": "modelfiche.checkpoint-manifest.v1",
+            "generation": generation,
+            "manifest_key": manifest_key,
+            "manifest_sha256": digest,
+            "manifest_etag": str(receipt.get("ETag", "")).strip('"') or None,
+            "manifest_version_id": receipt.get("VersionId"),
+            "checkpoint_count": len(descriptors),
+        }
+    ).encode("utf-8")
     callback_required = bool(handoff.get("callback_required", True))
     callback_status = "skipped"
     token = os.getenv("MODELFICHE_HANDOFF_TOKEN")
@@ -142,19 +183,26 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
             str(handoff["callback_url"]),
             data=callback_body,
             method="POST",
-            headers={"Authorization": f"Basic {authorization}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Basic {authorization}",
+                "Content-Type": "application/json",
+            },
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 if response.status not in {200, 201}:
-                    raise RuntimeError(f"checkpoint callback failed with HTTP {response.status}")
+                    raise RuntimeError(
+                        f"checkpoint callback failed with HTTP {response.status}"
+                    )
             callback_status = "delivered"
         except (urllib.error.URLError, RuntimeError):
             if callback_required:
                 raise
             callback_status = "unavailable"
     elif callback_required:
-        raise RuntimeError("MODELFICHE_HANDOFF_TOKEN is required for checkpoint handoff")
+        raise RuntimeError(
+            "MODELFICHE_HANDOFF_TOKEN is required for checkpoint handoff"
+        )
     return {
         "uploaded": len(descriptors),
         "checkpoint_count": len(descriptors),
@@ -166,7 +214,9 @@ def sync_once(manifest: dict[str, Any], *, stable_seconds: int) -> dict[str, Any
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Back up stable AI Toolkit checkpoints and publish ModelFiche handoffs")
+    parser = argparse.ArgumentParser(
+        description="Back up stable trainer checkpoints and publish Modelfiche handoffs"
+    )
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--interval", type=int, default=300)

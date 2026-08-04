@@ -1,6 +1,6 @@
-# W&B-Compatible AI Toolkit Logging
+# W&B-Compatible Trainer Logging
 
-Modelfiche implements the narrow W&B 0.28.0 protocol surface used by AI Toolkit. It accepts live scalar and text metrics, configuration, image samples and captions, run resume, and run completion. It is not a general W&B server.
+Modelfiche implements the narrow W&B 0.28.0 protocol surface used by AI Toolkit and kef-krea2. It accepts live scalar and text metrics, configuration, image samples and captions, run resume, and run completion. It is not a general W&B server.
 
 No wandb.ai account or vendor API key is used. `WANDB_API_KEY` is only the
 environment-variable slot that the pinned SDK uses to build its HTTP Basic
@@ -12,7 +12,7 @@ token and directs all traffic to `WANDB_BASE_URL`.
 | Item | Contract |
 | --- | --- |
 | W&B SDK | Exactly `wandb==0.28.0` |
-| Trainer | AI Toolkit `WandbLogger` and the canonical calls covered by the compatibility tests |
+| Trainer | AI Toolkit `WandbLogger` or kef-krea2's Modelfiche telemetry adapter |
 | Run ownership | The DAM creates the launch and expected run before the trainer connects |
 | Authentication | Modelfiche run-scoped Ed25519 `MF1_...` token carried in the SDK's `WANDB_API_KEY` compatibility slot; no wandb.ai key |
 | Metrics | Scalar numbers and text values, persisted by step in the database |
@@ -28,6 +28,8 @@ wandb.log(metrics, commit=False)
 wandb.log({}, step=step, commit=True)
 wandb.log({"sample": wandb.Image(image, caption=caption)})
 run.finish()
+# kef-krea2 uses the equivalent run-scoped call:
+run.log(metrics, step=step)
 ```
 
 Unsupported GraphQL documents, file paths, media types, sweeps, reports, tables, artifact registries, model registries, and generic W&B integrations fail explicitly. Do not point unrelated W&B integrations at this service.
@@ -108,7 +110,7 @@ Store the private-key file in the operator's secret manager or encrypted trainer
 
 ## Create a training launch
 
-A launch binds one dataset version, one W&B credential, one writable S3 source, and one expected DAM run. Use a caller-generated `client_request_id`; retrying the same request is idempotent.
+A launch binds one dataset version, one W&B credential, one writable S3 source, one trainer (`ai-toolkit` or `kef-krea2`), and one expected DAM run. Use a caller-generated `client_request_id`; retrying the same request is idempotent. Create one Modelfiche launch per kef-krea2 grid member so each DAM run has one monotonic step sequence.
 
 Create `launch.json`:
 
@@ -148,8 +150,8 @@ The same fields can be supplied as flags. Use `mfiche training-launch create --h
 ## Produce the trainer packet
 
 The recommended command downloads the immutable dataset export and writes it
-beside the manifest, signed environment, logging fragment, checksums, and
-checkpoint-sync helper:
+beside the manifest, signed environment, trainer-specific logging metadata,
+checksums, and checkpoint-sync helper:
 
 ```bash
 mfiche --json training run prepare <launch-id> --output ./trainer-packet
@@ -158,8 +160,8 @@ mfiche --json training run prepare <launch-id> --output ./trainer-packet
 The default packet sets `MODELFICHE_TRANSPORT=object-storage`; it does not set a
 W&B base URL. Copy the packet to the trainer, verify `checksums.json`, extract
 `training-dataset.zip`, provide the S3 credentials named by the manifest, and
-run `modelfiche-run-sync.py` beside AI Toolkit. No inbound connection is
-required.
+run `modelfiche-run-sync.py` beside the selected trainer. No inbound connection
+is required.
 
 For deployments that explicitly enable live W&B telemetry, the ordinary
 environment endpoint intentionally contains a token placeholder:
@@ -202,6 +204,19 @@ set -a
 . /run/secrets/modelfiche-training.env
 set +a
 python run.py <ai-toolkit-config.yaml>
+```
+
+For Krea 2 embeddings, create the launch with `"trainer": "kef-krea2"` (or
+`mfiche training run create --trainer kef-krea2`), install the pinned
+`wandb==0.28.0` training extra, and source the same generated environment:
+
+```bash
+set -a
+. /run/secrets/modelfiche-training.env
+set +a
+kef-krea2-train <finalized-image-dir> <launch-output-directory> \
+  --name <launch-name> \
+  --model-revision <RAW_MODEL_COMMIT>
 ```
 
 Calling `agent-environment` without `--output` writes the secret-bearing shell environment to stdout. This is intentional for process substitution, but agents should prefer a `0600` file to avoid accidental transcript capture.

@@ -1053,6 +1053,7 @@ def training_run_create(
     dataset: str = typer.Option(..., "--dataset"),
     name: str = typer.Option(..., "--name"),
     base_model: str = typer.Option(..., "--base-model"),
+    trainer: str = typer.Option("ai-toolkit", "--trainer"),
     version: str | None = typer.Option(None, "--version"),
     output_directory: str = typer.Option("/workspace/output", "--output-directory"),
     checkpoint_every: int = typer.Option(1000, "--checkpoint-every", min=1),
@@ -1062,6 +1063,8 @@ def training_run_create(
     ),
 ) -> None:
     """Create a launch from human-readable inputs using verified setup defaults."""
+    if trainer not in {"ai-toolkit", "kef-krea2"}:
+        raise typer.BadParameter("--trainer must be ai-toolkit or kef-krea2")
     runtime = rt(ctx)
     client = runtime.client()
     try:
@@ -1102,7 +1105,7 @@ def training_run_create(
                 "source_id": sources[0]["id"],
                 "client_request_id": request_id,
                 "name": name,
-                "trainer": "ai-toolkit",
+                "trainer": trainer,
                 "base_model": base_model,
                 "output_directory": output_directory,
                 "checkpoint_policy": {"every_n_steps": checkpoint_every},
@@ -1166,28 +1169,60 @@ def training_run_prepare(
         destination = output.expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         destination.chmod(0o700)
-        files = {
-            "manifest.json": json.dumps(packet["manifest"], indent=2, sort_keys=True)
-            + "\n",
-            "preflight.json": json.dumps(packet["preflight"], indent=2, sort_keys=True)
-            + "\n",
-            "ai-toolkit-logging.yaml": yaml.safe_dump(
-                packet["ai_toolkit"], sort_keys=False
-            ),
-            "trainer.env": secret_environment,
-            "modelfiche-run-sync.py": Path(__file__)
-            .with_name("run_sync.py")
-            .read_text(encoding="utf-8"),
-            "run-sync-command.txt": "python3 modelfiche-run-sync.py --manifest manifest.json\n",
-            "README.txt": (
-                "ModelFiche training packet\n\n"
+        trainer_id = str(packet["manifest"]["run"]["trainer"])
+        if trainer_id == "ai-toolkit":
+            trainer_files = {
+                "ai-toolkit-logging.yaml": yaml.safe_dump(
+                    packet["ai_toolkit"], sort_keys=False
+                ),
+            }
+            readme = (
+                "ModelFiche AI Toolkit training packet\n\n"
                 "1. Copy this directory to the trainer host over an encrypted channel.\n"
                 "2. Verify checksums.json, then extract training-dataset.zip.\n"
                 "3. Provide the S3 credentials named in manifest.json.\n"
                 "4. Merge ai-toolkit-logging.yaml into the selected AI Toolkit job config.\n"
                 "5. Start `python3 modelfiche-run-sync.py --manifest manifest.json` beside AI Toolkit.\n"
                 "6. Start AI Toolkit. No inbound tunnel to ModelFiche is required.\n"
-            ),
+            )
+            next_action = (
+                "Copy the packet to the trainer, verify checksums, and start AI Toolkit "
+                "with outbound S3 credentials."
+            )
+        elif trainer_id == "kef-krea2":
+            trainer_files = {
+                "kef-krea2-telemetry.json": json.dumps(
+                    packet["trainer"], indent=2, sort_keys=True
+                )
+                + "\n",
+            }
+            readme = (
+                "ModelFiche kef-krea2 training packet\n\n"
+                "1. Copy this directory to the trainer host over an encrypted channel.\n"
+                "2. Verify checksums.json, then extract training-dataset.zip.\n"
+                "3. Provide the S3 credentials named in manifest.json.\n"
+                "4. Source trainer.env in the kef-krea2 trainer process.\n"
+                "5. Start `python3 modelfiche-run-sync.py --manifest manifest.json` beside kef-krea2.\n"
+                "6. Start one kef-krea2 run for this launch. Telemetry uses the Modelfiche W&B shim.\n"
+            )
+            next_action = (
+                "Copy the packet to the trainer, verify checksums, source trainer.env, "
+                "and start one kef-krea2 run with outbound S3 credentials."
+            )
+        else:
+            raise ValueError(f"unsupported trainer packet: {trainer_id}")
+        files = {
+            "manifest.json": json.dumps(packet["manifest"], indent=2, sort_keys=True)
+            + "\n",
+            "preflight.json": json.dumps(packet["preflight"], indent=2, sort_keys=True)
+            + "\n",
+            "trainer.env": secret_environment,
+            "modelfiche-run-sync.py": Path(__file__)
+            .with_name("run_sync.py")
+            .read_text(encoding="utf-8"),
+            "run-sync-command.txt": "python3 modelfiche-run-sync.py --manifest manifest.json\n",
+            "README.txt": readme,
+            **trainer_files,
         }
         checksums: dict[str, str] = {}
         for filename, body in files.items():
@@ -1213,7 +1248,7 @@ def training_run_prepare(
                 "run_id": packet["run_id"],
                 "output": str(destination),
                 "files": sorted([*files, "training-dataset.zip", "checksums.json"]),
-                "next_action": "Copy the packet to the trainer, verify checksums, and start AI Toolkit with outbound S3 credentials.",
+                "next_action": next_action,
             },
             json_output=runtime.json_output,
             jsonl=runtime.jsonl,

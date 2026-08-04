@@ -279,16 +279,20 @@ mfiche --json training doctor
 mfiche --json training run create \
   --dataset <dataset-id-or-name> \
   --name portrait-lora-v4 \
+  --trainer ai-toolkit \
   --base-model FLUX.1-dev
 mfiche --json training run preflight <launch-id>
 mfiche --json training run prepare <launch-id> \
   --output ./modelfiche-training-packet
 ```
 
-The packet includes `training-dataset.zip`, `manifest.json`, `trainer.env`, the
-AI Toolkit logging fragment, `modelfiche-run-sync.py`, and `checksums.json`.
-Copy it over an encrypted channel, verify checksums, supply the S3 credentials
-named by the manifest, and run the sync helper beside AI Toolkit.
+The packet includes `training-dataset.zip`, `manifest.json`, `trainer.env`,
+trainer-specific logging metadata, `modelfiche-run-sync.py`, and
+`checksums.json`. Copy it over an encrypted channel, verify checksums, supply
+the S3 credentials named by the manifest, and run the sync helper beside the
+selected trainer. For Krea 2 embeddings, pass `--trainer kef-krea2`; its packet
+contains `kef-krea2-telemetry.json`, and the trainer reads the sourced
+`trainer.env` automatically.
 
 Observe the run:
 

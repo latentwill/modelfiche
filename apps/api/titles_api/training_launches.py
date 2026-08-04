@@ -20,7 +20,7 @@ from .settings import get_settings
 
 MANIFEST_VERSION = "modelfiche.training-launch.v1"
 WANDB_SDK_VERSION = "0.28.0"
-WANDB_PROTOCOL_REVISION = "wandb-0.28.0-ai-toolkit-v1"
+WANDB_PROTOCOL_REVISION = "wandb-0.28.0-modelfiche-trainers-v1"
 TOKEN_FORMAT = "MF1_BASE32_ED25519"
 BACKUP_SCHEMA_VERSION = "modelfiche.run-backup.v1"
 CHECKPOINT_MANIFEST_VERSION = "modelfiche.checkpoint-manifest.v1"
@@ -51,7 +51,9 @@ class LaunchRequest:
 
 
 def _canonical_json(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
 
 
 def _sha256(value: object) -> str:
@@ -66,14 +68,22 @@ def _project_slug(title: str, project_id: str) -> str:
 def _allocate_wandb_run_id(session: Session) -> str:
     for _ in range(8):
         candidate = secrets.token_hex(4)
-        exists = session.scalar(select(models.TrainingRun.id).where(models.TrainingRun.wandb_run_id == candidate))
+        exists = session.scalar(
+            select(models.TrainingRun.id).where(
+                models.TrainingRun.wandb_run_id == candidate
+            )
+        )
         if exists is None:
             return candidate
     raise LaunchError("unable to allocate a unique W&B run ID")
 
 
 def _source_allows_prefix(source: models.ImportSource, prefix: str) -> bool:
-    allowed = [str(value).strip("/") + "/" for value in (source.allowed_prefixes or []) if str(value).strip("/")]
+    allowed = [
+        str(value).strip("/") + "/"
+        for value in (source.allowed_prefixes or [])
+        if str(value).strip("/")
+    ]
     return not allowed or any(prefix.startswith(value) for value in allowed)
 
 
@@ -84,7 +94,11 @@ def _backup_configuration(
     callback_url: str,
 ) -> dict[str, object]:
     interval = request.backup_policy.get("interval_seconds", 300)
-    if not isinstance(interval, int) or isinstance(interval, bool) or not 30 <= interval <= 3600:
+    if (
+        not isinstance(interval, int)
+        or isinstance(interval, bool)
+        or not 30 <= interval <= 3600
+    ):
         raise LaunchError("backup interval_seconds must be between 30 and 3600")
     return {
         "schema_version": BACKUP_SCHEMA_VERSION,
@@ -160,7 +174,15 @@ def _launch_projection(launch: models.TrainingLaunch) -> dict[str, object]:
 def get_launch_projection(launch: models.TrainingLaunch) -> dict[str, object]:
     return _launch_projection(launch)
 
-def _check(code: str, passed: bool, message: str, *, fix: str | None = None, owner: str = "model_fiche") -> dict[str, object]:
+
+def _check(
+    code: str,
+    passed: bool,
+    message: str,
+    *,
+    fix: str | None = None,
+    owner: str = "model_fiche",
+) -> dict[str, object]:
     return {
         "code": code,
         "status": "pass" if passed else "blocked",
@@ -170,12 +192,20 @@ def _check(code: str, passed: bool, message: str, *, fix: str | None = None, own
     }
 
 
-def launch_preflight(session: Session, launch: models.TrainingLaunch) -> dict[str, object]:
+def launch_preflight(
+    session: Session, launch: models.TrainingLaunch
+) -> dict[str, object]:
     run = session.get(models.TrainingRun, launch.run_id)
     version = session.get(models.DatasetVersion, launch.dataset_version_id)
     credential = session.get(models.WandbIngestCredential, launch.wandb_credential_id)
-    source = session.get(models.ImportSource, launch.source_id) if launch.source_id else None
-    export = session.get(models.Job, launch.dataset_export_job_id) if launch.dataset_export_job_id else None
+    source = (
+        session.get(models.ImportSource, launch.source_id) if launch.source_id else None
+    )
+    export = (
+        session.get(models.Job, launch.dataset_export_job_id)
+        if launch.dataset_export_job_id
+        else None
+    )
     item_count = int(
         session.scalar(
             select(func.count())
@@ -187,13 +217,28 @@ def launch_preflight(session: Session, launch: models.TrainingLaunch) -> dict[st
         )
         or 0
     )
-    export_state = export.state.value if export is not None and hasattr(export.state, "value") else str(export.state if export else "")
-    export_path = Path(str((export.result or {}).get("path", ""))).resolve() if export and (export.result or {}).get("path") else None
-    export_ready = bool(export and export_state == "succeeded" and export_path and export_path.is_file())
+    export_state = (
+        export.state.value
+        if export is not None and hasattr(export.state, "value")
+        else str(export.state if export else "")
+    )
+    export_path = (
+        Path(str((export.result or {}).get("path", ""))).resolve()
+        if export and (export.result or {}).get("path")
+        else None
+    )
+    export_ready = bool(
+        export and export_state == "succeeded" and export_path and export_path.is_file()
+    )
     telemetry = (launch.redacted_manifest or {}).get("telemetry", {})
-    live_telemetry = bool(telemetry.get("live_enabled")) if isinstance(telemetry, dict) else False
-    transport = str(telemetry.get("transport") or "") if isinstance(telemetry, dict) else ""
-    claims = telemetry.get("token", {}).get("claims", {}) if isinstance(telemetry, dict) else {}
+    transport = (
+        str(telemetry.get("transport") or "") if isinstance(telemetry, dict) else ""
+    )
+    claims = (
+        telemetry.get("token", {}).get("claims", {})
+        if isinstance(telemetry, dict)
+        else {}
+    )
     expires_text = str(claims.get("expires_at") or "")
     try:
         expires_at = datetime.fromisoformat(expires_text.replace("Z", "+00:00"))
@@ -201,28 +246,101 @@ def launch_preflight(session: Session, launch: models.TrainingLaunch) -> dict[st
     except ValueError:
         token_window_valid = False
     launch_open = launch.state not in {"canceled", "deleted", "archived"}
-    run_pending = run is not None and run.status == "pending" and run.archived_at is None
+    run_pending = (
+        run is not None and run.status == "pending" and run.archived_at is None
+    )
 
     checks = [
-        _check("LAUNCH_OPEN", launch_open, "Launch can accept a trainer." if launch_open else "Launch is no longer startable."),
-        _check("RUN_PENDING", run_pending, "DAM training record is pending." if run_pending else "DAM training record is not pending."),
-        _check("DATASET_PUBLISHED", bool(version and version.status == "published"), "Dataset version is immutable and published." if version and version.status == "published" else "Publish the selected dataset version.", fix="Publish the dataset version."),
-        _check("DATASET_NONEMPTY", item_count > 0, f"{item_count} included training images found." if item_count else "The published version has no included images.", fix="Include at least one image and publish a new version."),
-        _check("EXPORT_READY", export_ready, f"Dataset export is ready ({export_path.stat().st_size} bytes)." if export_ready and export_path else "Dataset export is not complete or is missing.", fix="Wait for or retry the dataset export."),
-        _check("SIGNING_CREDENTIAL", bool(credential and credential.state == "active"), "Run-scoped signing credential is active." if credential and credential.state == "active" else "The W&B signing credential is missing, revoked, or inactive.", fix="Run `mfiche training setup`."),
-        _check("SIGNING_WINDOW", token_window_valid, "Signing claims are within their validity window." if token_window_valid else "The launch signing window has expired.", fix="Create a fresh launch."),
-        _check("STORAGE_SOURCE", bool(source and source.is_active and source.identity_fingerprint), "Verified training storage is bound." if source and source.is_active and source.identity_fingerprint else "A verified writable training source is required.", fix="Verify a training S3 source."),
-        _check("TRAINER_TRANSPORT", transport == "object_storage", "Trainer uses outbound object storage; no inbound tunnel is required." if transport == "object_storage" else "Outbound training transport is not configured.", fix="Select a verified training S3 source."),
+        _check(
+            "LAUNCH_OPEN",
+            launch_open,
+            "Launch can accept a trainer."
+            if launch_open
+            else "Launch is no longer startable.",
+        ),
+        _check(
+            "RUN_PENDING",
+            run_pending,
+            "DAM training record is pending."
+            if run_pending
+            else "DAM training record is not pending.",
+        ),
+        _check(
+            "DATASET_PUBLISHED",
+            bool(version and version.status == "published"),
+            "Dataset version is immutable and published."
+            if version and version.status == "published"
+            else "Publish the selected dataset version.",
+            fix="Publish the dataset version.",
+        ),
+        _check(
+            "DATASET_NONEMPTY",
+            item_count > 0,
+            f"{item_count} included training images found."
+            if item_count
+            else "The published version has no included images.",
+            fix="Include at least one image and publish a new version.",
+        ),
+        _check(
+            "EXPORT_READY",
+            export_ready,
+            f"Dataset export is ready ({export_path.stat().st_size} bytes)."
+            if export_ready and export_path
+            else "Dataset export is not complete or is missing.",
+            fix="Wait for or retry the dataset export.",
+        ),
+        _check(
+            "SIGNING_CREDENTIAL",
+            bool(credential and credential.state == "active"),
+            "Run-scoped signing credential is active."
+            if credential and credential.state == "active"
+            else "The W&B signing credential is missing, revoked, or inactive.",
+            fix="Run `mfiche training setup`.",
+        ),
+        _check(
+            "SIGNING_WINDOW",
+            token_window_valid,
+            "Signing claims are within their validity window."
+            if token_window_valid
+            else "The launch signing window has expired.",
+            fix="Create a fresh launch.",
+        ),
+        _check(
+            "STORAGE_SOURCE",
+            bool(source and source.is_active and source.identity_fingerprint),
+            "Verified training storage is bound."
+            if source and source.is_active and source.identity_fingerprint
+            else "A verified writable training source is required.",
+            fix="Verify a training S3 source.",
+        ),
+        _check(
+            "TRAINER_TRANSPORT",
+            transport == "object_storage",
+            "Trainer uses outbound object storage; no inbound tunnel is required."
+            if transport == "object_storage"
+            else "Outbound training transport is not configured.",
+            fix="Select a verified training S3 source.",
+        ),
     ]
     blockers = [item for item in checks if item["status"] != "pass"]
     ready = not blockers
-    next_action = None if ready else {
-        "label": blockers[0]["message"],
-        "fix": blockers[0].get("fix"),
-        "owner": blockers[0]["owner"],
-    }
-    phase = "ready_for_trainer" if ready else (
-        "waiting_for_export" if any(item["code"] == "EXPORT_READY" for item in blockers) else "blocked"
+    next_action = (
+        None
+        if ready
+        else {
+            "label": blockers[0]["message"],
+            "fix": blockers[0].get("fix"),
+            "owner": blockers[0]["owner"],
+        }
+    )
+    phase = (
+        "ready_for_trainer"
+        if ready
+        else (
+            "waiting_for_export"
+            if any(item["code"] == "EXPORT_READY" for item in blockers)
+            else "blocked"
+        )
     )
     return {
         "launch_id": launch.id,
@@ -236,41 +354,102 @@ def launch_preflight(session: Session, launch: models.TrainingLaunch) -> dict[st
     }
 
 
-def launch_packet(session: Session, launch: models.TrainingLaunch) -> dict[str, object]:
-    preflight = launch_preflight(session, launch)
-    if not preflight["ready_to_start"]:
-        raise LaunchError("training launch preflight has blockers")
-    manifest = launch.redacted_manifest
+def _trainer_configuration(manifest: dict[str, Any]) -> dict[str, object]:
     telemetry = manifest["telemetry"]
     live_telemetry = bool(telemetry.get("live_enabled"))
-    return {
-        "schema_version": "modelfiche.training-packet.v1",
-        "launch_id": launch.id,
-        "run_id": launch.run_id,
-        "manifest": manifest,
-        "preflight": preflight,
-        "ai_toolkit": {
+    required_environment = (
+        [
+            "WANDB_BASE_URL",
+            "WANDB_PROJECT",
+            "WANDB_RUN_ID",
+            "WANDB_RESUME",
+            "WANDB_API_KEY",
+        ]
+        if live_telemetry
+        else []
+    ) + [
+        manifest["backup"]["credential_environment"]["access_key"],
+        manifest["backup"]["credential_environment"]["secret_key"],
+    ]
+    trainer = manifest["run"]["trainer"]
+    if trainer == "ai-toolkit":
+        return {
+            "id": trainer,
             "logging": {
                 "use_wandb": live_telemetry,
                 "project_name": telemetry["project"],
                 "run_name": manifest["run"]["name"],
             },
-            "required_environment": (
-                ["WANDB_BASE_URL", "WANDB_PROJECT", "WANDB_RUN_ID", "WANDB_RESUME", "WANDB_API_KEY"]
-                if live_telemetry
-                else []
-            ) + [
-                manifest["backup"]["credential_environment"]["access_key"],
-                manifest["backup"]["credential_environment"]["secret_key"],
-            ],
-        },
-        "instructions": [
-            "Render the self-contained trainer packet with `mfiche training run prepare`.",
-            "Copy the packet to the trainer and verify checksums.json.",
-            "Extract training-dataset.zip before starting AI Toolkit.",
-            "Run modelfiche-run-sync.py beside AI Toolkit; it sends checkpoints through outbound object storage.",
-        ],
+            "required_environment": required_environment,
+        }
+    if trainer == "kef-krea2":
+        return {
+            "id": trainer,
+            "telemetry": {
+                "enabled": live_telemetry,
+                "provider": "modelfiche-wandb-shim",
+                "sdk": "wandb",
+                "sdk_version": WANDB_SDK_VERSION,
+                "entity": telemetry["entity"],
+                "metric_mapping": {
+                    "loss": "loss",
+                    "grad_norm": "grad_norm",
+                    "learning_rate": "learning_rate",
+                    "elapsed_seconds": "performance/elapsed_seconds",
+                    "seconds_per_step": "performance/seconds_per_step",
+                    "examples_per_second": "performance/examples_per_second",
+                    "peak_cuda_memory_gb": "system/peak_cuda_memory_gb",
+                    "token_residual_rms": "embedding/token_residual_rms",
+                },
+            },
+            "required_environment": required_environment,
+        }
+    raise LaunchError(f"unsupported trainer: {trainer}")
+
+
+def launch_packet(session: Session, launch: models.TrainingLaunch) -> dict[str, object]:
+    preflight = launch_preflight(session, launch)
+    if not preflight["ready_to_start"]:
+        raise LaunchError("training launch preflight has blockers")
+    manifest = launch.redacted_manifest
+    trainer = _trainer_configuration(manifest)
+    trainer_id = str(trainer["id"])
+    instructions = [
+        "Render the self-contained trainer packet with `mfiche training run prepare`.",
+        "Copy the packet to the trainer and verify checksums.json.",
+        "Extract training-dataset.zip before starting the trainer.",
+    ]
+    if trainer_id == "ai-toolkit":
+        instructions.extend(
+            [
+                "Merge ai-toolkit-logging.yaml into the selected AI Toolkit job config.",
+                "Run modelfiche-run-sync.py beside AI Toolkit; it sends checkpoints through outbound object storage.",
+                "Start AI Toolkit. No inbound tunnel to Modelfiche is required.",
+            ]
+        )
+    else:
+        instructions.extend(
+            [
+                "Source trainer.env in the kef-krea2 trainer process; live metrics use the run-scoped Modelfiche shim.",
+                "Run modelfiche-run-sync.py beside kef-krea2; it sends embedding checkpoints through outbound object storage.",
+                "Start one kef-krea2 run for this launch. No inbound tunnel to Modelfiche is required.",
+            ]
+        )
+    packet: dict[str, object] = {
+        "schema_version": "modelfiche.training-packet.v1",
+        "launch_id": launch.id,
+        "run_id": launch.run_id,
+        "manifest": manifest,
+        "preflight": preflight,
+        "trainer": trainer,
+        "instructions": instructions,
     }
+    if trainer_id == "ai-toolkit":
+        packet["ai_toolkit"] = {
+            "logging": trainer["logging"],
+            "required_environment": trainer["required_environment"],
+        }
+    return packet
 
 
 def cancel_training_launch(session: Session, launch: models.TrainingLaunch) -> None:
@@ -283,7 +462,9 @@ def cancel_training_launch(session: Session, launch: models.TrainingLaunch) -> N
     session.flush()
 
 
-def delete_unstarted_training_launch(session: Session, launch: models.TrainingLaunch) -> None:
+def delete_unstarted_training_launch(
+    session: Session, launch: models.TrainingLaunch
+) -> None:
     run = session.get(models.TrainingRun, launch.run_id)
     if run is None or run.status not in {"pending", "canceled"}:
         raise LaunchError("only unstarted training launches can be deleted")
@@ -298,11 +479,22 @@ def delete_unstarted_training_launch(session: Session, launch: models.TrainingLa
         models.Sample,
     )
     if any(
-        int(session.scalar(select(func.count()).select_from(model).where(model.run_id == run.id)) or 0)
+        int(
+            session.scalar(
+                select(func.count()).select_from(model).where(model.run_id == run.id)
+            )
+            or 0
+        )
         for model in dependent_models
     ):
-        raise LaunchError("launch has accepted training data and must be archived instead")
-    export = session.get(models.Job, launch.dataset_export_job_id) if launch.dataset_export_job_id else None
+        raise LaunchError(
+            "launch has accepted training data and must be archived instead"
+        )
+    export = (
+        session.get(models.Job, launch.dataset_export_job_id)
+        if launch.dataset_export_job_id
+        else None
+    )
     if export is not None:
         raw_path = (export.result or {}).get("path")
         if raw_path:
@@ -316,7 +508,9 @@ def delete_unstarted_training_launch(session: Session, launch: models.TrainingLa
     session.flush()
 
 
-def create_training_launch(session: Session, request: LaunchRequest) -> tuple[models.TrainingLaunch, bool]:
+def create_training_launch(
+    session: Session, request: LaunchRequest
+) -> tuple[models.TrainingLaunch, bool]:
     request_digest = _sha256(_request_identity(request))
     existing = session.scalar(
         select(models.TrainingLaunch).where(
@@ -326,7 +520,9 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
     )
     if existing is not None:
         if existing.redacted_manifest.get("request_digest") != request_digest:
-            raise LaunchError("client_request_id is already bound to a different launch request")
+            raise LaunchError(
+                "client_request_id is already bound to a different launch request"
+            )
         return existing, False
 
     version = session.get(models.DatasetVersion, request.dataset_version_id)
@@ -363,10 +559,26 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
         raise LaunchError(f"unsupported FAL endpoint IDs: {', '.join(unsupported)}")
 
     if not version.content_digest:
-        items = session.scalars(select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version.id)).all()
-        subsets = session.scalars(select(models.DatasetVersionSubset).where(models.DatasetVersionSubset.dataset_version_id == version.id)).all()
+        items = session.scalars(
+            select(models.DatasetItem).where(
+                models.DatasetItem.dataset_version_id == version.id
+            )
+        ).all()
+        subsets = session.scalars(
+            select(models.DatasetVersionSubset).where(
+                models.DatasetVersionSubset.dataset_version_id == version.id
+            )
+        ).all()
         subset_ids = [subset.id for subset in subsets]
-        memberships = session.scalars(select(models.DatasetSubsetItem).where(models.DatasetSubsetItem.subset_id.in_(subset_ids))).all() if subset_ids else []
+        memberships = (
+            session.scalars(
+                select(models.DatasetSubsetItem).where(
+                    models.DatasetSubsetItem.subset_id.in_(subset_ids)
+                )
+            ).all()
+            if subset_ids
+            else []
+        )
         version.content_digest = content_digest(version, items, subsets, memberships)
 
     run = models.TrainingRun(
@@ -389,19 +601,28 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
     )
     session.add(run)
     session.flush()
-    item_count = int(session.scalar(select(func.count()).select_from(models.DatasetItem).where(
-        models.DatasetItem.dataset_version_id == version.id,
-        models.DatasetItem.included.is_(True),
-    )) or 0)
-    session.add(models.TrainingRunDatasetInput(
-        run_id=run.id,
-        dataset_version_id=version.id,
-        item_count_snapshot=item_count,
-        sampling_weight=1.0,
-        repeat_count=1,
-        position=0,
-        dataset_content_digest=version.content_digest,
-    ))
+    item_count = int(
+        session.scalar(
+            select(func.count())
+            .select_from(models.DatasetItem)
+            .where(
+                models.DatasetItem.dataset_version_id == version.id,
+                models.DatasetItem.included.is_(True),
+            )
+        )
+        or 0
+    )
+    session.add(
+        models.TrainingRunDatasetInput(
+            run_id=run.id,
+            dataset_version_id=version.id,
+            item_count_snapshot=item_count,
+            sampling_weight=1.0,
+            repeat_count=1,
+            position=0,
+            dataset_content_digest=version.content_digest,
+        )
+    )
 
     run_prefix = f"projects/{project.id}/runs/{run.id}/"
     if not _source_allows_prefix(source, run_prefix):
@@ -485,6 +706,7 @@ def create_training_launch(session: Session, request: LaunchRequest) -> tuple[mo
         "telemetry": {
             "sdk": "wandb",
             "sdk_version": WANDB_SDK_VERSION,
+            "protocol_revision": WANDB_PROTOCOL_REVISION,
             "live_enabled": request.live_telemetry,
             "transport": "object_storage",
             "base_url": base_url if request.live_telemetry else None,

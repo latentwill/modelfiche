@@ -304,7 +304,7 @@ class TrainingLaunchCreate(BaseModel):
     source_id: str
     client_request_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=240)
-    trainer: Literal["ai-toolkit"] = "ai-toolkit"
+    trainer: Literal["ai-toolkit", "kef-krea2"] = "ai-toolkit"
     base_model: str = Field(min_length=1, max_length=500)
     output_directory: str = Field(min_length=1, max_length=2048)
     checkpoint_policy: dict[str, Any] = Field(default_factory=dict)

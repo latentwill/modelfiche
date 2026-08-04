@@ -245,6 +245,7 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
             "source_id": source["id"],
             "client_request_id": "ingress-launch-1",
             "name": "ingress-run",
+            "trainer": "kef-krea2",
             "base_model": "FLUX.1-dev",
             "output_directory": "/workspace/output",
         },
@@ -383,6 +384,9 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
                             "_step": 2,
                             "_timestamp": 100.0,
                             "loss/denoise": 0.4,
+                            "loss": 0.4,
+                            "grad_norm": 1.5,
+                            "embedding/token_residual_rms": 0.03,
                             "learning_rate": 0.0001,
                             "phase": "training",
                         }
@@ -538,12 +542,16 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
         )
         assert [(row.step, row.name, row.value, row.value_text) for row in metrics] == [
             (1, "loss/denoise", 0.5, None),
+            (2, "embedding/token_residual_rms", 0.03, None),
+            (2, "grad_norm", 1.5, None),
             (2, "learning_rate", 0.0001, None),
+            (2, "loss", 0.4, None),
             (2, "loss/denoise", 0.4, None),
             (2, "phase", None, "training"),
         ]
         summaries = {row.name: row for row in db.query(models.RunMetricSummary).all()}
         assert summaries["loss/denoise"].last_step == 2
+        assert summaries["embedding/token_residual_rms"].last_value == 0.03
         assert summaries["phase"].last_value_text == "training"
         assert db.query(models.RunEvent).filter_by(type="run.completed").count() == 1
         uploads = {row.relative_path: row for row in db.query(models.RunUpload).all()}

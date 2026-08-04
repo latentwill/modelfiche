@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from titles_api import app as app_module
 from titles_api import models
 from titles_api.routers.training_launches import _resolve_live_telemetry
+from titles_api.training_launches import _trainer_configuration
 
 
 def _public_key(seed: int) -> str:
@@ -26,7 +27,9 @@ def test_live_telemetry_prefers_configured_ingress_without_becoming_required() -
     assert error.value.status_code == 409
 
 
-def test_reusable_credential_creates_one_stable_idempotent_training_launch(client: TestClient) -> None:
+def test_reusable_credential_creates_one_stable_idempotent_training_launch(
+    client: TestClient,
+) -> None:
     profile = client.get("/api/profiles").json()[0]
     project = client.post(
         "/api/projects",
@@ -48,7 +51,9 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         },
     ).json()
     with app_module.SessionLocal.begin() as db:
-        db.get(models.ImportSource, source["id"]).identity_fingerprint = "source-fingerprint-v1"
+        db.get(
+            models.ImportSource, source["id"]
+        ).identity_fingerprint = "source-fingerprint-v1"
 
     credential_response = client.post(
         "/api/integrations/wandb/credentials",
@@ -70,6 +75,7 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         "source_id": source["id"],
         "client_request_id": "launch-request-1",
         "name": "portrait-lora-v4",
+        "trainer": "kef-krea2",
         "base_model": "FLUX.1-dev",
         "output_directory": "/workspace/output",
         "checkpoint_policy": {"every_steps": 1000},
@@ -88,9 +94,23 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
     assert manifest["schema_version"] == "modelfiche.training-launch.v1"
     assert manifest["run"]["dataset_version_id"] == dataset["current_version_id"]
     assert manifest["telemetry"]["sdk_version"] == "0.28.0"
+    assert (
+        manifest["telemetry"]["protocol_revision"]
+        == "wandb-0.28.0-modelfiche-trainers-v1"
+    )
+    trainer = _trainer_configuration(manifest)
+    assert trainer["id"] == "kef-krea2"
+    assert trainer["telemetry"]["enabled"] is False
+    assert (
+        trainer["telemetry"]["metric_mapping"]["token_residual_rms"]
+        == "embedding/token_residual_rms"
+    )
     assert manifest["telemetry"]["credential_alias"] == "portrait-wandb"
     assert manifest["backup"]["schema_version"] == "modelfiche.run-backup.v1"
-    assert manifest["backup"]["destination"]["prefix"] == f"projects/{project['id']}/runs/{created['run_id']}/"
+    assert (
+        manifest["backup"]["destination"]["prefix"]
+        == f"projects/{project['id']}/runs/{created['run_id']}/"
+    )
     assert manifest["backup"]["schedule"] == {
         "interval_seconds": 60,
         "resume_from_remote": True,
@@ -109,7 +129,12 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         f"/api/transfers/{created['dataset_export_job_id']}/download"
     )
     serialized = json.dumps(created, sort_keys=True)
-    for forbidden in ("private_key", "password_manager", "signed_token", "WANDB_API_KEY="):
+    for forbidden in (
+        "private_key",
+        "password_manager",
+        "signed_token",
+        "WANDB_API_KEY=",
+    ):
         assert forbidden not in serialized
 
     repeated_response = client.post(
@@ -148,7 +173,9 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         assert len(runs) == len(launches) == len(exports) == 1
         assert runs[0].status == "pending"
         assert runs[0].wandb_run_id == manifest["telemetry"]["run_id"]
-        assert exports[0].payload["dataset_version_ids"] == [dataset["current_version_id"]]
+        assert exports[0].payload["dataset_version_ids"] == [
+            dataset["current_version_id"]
+        ]
 
     rotated = client.post(
         f"/api/integrations/wandb/credentials/{credential['id']}/rotate",
@@ -175,7 +202,9 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(clien
         "STORAGE_SOURCE",
         "TRAINER_TRANSPORT",
     } <= {check["code"] for check in readiness["checks"]}
-    assert client.get(f"/api/training-launches/{created['id']}/packet").status_code == 409
+    assert (
+        client.get(f"/api/training-launches/{created['id']}/packet").status_code == 409
+    )
 
     cancelled = client.post(f"/api/training-launches/{created['id']}/cancel")
     assert cancelled.status_code == 200

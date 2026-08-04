@@ -840,16 +840,28 @@ def test_training_launch_wait_returns_exit_7_for_unsuccessful_terminal_state(
     assert json.loads(result.output)["state"] == state
 
 
+@pytest.mark.parametrize(
+    ("trainer_id", "trainer_config_file"),
+    [
+        ("ai-toolkit", "ai-toolkit-logging.yaml"),
+        ("kef-krea2", "kef-krea2-telemetry.json"),
+    ],
+)
 def test_training_prepare_bundles_self_contained_checkpoint_sync(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, trainer_id, trainer_config_file
 ) -> None:
     packet = {
         "run_id": "run-1",
         "manifest": {
             "dataset": {"download_url": "/api/transfers/export-1/download"},
+            "run": {"trainer": trainer_id},
             "telemetry": {"token": {"claims": {"launch_id": "launch-1"}}},
         },
         "preflight": {"ready_to_start": True},
+        "trainer": {
+            "id": trainer_id,
+            "telemetry": {"enabled": trainer_id == "kef-krea2"},
+        },
         "ai_toolkit": {"logging": {"use_wandb": False}},
     }
     fake = FakeClient(
@@ -894,6 +906,7 @@ def test_training_prepare_bundles_self_contained_checkpoint_sync(
         output / "trainer.env"
     ).read_text(encoding="utf-8")
     assert (output / "training-dataset.zip").read_bytes() == b"dataset-zip"
+    assert (output / trainer_config_file).is_file()
     checksums = json.loads((output / "checksums.json").read_text(encoding="utf-8"))[
         "files"
     ]
@@ -903,6 +916,7 @@ def test_training_prepare_bundles_self_contained_checkpoint_sync(
         "modelfiche-run-sync.py",
         "run-sync-command.txt",
         "training-dataset.zip",
+        trainer_config_file,
     }
 
 
