@@ -1,7 +1,8 @@
-import { lazy, Suspense, useLayoutEffect, useState } from "react";
-import { activeWorkspaceId, routeQuery, setActiveWorkspaceId } from "./api";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
+import { activeWorkspaceId, api, ApiError, establishRemoteSession, routeQuery, setActiveWorkspaceId } from "./api";
 import { useHashRoute } from "./hooks";
 import { WorkbenchShell, useThemeController } from "./shell";
+import { Field, Form, Panel } from "./ui";
 
 const ImportScreen = lazy(() => import("./screens-core").then(module => ({ default: module.ImportScreen })));
 const JobScreen = lazy(() => import("./screens-core").then(module => ({ default: module.JobScreen })));
@@ -31,8 +32,50 @@ const TrainingLaunchCreateScreen = lazy(() => import("./training").then(module =
 const TrainingLaunchScreen = lazy(() => import("./training").then(module => ({ default: module.TrainingLaunchScreen })));
 const ReadinessScreen = lazy(() => import("./readiness").then(module => ({ default: module.ReadinessScreen })));
 const DocsScreen = lazy(() => import("./docs-screen").then(module => ({ default: module.DocsScreen })));
+type AccessState = "checking" | "locked" | "ready" | "error";
+
+
+function RemoteAccessPrompt({ error, onAuthenticated }: { error?: string; onAuthenticated: () => void }) {
+  if (error) {
+    return <div className="vela-theme"><main className="vela-main"><Panel title="Modelfiche unavailable">
+      <div className="vela-notice vela-notice-error" role="alert">{error}</div>
+      <button className="vela-button" type="button" onClick={() => location.reload()}>Retry connection</button>
+    </Panel></main></div>;
+  }
+  return <div className="vela-theme"><main className="vela-main"><Panel title="Remote access">
+    <p>This Modelfiche host requires its Cloudflare service token before remote commands are enabled.</p>
+    <Form submit="Connect securely" onSubmit={async form => {
+      await establishRemoteSession(String(form.get("client_id") ?? ""), String(form.get("client_secret") ?? ""));
+      onAuthenticated();
+    }}>
+      <div className="form-grid">
+        <Field label="Client ID"><input name="client_id" autoComplete="username" required autoFocus /></Field>
+        <Field label="Client secret"><input name="client_secret" type="password" autoComplete="current-password" required /></Field>
+      </div>
+    </Form>
+  </Panel></main></div>;
+}
+
+
 
 export function App() {
+  const [accessState, setAccessState] = useState<AccessState>("checking");
+  const [accessError, setAccessError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void api("/api/health").then(() => {
+      if (active) setAccessState("ready");
+    }).catch(reason => {
+      if (!active) return;
+      if (reason instanceof ApiError && reason.status === 401) {
+        setAccessState("locked");
+        return;
+      }
+      setAccessError(reason instanceof Error ? reason.message : String(reason));
+      setAccessState("error");
+    });
+    return () => { active = false; };
+  }, []);
   const rawRoute = useHashRoute();
   const [path, rawQuery = ""] = rawRoute.split("?");
   const parts = path.split("/").filter(Boolean);
@@ -47,6 +90,12 @@ export function App() {
     setResolvedRouteWorkspaceId(routeWorkspaceId || activeWorkspaceId());
   }, [routeWorkspaceId]);
   const { theme, toggleTheme } = useThemeController();
+  if (accessState === "checking") {
+    return <div className="vela-theme"><main className="vela-main" aria-busy="true">Checking access…</main></div>;
+  }
+  if (accessState !== "ready") {
+    return <RemoteAccessPrompt error={accessState === "error" ? accessError : undefined} onAuthenticated={() => setAccessState("ready")} />;
+  }
   if (routeWorkspaceId && resolvedRouteWorkspaceId !== routeWorkspaceId) {
     return <div className="vela-theme"><main className="vela-main" aria-busy="true">Selecting workspace…</main></div>;
   }

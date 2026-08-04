@@ -1,5 +1,5 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, LoaderCircle, UserRound } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Clipboard, LoaderCircle, UserRound } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
 
@@ -437,6 +437,83 @@ export function SelectRecords(props: { name: string; records: Record<string, unk
     ]}
     onChange={props.onChange}
   />;
+}
+
+type TextCaret = { node: Node; offset: number };
+
+function textCaretAtPoint(x: number, y: number): TextCaret | null {
+  const position = document.caretPositionFromPoint?.(x, y);
+  if (position) return { node: position.offsetNode, offset: position.offset };
+  const range = (document as Document & { caretRangeFromPoint?: (clientX: number, clientY: number) => Range | null }).caretRangeFromPoint?.(x, y);
+  return range ? { node: range.startContainer, offset: range.startOffset } : null;
+}
+
+export function useDragTextSelection() {
+  const anchor = useRef<(TextCaret & { pointerId: number }) | null>(null);
+  const update = (focus: TextCaret) => {
+    const start = anchor.current;
+    const selection = window.getSelection();
+    if (!start || !selection) return;
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    selection.extend(focus.node, focus.offset);
+  };
+  const finish = (event: ReactPointerEvent<HTMLElement>) => {
+    if (anchor.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    anchor.current = null;
+  };
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (event.button !== 0 || !target?.closest("dt, dd, p, pre, code, h2, h3") || target.closest("button, a, input, textarea, summary")) return;
+      const caret = textCaretAtPoint(event.clientX, event.clientY);
+      if (!caret) return;
+      event.preventDefault();
+      anchor.current = { ...caret, pointerId: event.pointerId };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      update(caret);
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      if (anchor.current?.pointerId !== event.pointerId) return;
+      const caret = textCaretAtPoint(event.clientX, event.clientY);
+      if (caret) update(caret);
+    },
+    onPointerUp: finish,
+    onPointerCancel: finish,
+  };
+}
+
+function metadataClipboardText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value ?? "");
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+export function CopyMetadataButton({ value }: { value: unknown }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => setState("idle"), [value]);
+  return <button
+    type="button"
+    className="vela-text-button metadata-copy-button"
+    onClick={async () => {
+      try {
+        await navigator.clipboard.writeText(metadataClipboardText(value));
+        setState("copied");
+      } catch {
+        setState("failed");
+      }
+    }}
+  >
+    {state === "copied" ? <Check size={13} /> : <Clipboard size={13} />}
+    {state === "copied" ? "Copied" : state === "failed" ? "Select and copy" : "JSON"}
+  </button>;
 }
 
 export function Status({ value }: { value: unknown }) { const text = str(value, "unknown"); return <span className="vela-status" data-state={statusTone(text)} aria-label={`Status: ${text}`}>{text}</span>; }

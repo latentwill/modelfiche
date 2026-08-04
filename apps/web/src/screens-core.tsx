@@ -413,8 +413,9 @@ export function SettingsScreen() {
   const [testError, setTestError] = useState("");
   const [testing, setTesting] = useState("");
   const [falKey, setFalKey] = useState("");
+  const [falKeyEditing, setFalKeyEditing] = useState(false);
   const [llmKey, setLlmKey] = useState("");
-  const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const generation = (settings.data?.generation ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row;
+  const llm = (settings.data?.llm ?? {}) as Row; const fal = (settings.data?.fal ?? {}) as Row; const generation = (settings.data?.generation ?? {}) as Row; const credentials = (settings.data?.credentials ?? {}) as Row; const falConnection = (settings.data?.fal_connection ?? {}) as Row;
   const [llmProvider, setLlmProvider] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [llmBaseUrl, setLlmBaseUrl] = useState("");
@@ -468,10 +469,10 @@ export function SettingsScreen() {
       setTestError("");
     }
     try {
-      const body = provider === "llm"
-        ? { provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null }
-        : {};
-      const result = await api<Row>(`/api/operator-settings/test/${provider}`, jsonBody(body));
+      const init = provider === "llm"
+        ? jsonBody({ provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null })
+        : { method: "POST" };
+      const result = await api<Row>(`/api/operator-settings/test/${provider}`, init);
       if (provider === "llm") setLlmValidation(result);
       else setMessage("FAL: credential accepted by the provider. No generation was submitted.");
     } catch (reason) {
@@ -531,49 +532,76 @@ export function SettingsScreen() {
         </Panel>
       </div>
       </>}
-      {section === "generation" && <>
-      <div className="settings-provider">
-    {settings.data && <Form key={`${str(llm.provider, "openai")}:${str(llm.model, "")}:${str(llm.base_url, "")}`} submit="Save all provider settings" onSubmit={async form => { setProviderSaving(true); setMessage(""); try { await api("/api/operator-settings", patchBody({ llm: { provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null }, fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) }, generation: { prompt_prepend: String(form.get("prompt_prepend") ?? ""), prompt_append: String(form.get("prompt_append") ?? "") } })); setMessage(`${providerLabel} / ${llmModel} saved as the active LLM configuration.`); await settings.reload(); } finally { setProviderSaving(false); } }}>
-      <Panel title="LLM">
-        <div className="llm-settings-grid">
-          <Field label="Provider">
-            <Dropdown name="llm_provider" aria-label="Provider" value={activeLlmProvider} options={[{ value: "openai", label: "OpenAI" }, { value: "openrouter", label: "OpenRouter" }, { value: "anthropic", label: "Anthropic" }, { value: "gemini", label: "Gemini" }, { value: "openai-compatible", label: "OpenAI-compatible" }]} onChange={provider => { setLlmProvider(provider); setLlmModel(provider === str(llm.provider) ? str(llm.model, "") : ""); setLlmBaseUrl(provider === str(llm.provider) ? str(llm.base_url, "") : ""); setLlmModelFilter(""); setLlmKey(""); setLlmKeyEditing(false); setLlmValidation(null); setLlmValidationError(""); }} />
-          </Field>
-          <Field label="API base URL">
-            <input name="llm_base_url" type="url" value={llmBaseUrl} onChange={event => { setLlmBaseUrl(event.currentTarget.value); setLlmValidation(null); setLlmValidationError(""); }} placeholder={activeLlmProvider === "openai-compatible" ? "https://api.example.com/v1" : "Provider default"} />
-          </Field>
-          <Field label="Filter models">
-            <input type="search" aria-label="Filter models" value={llmModelFilter} onChange={event => setLlmModelFilter(event.currentTarget.value)} placeholder="Filter models" />
-          </Field>
-          <Field label="Model">
-            <Dropdown name="llm_model" aria-label="Model" value={llmModel || undefined} placeholder={llmCatalog.loading ? "Loading models…" : normalizedModelFilter && visibleModelOptions.length === 0 ? "No matching models" : "Select a model…"} options={visibleModelOptions} onChange={value => { setLlmModel(value); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} required />
-          </Field>
-        </div>
-        <div className="llm-credential-grid">
-          <div className="llm-key-field"><Field label={`${providerLabel} API key`}>
-            <input type="password" autoComplete="new-password" aria-label={`${providerLabel} API key`} value={llmKey || (selectedCredentialConfigured && !llmKeyEditing ? "••••••••••••" : "")} onFocus={() => setLlmKeyEditing(true)} onBlur={() => { if (!llmKey) setLlmKeyEditing(false); }} onChange={event => setLlmKey(event.currentTarget.value)} placeholder={selectedCredentialConfigured ? undefined : `Enter ${providerLabel} API key`} />
-          </Field></div>
-          <div className="actions llm-key-actions">
-            <button type="button" className="primary" disabled={!llmKey.trim()} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "PUT", body: JSON.stringify({ key: llmKey }) }); setLlmKey(""); setLlmKeyEditing(false); setMessage(`${providerLabel} key saved.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button>
-            <button type="button" disabled={!selectedCredentialConfigured} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "DELETE" }); setLlmKey(""); setLlmKeyEditing(false); setMessage(`Saved ${providerLabel} key cleared.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button>
-          </div>
-          <div className="actions llm-config-actions">
-            <button type="submit" className="primary" disabled={providerSaving || !llmModel}>{providerSaving ? "Saving LLM configuration…" : "Save LLM configuration"}</button>
-            <button type="button" onClick={() => void test("llm")} disabled={Boolean(testing) || !llmModel}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Validating…" : "Validate LLM"}</button>
-          </div>
-        </div>
-        <Notice error={llmCatalog.error} loading={llmCatalog.loading} />
-        {llmValidationError && <div className="vela-notice vela-notice-error" role="alert"><strong>{providerLabel} validation failed</strong><span>{llmValidationError}</span></div>}
-        {llmValidation && <div className="vela-notice" role="status"><strong>{providerLabel} validated</strong><span>{str(llmValidation.model, llmModel)} is available from {providerLabel}.</span></div>}
-      </Panel>
-      <Panel title="FAL worker"><Field label="Maximum parallel jobs"><input name="fal_max_parallel_jobs" type="number" min="1" max="32" defaultValue={str(fal.max_parallel_jobs, "4")} /></Field></Panel>
-      <Panel title="Generation prompts"><p className="muted">Applied to every Image, Eval, and Grid prompt at compile time. Leave either field empty to disable that affix.</p><div className="form-grid"><Field label="Prompt prepend" hint="Inserted before every submitted prompt."><textarea name="prompt_prepend" defaultValue={str(generation.prompt_prepend, "")} /></Field><Field label="Prompt append" hint="Inserted after every submitted prompt."><textarea name="prompt_append" defaultValue={str(generation.prompt_append, "")} /></Field></div></Panel>
-    </Form>}
-      </div>
-      <div className="settings-credential">
-    {settings.data && <Panel title="FAL credential"><div className="integration-heading"><Status value={credentials.fal_configured ? "key present" : "key missing"} /><button type="button" onClick={() => void test("fal")} disabled={Boolean(testing) || !credentials.fal_configured} title="Authenticate against FAL without submitting a generation."><PlugZap size={15} aria-hidden="true" />{testing === "fal" ? "Validating..." : "Validate connection"}</button></div><Field label="FAL API key" hint="Write-only. Saved keys are never returned to this page."><input type="password" autoComplete="new-password" value={falKey} onChange={event => setFalKey(event.currentTarget.value)} placeholder={credentials.fal_configured ? "Configured — enter a replacement" : "Enter FAL key"} /></Field><div className="actions"><button type="button" className="primary" disabled={!falKey.trim()} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "PUT", body: JSON.stringify({ key: falKey }) }); setFalKey(""); setMessage("FAL key saved. Validate the connection to confirm provider access."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button><button type="button" disabled={!credentials.fal_configured} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "DELETE" }); setFalKey(""); setMessage("Saved FAL key cleared. Environment credentials, if present, still take precedence."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button></div><p className="muted">Source: {str((settings.data.fal_connection as Row | undefined)?.source, "not configured")} · validation: {str(((settings.data.fal_connection as Row | undefined)?.last_validation as Row | undefined)?.state, "not run")}</p></Panel>}
-      </div>
-      </>}
+      {section === "generation" && settings.data && <div className="settings-generation">
+        <Form key={`${str(llm.provider, "openai")}:${str(llm.model, "")}:${str(llm.base_url, "")}`} submit="Save generation settings" submitDisabled={providerSaving || !llmModel} onSubmit={async form => {
+          setProviderSaving(true);
+          setMessage("");
+          try {
+            await api("/api/operator-settings", patchBody({
+              llm: { provider: activeLlmProvider, model: llmModel, base_url: llmBaseUrl.trim() || null },
+              fal: { max_parallel_jobs: Number(form.get("fal_max_parallel_jobs") ?? 4) },
+              generation: { prompt_prepend: String(form.get("prompt_prepend") ?? ""), prompt_append: String(form.get("prompt_append") ?? "") },
+            }));
+            setMessage("Generation settings saved.");
+            await settings.reload();
+          } finally {
+            setProviderSaving(false);
+          }
+        }}>
+          <Panel title="LLM provider">
+            <div className="llm-settings-grid">
+              <Field label="Provider">
+                <Dropdown name="llm_provider" aria-label="Provider" value={activeLlmProvider} options={[{ value: "openai", label: "OpenAI" }, { value: "openrouter", label: "OpenRouter" }, { value: "anthropic", label: "Anthropic" }, { value: "gemini", label: "Gemini" }, { value: "openai-compatible", label: "OpenAI-compatible" }]} onChange={provider => { setLlmProvider(provider); setLlmModel(provider === str(llm.provider) ? str(llm.model, "") : ""); setLlmBaseUrl(provider === str(llm.provider) ? str(llm.base_url, "") : ""); setLlmModelFilter(""); setLlmKey(""); setLlmKeyEditing(false); setLlmValidation(null); setLlmValidationError(""); }} />
+              </Field>
+              <Field label="Filter models">
+                <input type="search" aria-label="Filter models" value={llmModelFilter} onChange={event => setLlmModelFilter(event.currentTarget.value)} placeholder="Type to filter" />
+              </Field>
+              <Field label="Model">
+                <Dropdown name="llm_model" aria-label="Model" value={llmModel || undefined} placeholder={llmCatalog.loading ? "Loading models…" : normalizedModelFilter && visibleModelOptions.length === 0 ? "No matching models" : "Select a model…"} options={visibleModelOptions} onChange={value => { setLlmModel(value); setLlmModelFilter(""); setLlmValidation(null); setLlmValidationError(""); }} required />
+              </Field>
+              {activeLlmProvider === "openai-compatible" && <Field label="API base URL">
+                <input name="llm_base_url" type="url" value={llmBaseUrl} onChange={event => { setLlmBaseUrl(event.currentTarget.value); setLlmValidation(null); setLlmValidationError(""); }} placeholder="https://api.example.com/v1" required />
+              </Field>}
+            </div>
+            <div className="llm-credential-grid">
+              <div className="llm-key-field"><Field label={`${providerLabel} API key`}>
+                <input type="password" autoComplete="new-password" aria-label={`${providerLabel} API key`} value={llmKey || (selectedCredentialConfigured && !llmKeyEditing ? "••••••••••••" : "")} onFocus={() => setLlmKeyEditing(true)} onBlur={() => { if (!llmKey) setLlmKeyEditing(false); }} onChange={event => setLlmKey(event.currentTarget.value)} placeholder={selectedCredentialConfigured ? undefined : `Enter ${providerLabel} API key`} />
+              </Field></div>
+              <div className="actions llm-key-actions">
+                <button type="button" className="primary" disabled={!llmKey.trim()} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "PUT", body: JSON.stringify({ key: llmKey }) }); setLlmKey(""); setLlmKeyEditing(false); setMessage(`${providerLabel} key saved.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button>
+                <button type="button" disabled={!selectedCredentialConfigured} onClick={async () => { setLlmValidation(null); setLlmValidationError(""); try { await api("/api/operator-settings/llm-key", { method: "DELETE" }); setLlmKey(""); setLlmKeyEditing(false); setMessage(`Saved ${providerLabel} key cleared.`); await llmCatalog.reload(); } catch (reason) { setLlmValidationError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button>
+                <button type="button" onClick={() => void test("llm")} disabled={Boolean(testing) || !llmModel}><PlugZap size={15} aria-hidden="true" />{testing === "llm" ? "Validating…" : "Validate"}</button>
+              </div>
+            </div>
+            <Notice error={llmCatalog.error} loading={llmCatalog.loading} />
+            {llmValidationError && <div className="vela-notice vela-notice-error" role="alert"><strong>{providerLabel} validation failed</strong><span>{llmValidationError}</span></div>}
+            {llmValidation && <div className="vela-notice" role="status"><strong>{providerLabel} validated</strong><span>{str(llmValidation.model, llmModel)} is available.</span></div>}
+          </Panel>
+          <Panel title="FAL image generation">
+            <p className="credential-state">{credentials.fal_configured ? (str(falConnection.source) === "saved" ? "Key saved on this Mac." : `Key available from ${str(falConnection.source, "the environment")}.`) : "Add a FAL key to enable image generation."}</p>
+            <div className="fal-settings-grid">
+              <Field label="FAL API key">
+                <input type="password" autoComplete="new-password" aria-label="FAL API key" value={falKey || (credentials.fal_configured && !falKeyEditing ? "••••••••••••" : "")} onFocus={() => setFalKeyEditing(true)} onBlur={() => { if (!falKey) setFalKeyEditing(false); }} onChange={event => setFalKey(event.currentTarget.value)} placeholder={credentials.fal_configured ? undefined : "Enter FAL key"} />
+              </Field>
+              <Field label="Parallel jobs">
+                <input name="fal_max_parallel_jobs" type="number" min="1" max="32" defaultValue={str(fal.max_parallel_jobs, "4")} />
+              </Field>
+            </div>
+            <div className="actions fal-key-actions">
+              <button type="button" className="primary" disabled={!falKey.trim()} onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "PUT", body: JSON.stringify({ key: falKey }) }); setFalKey(""); setFalKeyEditing(false); setMessage("FAL key saved."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}>Save key</button>
+              {str(falConnection.source) === "saved" && <button type="button" onClick={async () => { setTestError(""); try { await api("/api/operator-settings/fal-key", { method: "DELETE" }); setFalKey(""); setFalKeyEditing(false); setMessage("Saved FAL key cleared."); await settings.reload(); } catch (reason) { setTestError(reason instanceof Error ? reason.message : String(reason)); } }}><Trash2 size={14} />Clear saved key</button>}
+              <button type="button" onClick={() => void test("fal")} disabled={Boolean(testing) || !credentials.fal_configured} title="Authenticate against FAL without submitting a generation."><PlugZap size={15} aria-hidden="true" />{testing === "fal" ? "Validating…" : "Validate"}</button>
+            </div>
+          </Panel>
+          <details className="generation-advanced">
+            <summary><span>Advanced prompt defaults</span><small>Optional text added to every Image, Eval, and Grid prompt.</small></summary>
+            <div className="form-grid">
+              <Field label="Prompt prepend"><textarea name="prompt_prepend" defaultValue={str(generation.prompt_prepend, "")} /></Field>
+              <Field label="Prompt append"><textarea name="prompt_append" defaultValue={str(generation.prompt_append, "")} /></Field>
+            </div>
+          </details>
+        </Form>
+      </div>}
     {message && <div className="vela-notice" role="status"><strong>Settings</strong><span>{message}</span></div>}
       {section === "storage" && <div className="settings-storage">
         <S3SourcesPanel />

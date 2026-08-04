@@ -26,6 +26,17 @@ export function setActiveWorkspaceId(workspaceId: string) {
   localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
   localStorage.removeItem("titles.activeProfileId");
 }
+export async function establishRemoteSession(clientId: string, clientSecret: string): Promise<void> {
+  await api("/api/remote-session", {
+    method: "POST",
+    headers: {
+      "cf-access-client-id": clientId.trim(),
+      "cf-access-client-secret": clientSecret,
+    },
+  });
+}
+
+
 
 
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {

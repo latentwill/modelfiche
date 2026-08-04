@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from titles_api import models
 from titles_api.asset_cache import AssetCache
 from titles_api.checkpoint_revisions import establish_checkpoint_revision
+from titles_api.settings import get_settings
 from titles_api.storage.repository import StorageRepository
 from titles_api.integrations.config import S3Settings
 from titles_api.integrations.s3.browser import S3Browser
@@ -97,7 +98,10 @@ class CheckpointHydrationHandler:
 
         context.progress(0.1)
         try:
-            entry = self.cache.hydrate(expected_size, download, expected_sha256=expected_sha256)
+            entry = self.cache.persist(
+                self.cache.hydrate(expected_size, download, expected_sha256=expected_sha256),
+                get_settings().asset_root,
+            )
         except RuntimeError:
             if context.cancellation_requested():
                 return {"checkpoint_id": checkpoint_id, "canceled": True}

@@ -33,7 +33,7 @@ import { activityDisplayText, activityLabel, activityObjectHref, previewAssetId 
 import { galleryOpenHref } from "./gallery-routing";
 import { AssetImage } from "./asset-image";
 import { useResource } from "./hooks";
-import { Dropdown, Notice, ProfileSelect, Status, useFocusWorkspace } from "./ui";
+import { CopyMetadataButton, Dropdown, Notice, ProfileSelect, Status, useDragTextSelection, useFocusWorkspace } from "./ui";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
@@ -285,7 +285,7 @@ function ProjectTree({ project, workspaceId, section, activeId, activeProjectId 
 
 function NavBranch({ label, href, items, itemRoute, projectId, workspaceId, section, activeId, activeProjectId }: { label: string; href: string; items: Row[]; itemRoute: string; projectId: string; workspaceId: string; section: string; activeId: string; activeProjectId: string }) {
   const groupActive = activeProjectId === projectId && (section === `${itemRoute}s` || (itemRoute === "eval" && section === "evals"));
-  return <div className="vela-tree-group"><a className="vela-nav-group" href={href} aria-current={groupActive ? "page" : undefined}>{label}</a>{items.slice(0, 5).map(item => { const itemId = idOf(item); const active = activeProjectId === projectId && section === itemRoute && activeId === itemId; return <a className="vela-nav-item" key={itemId} href={`#/${itemRoute}/${itemId}${routeQuery({ project: projectId }, workspaceId)}`} aria-current={active ? "page" : undefined}><span className="vela-nav-text">{str(item.name ?? item.title, "Untitled")}</span></a>; })}</div>;
+  return <div className="vela-tree-group"><a className="vela-nav-group" href={href} aria-current={groupActive ? "page" : undefined}>{label}</a>{items.slice(0, 5).map(item => { const itemId = idOf(item); const active = activeProjectId === projectId && section === itemRoute && activeId === itemId; return <a className="vela-nav-item" key={itemId} href={`#/${itemRoute}/${itemId}${routeQuery({ project: projectId }, workspaceId)}`} aria-current={active ? "page" : undefined}><span className="vela-nav-text">{str(item.name ?? item.title, "Untitled")}</span></a>; })}{items.length > 5 && <a className="vela-nav-item vela-nav-show-all" href={href}><span className="vela-nav-text">View all {items.length} {label.toLowerCase()}</span></a>}</div>;
 }
 function activityPreviewHref(item: Row, previewId: string, objectHref: string | null, projectId: string) {
   const [objectPath, rawQuery = ""] = (objectHref ?? "").split("?", 2);
@@ -315,11 +315,12 @@ function ContextInspector({ section, id, projectId, collapsed, mobileOpen, resto
   const title = entityTitle(section, entity.data);
   const containerRef = useRef<HTMLElement>(null);
   useFocusWorkspace({ active: mobileOpen, onDismiss: onMobileClose, containerRef, restoreFocusRef });
-  return <aside ref={containerRef} className="vela-inspector" id="vela-metadata" data-mobile-open={mobileOpen} data-layout={SHELL_LAYOUT_CONTRACT.inspector} role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen ? "true" : undefined} aria-labelledby={mobileOpen ? "vela-metadata-title" : undefined}>
+  const metadataSelection = useDragTextSelection();
+  return <aside {...metadataSelection} ref={containerRef} className="vela-inspector vela-copyable-metadata" id="vela-metadata" data-mobile-open={mobileOpen} data-layout={SHELL_LAYOUT_CONTRACT.inspector} role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen ? "true" : undefined} aria-labelledby={mobileOpen ? "vela-metadata-title" : undefined}>
     <img className="mf-rail-ornament mf-rail-ornament-light" src="/assets/light-cobalt-xerox-texture.svg" alt="" aria-hidden="true" />
     <img className="mf-rail-ornament mf-rail-ornament-dark" src="/assets/dark-celestial-catalogue-labels.svg" alt="" aria-hidden="true" />
     <div className="vela-inspector-heading"><h2 id="vela-metadata-title">Metadata</h2><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand metadata" : "Collapse metadata"} aria-controls="vela-metadata" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronLeft size={17} /> : <PanelRightClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close metadata and notes" onClick={onMobileClose}><X size={18} /></button></div>
-    <section className="vela-inspector-card"><div className="vela-context-title"><div><h3>{title}</h3>{section !== "project" && <Status value={str(entity.data?.state ?? entity.data?.status, section === "dashboard" ? "workspace" : "selected")} />}</div></div><Notice error={entity.error} loading={entity.loading} />{entity.data ? <MetadataRows value={entity.data} /> : <p className="vela-muted-copy">Select an object to inspect its metadata and history.</p>}</section>
+    <section className="vela-inspector-card"><div className="vela-context-title"><div><h3>{title}</h3>{section !== "project" && <Status value={str(entity.data?.state ?? entity.data?.status, section === "dashboard" ? "workspace" : "selected")} />}</div>{entity.data && <CopyMetadataButton value={entity.data} />}</div><Notice error={entity.error} loading={entity.loading} />{entity.data ? <MetadataRows value={entity.data} /> : <p className="vela-muted-copy">Select an object to inspect its metadata and history.</p>}</section>
     {subject && ["project", "dataset", "model"].includes(subject.type) && <NotesPanel subjectType={subject.type} subjectId={subject.id} />}
     <section className="vela-inspector-card"><div className="vela-section-heading"><h2>{projectId ? "Project activity" : "Workspace activity"}</h2></div><Notice error={activity.error} loading={activity.loading} empty={!activityItems.length} /><div className="vela-activity-list">{activityItems.map(item => {
       const rawEvent = str(item.action ?? item.event_type);
@@ -362,7 +363,14 @@ function NotesPanel({ subjectType, subjectId }: { subjectType: string; subjectId
 
 function MetadataRows({ value }: { value: Row }) {
   if (value.counts && typeof value.counts === "object") return <dl className="vela-context-stats">{Object.entries(value.counts as Row).map(([key, item]) => <div className="vela-stat" key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{str(item)}</dd></div>)}</dl>;
-  if (value.llm && value.fal) { const llm = value.llm as Row; const fal = value.fal as Row; return <dl className="vela-metadata-list"><Metadata label="LLM" value={`${str(llm.provider)} / ${str(llm.model, "not set")}`} /><Metadata label="FAL" value={str(fal.default_endpoint)} /><Metadata label="Parallel" value={str(fal.max_parallel_jobs)} /></dl>; }
+  if (value.llm && value.fal) {
+    const llm = value.llm as Row;
+    const credentials = (value.credentials ?? {}) as Row;
+    return <dl className="vela-metadata-list">
+      <Metadata label="LLM" value={`${str(llm.provider)} / ${str(llm.model, "not set")}`} />
+      <Metadata label="FAL" value={credentials.fal_configured ? "configured" : "not configured"} />
+    </dl>;
+  }
   const keys = ["title", "name", "kind", "status", "state", "step", "base_model", "trainer", "lifecycle_state", "source_prefix", "created_at"];
   return <dl className="vela-metadata-list">{keys.filter(key => value[key] !== undefined && value[key] !== null).slice(0, 7).map(key => <Metadata key={key} label={key.replaceAll("_", " ")} value={Array.isArray(value[key]) ? value[key].map(String).join(", ") : str(value[key])} />)}</dl>;
 }

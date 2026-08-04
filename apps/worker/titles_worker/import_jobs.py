@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import json
 import mimetypes
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 import tarfile
 
 from boto3.s3.transfer import TransferConfig
@@ -19,6 +19,7 @@ from titles_api.integrations.s3.browser import S3Browser
 from titles_api.integrations.s3.importer import ImportContext, S3Importer
 from titles_api.integrations.s3.sqlalchemy_sink import SQLAlchemyImportSink
 from titles_api.models import ImportSource
+from titles_api.settings import get_settings
 
 from .runner import JobContext
 
@@ -217,7 +218,7 @@ class S3ImportHandler:
                 ))
                 asset = session.get(models.Asset, remote.asset_id)
                 expected_sha256 = asset.sha256 if asset else None
-            if existing:
+            if existing and Path(existing.uri.removeprefix("file://")).is_file():
                 context.progress(0.25 + 0.7 * ((index + 1) / total))
                 continue
             if not remote.object_key:
@@ -234,7 +235,10 @@ class S3ImportHandler:
                     raise RuntimeError("image hydration canceled")
 
             try:
-                entry = self.cache.hydrate(expected_size, download, expected_sha256=expected_sha256)
+                entry = self.cache.persist(
+                    self.cache.hydrate(expected_size, download, expected_sha256=expected_sha256),
+                    get_settings().asset_root,
+                )
             except RuntimeError:
                 if context.cancellation_requested():
                     return {"count": hydrated_count, "bytes": hydrated_bytes}
@@ -243,13 +247,15 @@ class S3ImportHandler:
                 asset = session.get(models.Asset, remote.asset_id)
                 if asset is None:
                     raise LookupError(f"image asset was removed during hydration: {remote.asset_id}")
-                StorageRepository(session, asset.workspace_id).attach_verified_local_location(
+                location = StorageRepository(session, asset.workspace_id).attach_verified_local_location(
                     asset_id=asset.id,
                     uri=str(entry.path),
                     size=entry.size,
                     sha256=entry.sha256,
                     mime_type=asset.mime_type or "application/octet-stream",
                 )
+                location.relative_path = str(entry.path.relative_to(get_settings().asset_root.resolve()))
+                asset.preferred_location_id = location.id
             hydrated_count += 1
             hydrated_bytes += entry.size
             context.progress(0.25 + 0.7 * ((index + 1) / total))

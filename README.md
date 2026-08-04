@@ -5,9 +5,11 @@ checkpoints, evaluations, grids, reviews, and model promotion. It combines a
 macOS application, a browser UI, a durable worker, and the `mfiche` automation
 CLI in one operator-owned runtime.
 
-> **Release scope:** the current release is a single-user local operator tool.
-> Profiles provide attribution, not authentication. The macOS artifacts are
-> currently unsigned and intended for controlled distribution.
+> **Release scope:** the current release is a single-operator tool. Profiles
+> provide attribution, not authentication. Optional remote access uses one
+> full-authority shared credential; it is not a multi-user deployment. The
+> macOS artifacts are currently unsigned and intended for controlled
+> distribution.
 
 ## What it does
 
@@ -96,6 +98,34 @@ mfiche stop
 
 Without an installed entry point, replace `mfiche ...` with
 `uv run mfiche ...`.
+
+### Authenticated remote access
+
+The API remains bound to loopback. To terminate an HTTPS Cloudflare Tunnel on
+the Modelfiche host without exposing the no-auth local boundary, configure all
+three values and start the stack through the secret manager:
+
+```bash
+TITLES_REMOTE_ACCESS_ORIGIN=https://modelfiche.example.com
+TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client-id
+TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/client-secret
+op run --env-file=.env.1password -- mfiche start
+```
+
+Route `/api/*` to `127.0.0.1:8400` and the UI to `127.0.0.1:5173`. The remote
+UI exchanges the credential once for a secure HTTP-only session. `mfiche`
+automatically adds the configured credential and exact Origin when its
+`--api-url` matches `TITLES_REMOTE_ACCESS_ORIGIN`:
+
+```bash
+op run --env-file=.env.1password -- \
+  mfiche --api-url https://modelfiche.example.com --json doctor
+```
+
+Other automation may send `CF-Access-Client-Id` and
+`CF-Access-Client-Secret` on each request; state-changing requests must also
+send the exact configured `Origin`. See [SECURITY.md](SECURITY.md) before
+enabling the tunnel.
 
 ## First-run checklist
 

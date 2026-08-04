@@ -2,13 +2,22 @@
 
 ## Supported deployment boundary
 
-The current Modelfiche release is a local, single-user operator application.
-The regular API and web UI are designed for loopback access. Local profiles
-provide attribution and are **not** authentication or authorization.
+Modelfiche is a single-user operator application. The default API and web UI
+remain loopback-only. Local profiles provide attribution and are **not**
+authentication or authorization.
 
-Do not expose the regular operator API directly to an untrusted network. A
-public deployment requires an authentication and authorization layer that is
-outside the current release contract.
+Optional remote access preserves the loopback listener and places an explicit
+shared-secret boundary at an HTTPS tunnel. It requires an exact remote
+Host/Origin, Cloudflare tunnel metadata, and either the configured service
+credential or the short-lived HTTP-only session issued from that credential.
+The credential has full operator authority; keep it in a password manager and
+issue it only to the single operator and their automation.
+
+Do not expose the regular operator API directly to an untrusted network or
+enable a tunnel without `TITLES_REMOTE_ACCESS_ORIGIN`,
+`TITLES_REMOTE_ACCESS_CLIENT_ID`, and
+`TITLES_REMOTE_ACCESS_CLIENT_SECRET`. Multi-user deployment still requires a
+separate authentication and authorization design.
 
 The optional W&B-compatible ingress is a separate, narrow protocol surface. It
 must use HTTPS, preserve the documented authentication headers, and share only
@@ -24,7 +33,8 @@ Keep these values outside the repository and database:
 - FAL and LLM API keys;
 - Ed25519 training-signing private keys;
 - run-scoped signed tokens;
-- presigned URLs and provider callback credentials.
+- presigned URLs and provider callback credentials;
+- remote-access client IDs, client secrets, and session cookies.
 
 Use environment variables, 1Password, or an equivalent local secret manager.
 Generated support bundles redact credential-shaped values and local home paths,

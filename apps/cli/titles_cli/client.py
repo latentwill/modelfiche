@@ -42,7 +42,9 @@ class LocalContext:
             except (OSError, json.JSONDecodeError):
                 values = {}
         return cls(
-            api_url=os.getenv("TITLES_API_URL", values.get("api_url", "http://127.0.0.1:8400")),
+            api_url=os.getenv(
+                "TITLES_API_URL", values.get("api_url", "http://127.0.0.1:8400")
+            ),
             profile=os.getenv("TITLES_PROFILE", values.get("profile")),
             workspace=os.getenv("TITLES_WORKSPACE", values.get("workspace")),
         )
@@ -79,13 +81,34 @@ class TitlesClient:
         request_id: str | None = None,
         timeout: float = 30.0,
     ) -> None:
+        normalized_base_url = base_url.rstrip("/")
+        remote_origin = os.getenv("TITLES_REMOTE_ACCESS_ORIGIN", "").rstrip("/")
+        remote_client_id = os.getenv("TITLES_REMOTE_ACCESS_CLIENT_ID", "")
+        remote_client_secret = os.getenv("TITLES_REMOTE_ACCESS_CLIENT_SECRET", "")
+        remote_target = bool(remote_origin) and normalized_base_url == remote_origin
+        if remote_target and not remote_client_id:
+            raise ApiError(
+                "TITLES_REMOTE_ACCESS_CLIENT_ID is required for the configured remote API",
+                status_code=2,
+                code="REMOTE_ACCESS_CONFIG",
+            )
+        if remote_target and not remote_client_secret:
+            raise ApiError(
+                "TITLES_REMOTE_ACCESS_CLIENT_SECRET is required for the configured remote API",
+                status_code=2,
+                code="REMOTE_ACCESS_CONFIG",
+            )
         headers = {
             "Accept": "application/json",
-            # Mutating requests must prove they originated inside the launcher-
-            # owned local UI boundary. The API still validates this exact value
-            # against TITLES_CORS_ORIGINS.
-            "Origin": os.getenv("TITLES_CLI_ORIGIN", "http://127.0.0.1:5173"),
+            # State-changing calls prove their browser/CLI boundary with the
+            # exact origin configured for the selected local or remote target.
+            "Origin": remote_origin
+            if remote_target
+            else os.getenv("TITLES_CLI_ORIGIN", "http://127.0.0.1:5173"),
         }
+        if remote_target:
+            headers["CF-Access-Client-Id"] = remote_client_id
+            headers["CF-Access-Client-Secret"] = remote_client_secret
         if profile:
             headers["X-Profile-ID"] = profile
         if workspace:
@@ -93,7 +116,7 @@ class TitlesClient:
         if request_id:
             headers["Idempotency-Key"] = request_id
         self.http = httpx.Client(
-            base_url=base_url.rstrip("/"),
+            base_url=normalized_base_url,
             headers=headers,
             timeout=timeout,
         )
@@ -110,7 +133,9 @@ class TitlesClient:
         json_body: Any = None,
     ) -> httpx.Response:
         try:
-            response = self.http.request(method, path, params=clean(params), json=json_body)
+            response = self.http.request(
+                method, path, params=clean(params), json=json_body
+            )
         except httpx.ConnectError as exc:
             raise ApiError(
                 f"Titles DAM service is unavailable at {self.http.base_url}",
@@ -133,9 +158,11 @@ class TitlesClient:
                 payload = {"message": response.text or response.reason_phrase}
             error = payload.get("error", payload) if isinstance(payload, dict) else {}
             detail = error.get("detail")
-            message = error.get("message") or (
-                detail if isinstance(detail, str) else None
-            ) or response.reason_phrase
+            message = (
+                error.get("message")
+                or (detail if isinstance(detail, str) else None)
+                or response.reason_phrase
+            )
             code = error.get("code") or f"HTTP_{response.status_code}"
             raise ApiError(
                 message,
@@ -198,7 +225,6 @@ class TitlesClient:
 
     def delete(self, path: str) -> Any:
         return self.request("DELETE", path)
-
 
 
 def clean(values: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./api";
+import { api, establishRemoteSession } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -24,6 +24,22 @@ describe("api", () => {
 
     const headers = new Headers(fetch.mock.calls[0][1].headers);
     expect(headers.get("x-workspace-id")).toBe("workspace-personal");
+  });
+  it("exchanges remote credentials for an HTTP-only session", async () => {
+    vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null) });
+    const fetch = vi.fn().mockResolvedValue(new Response('{"authenticated":true}', {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    await establishRemoteSession(" client-id ", "client-secret");
+
+    expect(fetch).toHaveBeenCalledOnce();
+    const headers = new Headers(fetch.mock.calls[0][1].headers);
+    expect(headers.get("cf-access-client-id")).toBe("client-id");
+    expect(headers.get("cf-access-client-secret")).toBe("client-secret");
+    expect(fetch.mock.calls[0][1].method).toBe("POST");
   });
 
 });

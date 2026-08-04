@@ -27,6 +27,21 @@ The default API is `http://127.0.0.1:8400`; override it with `--api-url` or
 mfiche --api-url http://127.0.0.1:8400 --json doctor
 ```
 
+For an authenticated loopback-tunnel deployment, resolve the same three values
+used by the server. When the selected API URL exactly matches the configured
+remote origin, the CLI sends the service credential and exact mutation Origin:
+
+```bash
+TITLES_REMOTE_ACCESS_ORIGIN=https://modelfiche.example.com
+TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client-id
+TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/client-secret
+op run --env-file=.env.1password -- \
+  mfiche --api-url https://modelfiche.example.com --json doctor
+```
+
+Incomplete remote credentials fail locally before any request. The credential
+has full single-operator authority; see [SECURITY.md](../SECURITY.md).
+
 Global options must appear before the command group:
 
 ```text

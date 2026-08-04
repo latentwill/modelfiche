@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from titles_cli import main
+from titles_cli.client import ApiError, TitlesClient
 
 
 runner = CliRunner()
@@ -24,6 +25,47 @@ def test_public_cli_name_is_mfiche_and_legacy_name_is_absent() -> None:
     assert "Usage: titles " not in result.output
 
 
+def test_remote_client_sends_configured_service_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_ORIGIN", "https://modelfiche.example.com")
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_CLIENT_ID", "remote-client")
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_CLIENT_SECRET", "remote-secret")
+
+    client = TitlesClient(base_url="https://modelfiche.example.com")
+    try:
+        assert client.http.headers["Origin"] == "https://modelfiche.example.com"
+        assert client.http.headers["CF-Access-Client-Id"] == "remote-client"
+        assert client.http.headers["CF-Access-Client-Secret"] == "remote-secret"
+    finally:
+        client.close()
+
+
+def test_local_client_does_not_send_remote_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_ORIGIN", "https://modelfiche.example.com")
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_CLIENT_ID", "remote-client")
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_CLIENT_SECRET", "remote-secret")
+
+    client = TitlesClient(base_url="http://127.0.0.1:8400")
+    try:
+        assert client.http.headers["Origin"] == "http://127.0.0.1:5173"
+        assert "CF-Access-Client-Id" not in client.http.headers
+        assert "CF-Access-Client-Secret" not in client.http.headers
+    finally:
+        client.close()
+
+
+def test_remote_client_fails_closed_on_incomplete_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_ORIGIN", "https://modelfiche.example.com")
+    monkeypatch.setenv("TITLES_REMOTE_ACCESS_CLIENT_ID", "remote-client")
+
+    with pytest.raises(ApiError, match="TITLES_REMOTE_ACCESS_CLIENT_SECRET"):
+        TitlesClient(base_url="https://modelfiche.example.com")
+
 
 def test_unsupported_guidance_uses_mfiche() -> None:
     result = runner.invoke(main.app, ["import", "refresh", "asset:asset-1"])
@@ -31,6 +73,7 @@ def test_unsupported_guidance_uses_mfiche() -> None:
     assert result.exit_code == 5, result.output
     assert "mfiche run refresh <run>" in result.output
     assert "titles run refresh <run>" not in result.output
+
 
 class FakeClient:
     def __init__(self, responses: list[Any] | None = None) -> None:
@@ -57,6 +100,7 @@ class FakeClient:
     def post(self, path: str, body: Any = None, **params: Any) -> Any:
         self.calls.append(("POST", path, params, body))
         return self._response()
+
     def patch(self, path: str, body: Any = None) -> Any:
         self.calls.append(("PATCH", path, None, body))
         return self._response()
@@ -64,7 +108,6 @@ class FakeClient:
     def delete(self, path: str) -> Any:
         self.calls.append(("DELETE", path, None, None))
         return self._response()
-
 
     def close(self) -> None:
         pass
@@ -180,17 +223,21 @@ def test_import_refresh_maps_training_run_to_run_refresh(
     assert fake_client.calls == [("POST", "/api/runs/run-1/refresh", {}, None)]
 
 
-
 def test_import_backfill_metrics_refreshes_one_existing_run(
     fake_client: FakeClient,
 ) -> None:
-    result = runner.invoke(main.app, ["--json", "import", "backfill-metrics", "--run", "run-1"])
+    result = runner.invoke(
+        main.app, ["--json", "import", "backfill-metrics", "--run", "run-1"]
+    )
 
     assert result.exit_code == 0, result.output
     assert fake_client.calls == [("POST", "/api/runs/run-1/refresh", {}, None)]
 
+
 def test_unsupported_import_refresh_fails_before_http(fake_client: FakeClient) -> None:
-    result = runner.invoke(main.app, ["--json", "import", "refresh", "dataset:dataset-1"])
+    result = runner.invoke(
+        main.app, ["--json", "import", "refresh", "dataset:dataset-1"]
+    )
 
     assert result.exit_code == 5
     assert json.loads(result.output)["error"]["code"] == "UNSUPPORTED_OPERATION"
@@ -316,20 +363,59 @@ def test_unsupported_filter_flags_are_not_silently_sent(
 def test_wandb_credentials_use_public_key_contract(fake_client: FakeClient) -> None:
     commands = [
         (
-            ["wandb", "credential", "register", "--alias", "agent", "--public-key", "ed25519-public-key"],
-            ("POST", "/api/integrations/wandb/credentials", {}, {"alias": "agent", "public_key": "ed25519-public-key", "project_id": None}),
+            [
+                "wandb",
+                "credential",
+                "register",
+                "--alias",
+                "agent",
+                "--public-key",
+                "ed25519-public-key",
+            ],
+            (
+                "POST",
+                "/api/integrations/wandb/credentials",
+                {},
+                {
+                    "alias": "agent",
+                    "public_key": "ed25519-public-key",
+                    "project_id": None,
+                },
+            ),
         ),
         (
             ["wandb", "credential", "list", "--project-id", "project-1"],
-            ("GET", "/api/integrations/wandb/credentials", {"project_id": "project-1"}, None),
+            (
+                "GET",
+                "/api/integrations/wandb/credentials",
+                {"project_id": "project-1"},
+                None,
+            ),
         ),
         (
-            ["wandb", "credential", "rotate", "credential-1", "--public-key", "rotated-public-key"],
-            ("POST", "/api/integrations/wandb/credentials/credential-1/rotate", {}, {"public_key": "rotated-public-key"}),
+            [
+                "wandb",
+                "credential",
+                "rotate",
+                "credential-1",
+                "--public-key",
+                "rotated-public-key",
+            ],
+            (
+                "POST",
+                "/api/integrations/wandb/credentials/credential-1/rotate",
+                {},
+                {"public_key": "rotated-public-key"},
+            ),
         ),
         (
             ["wandb", "credential", "revoke", "credential-1"],
-            ("POST", "/api/integrations/wandb/credentials/credential-1/revoke", {}, None),
+            (
+                "POST",
+                "/api/integrations/wandb/credentials/credential-1/revoke",
+                {},
+                None,
+            ),
         ),
     ]
     for arguments, expected in commands:
@@ -347,7 +433,9 @@ def test_training_launch_input_rejects_secret_fields(
         json.dumps({"private_key": "never-send", "dataset_version_id": "version-1"}),
         encoding="utf-8",
     )
-    result = runner.invoke(main.app, ["--json", "training-launch", "create", "--input", str(input_file)])
+    result = runner.invoke(
+        main.app, ["--json", "training-launch", "create", "--input", str(input_file)]
+    )
     assert result.exit_code == 2
     assert "forbidden secret fields" in result.output
     assert fake_client.calls == []
@@ -360,7 +448,9 @@ def test_wandb_credential_cli_never_exposes_private_key_option() -> None:
     assert "--password-manager" not in result.output
 
 
-def test_training_launch_flags_send_json_friendly_payload(fake_client: FakeClient) -> None:
+def test_training_launch_flags_send_json_friendly_payload(
+    fake_client: FakeClient,
+) -> None:
     result = runner.invoke(
         main.app,
         [
@@ -434,11 +524,20 @@ def test_training_launch_input_json_and_status_use_api_contract(
     }
     input_file = tmp_path / "launch.json"
     input_file.write_text(json.dumps(request), encoding="utf-8")
-    result = runner.invoke(main.app, ["--json", "training-launch", "create", "--input", str(input_file)])
+    result = runner.invoke(
+        main.app, ["--json", "training-launch", "create", "--input", str(input_file)]
+    )
     assert result.exit_code == 0, result.output
-    assert fake_client.calls[-1] == ("POST", "/api/training-launches", {}, {**request, "trainer": "ai-toolkit"})
+    assert fake_client.calls[-1] == (
+        "POST",
+        "/api/training-launches",
+        {},
+        {**request, "trainer": "ai-toolkit"},
+    )
 
-    result = runner.invoke(main.app, ["--json", "training-launch", "status", "launch-1"])
+    result = runner.invoke(
+        main.app, ["--json", "training-launch", "status", "launch-1"]
+    )
     assert result.exit_code == 0, result.output
     assert fake_client.calls[-1] == ("GET", "/api/training-launches/launch-1", {}, None)
 
@@ -447,26 +546,57 @@ def test_training_launch_manifest_and_environment_preserve_output_bytes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Any,
 ) -> None:
-    fake = FakeClient([b'{"schema_version":"v1","unicode":"caf\xc3\xa9"}', "export WANDB_MODE=online\n"])
+    fake = FakeClient(
+        [
+            b'{"schema_version":"v1","unicode":"caf\xc3\xa9"}',
+            "export WANDB_MODE=online\n",
+        ]
+    )
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
     manifest_path = tmp_path / "nested" / "manifest.json"
     environment_path = tmp_path / "nested" / "environment.sh"
 
     result = runner.invoke(
         main.app,
-        ["--json", "training-launch", "manifest", "launch-1", "--output", str(manifest_path)],
+        [
+            "--json",
+            "training-launch",
+            "manifest",
+            "launch-1",
+            "--output",
+            str(manifest_path),
+        ],
     )
     assert result.exit_code == 0, result.output
-    assert manifest_path.read_bytes() == b'{"schema_version":"v1","unicode":"caf\xc3\xa9"}'
-    assert fake.calls[-1] == ("GET", "/api/training-launches/launch-1/manifest", {}, None)
+    assert (
+        manifest_path.read_bytes() == b'{"schema_version":"v1","unicode":"caf\xc3\xa9"}'
+    )
+    assert fake.calls[-1] == (
+        "GET",
+        "/api/training-launches/launch-1/manifest",
+        {},
+        None,
+    )
 
     result = runner.invoke(
         main.app,
-        ["--json", "training-launch", "environment", "launch-1", "--output", str(environment_path)],
+        [
+            "--json",
+            "training-launch",
+            "environment",
+            "launch-1",
+            "--output",
+            str(environment_path),
+        ],
     )
     assert result.exit_code == 0, result.output
     assert environment_path.read_bytes() == b"export WANDB_MODE=online\n"
-    assert fake.calls[-1] == ("GET", "/api/training-launches/launch-1/environment", {}, None)
+    assert fake.calls[-1] == (
+        "GET",
+        "/api/training-launches/launch-1/environment",
+        {},
+        None,
+    )
 
 
 def test_training_launch_raw_commands_print_without_reserializing(
@@ -477,11 +607,15 @@ def test_training_launch_raw_commands_print_without_reserializing(
     fake = FakeClient([manifest, environment])
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
-    manifest_result = runner.invoke(main.app, ["training-launch", "manifest", "launch-1"])
+    manifest_result = runner.invoke(
+        main.app, ["training-launch", "manifest", "launch-1"]
+    )
     assert manifest_result.exit_code == 0, manifest_result.output
     assert manifest_result.stdout_bytes == manifest
 
-    environment_result = runner.invoke(main.app, ["training-launch", "environment", "launch-1"])
+    environment_result = runner.invoke(
+        main.app, ["training-launch", "environment", "launch-1"]
+    )
     assert environment_result.exit_code == 0, environment_result.output
     assert environment_result.stdout_bytes == environment.encode("utf-8")
 
@@ -546,7 +680,9 @@ def test_agent_environment_signs_canonical_claims_and_writes_mode_0600(
     tmp_path: Any,
 ) -> None:
     private_key, public_key = main.generate_keypair()
-    private_key_path = main.write_private_key(tmp_path / "wandb-signing.key", private_key)
+    private_key_path = main.write_private_key(
+        tmp_path / "wandb-signing.key", private_key
+    )
     claims = {
         "claims_version": 1,
         "credential_id": "credential-1",
@@ -565,7 +701,11 @@ def test_agent_environment_signs_canonical_claims_and_writes_mode_0600(
     )
     fake = FakeClient(
         [
-            {"id": "launch-1", "run_id": "run-1", "manifest": {"telemetry": {"token": {"claims": claims}}}},
+            {
+                "id": "launch-1",
+                "run_id": "run-1",
+                "manifest": {"telemetry": {"token": {"claims": claims}}},
+            },
             template,
         ]
     )
@@ -597,7 +737,9 @@ def test_agent_environment_signs_canonical_claims_and_writes_mode_0600(
     prefix, encoded_payload, encoded_signature = token.split("_")
     assert prefix == "MF1"
     payload = base64.b32decode(encoded_payload + "=" * (-len(encoded_payload) % 8))
-    signature = base64.b32decode(encoded_signature + "=" * (-len(encoded_signature) % 8))
+    signature = base64.b32decode(
+        encoded_signature + "=" * (-len(encoded_signature) % 8)
+    )
     public_bytes = base64.urlsafe_b64decode(public_key + "=" * (-len(public_key) % 4))
     Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, payload)
     assert json.loads(payload) == claims
@@ -616,7 +758,9 @@ def test_training_launch_inspect_combines_launch_and_live_run(
     fake = FakeClient([launch, live])
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
-    result = runner.invoke(main.app, ["--json", "training-launch", "inspect", "launch-1"])
+    result = runner.invoke(
+        main.app, ["--json", "training-launch", "inspect", "launch-1"]
+    )
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == {"launch": launch, "run": live}
@@ -696,7 +840,9 @@ def test_training_launch_wait_returns_exit_7_for_unsuccessful_terminal_state(
     assert json.loads(result.output)["state"] == state
 
 
-def test_training_prepare_bundles_self_contained_checkpoint_sync(monkeypatch, tmp_path) -> None:
+def test_training_prepare_bundles_self_contained_checkpoint_sync(
+    monkeypatch, tmp_path
+) -> None:
     packet = {
         "run_id": "run-1",
         "manifest": {
@@ -706,37 +852,89 @@ def test_training_prepare_bundles_self_contained_checkpoint_sync(monkeypatch, tm
         "preflight": {"ready_to_start": True},
         "ai_toolkit": {"logging": {"use_wandb": False}},
     }
-    fake = FakeClient([packet, 'export MODELFICHE_HANDOFF_TOKEN="<MF1_BASE32_ED25519_SIGNED_TOKEN>"\n', b"dataset-zip"])
+    fake = FakeClient(
+        [
+            packet,
+            'export MODELFICHE_HANDOFF_TOKEN="<MF1_BASE32_ED25519_SIGNED_TOKEN>"\n',
+            b"dataset-zip",
+        ]
+    )
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
     monkeypatch.setattr(main, "read_private_key", lambda _path: object())
-    monkeypatch.setattr(main, "sign_launch_claims", lambda _claims, _key: "signed-token")
+    monkeypatch.setattr(
+        main, "sign_launch_claims", lambda _claims, _key: "signed-token"
+    )
     key = tmp_path / "signing.key"
     key.write_text("private", encoding="utf-8")
     output = tmp_path / "packet"
 
     result = runner.invoke(
         main.app,
-        ["--json", "training", "run", "prepare", "launch-1", "--output", str(output), "--private-key-file", str(key)],
+        [
+            "--json",
+            "training",
+            "run",
+            "prepare",
+            "launch-1",
+            "--output",
+            str(output),
+            "--private-key-file",
+            str(key),
+        ],
     )
 
     assert result.exit_code == 0, result.output
-    assert (output / "modelfiche-run-sync.py").read_text(encoding="utf-8") == main.Path(main.__file__).with_name("run_sync.py").read_text(encoding="utf-8")
-    assert (output / "run-sync-command.txt").read_text(encoding="utf-8") == "python3 modelfiche-run-sync.py --manifest manifest.json\n"
-    assert 'MODELFICHE_HANDOFF_TOKEN="signed-token"' in (output / "trainer.env").read_text(encoding="utf-8")
+    assert (output / "modelfiche-run-sync.py").read_text(encoding="utf-8") == main.Path(
+        main.__file__
+    ).with_name("run_sync.py").read_text(encoding="utf-8")
+    assert (output / "run-sync-command.txt").read_text(
+        encoding="utf-8"
+    ) == "python3 modelfiche-run-sync.py --manifest manifest.json\n"
+    assert 'MODELFICHE_HANDOFF_TOKEN="signed-token"' in (
+        output / "trainer.env"
+    ).read_text(encoding="utf-8")
     assert (output / "training-dataset.zip").read_bytes() == b"dataset-zip"
-    checksums = json.loads((output / "checksums.json").read_text(encoding="utf-8"))["files"]
-    assert set(checksums) >= {"manifest.json", "trainer.env", "modelfiche-run-sync.py", "run-sync-command.txt", "training-dataset.zip"}
+    checksums = json.loads((output / "checksums.json").read_text(encoding="utf-8"))[
+        "files"
+    ]
+    assert set(checksums) >= {
+        "manifest.json",
+        "trainer.env",
+        "modelfiche-run-sync.py",
+        "run-sync-command.txt",
+        "training-dataset.zip",
+    }
 
 
-def test_cli_parity_mutations_use_supported_api_contracts(fake_client: FakeClient) -> None:
+def test_cli_parity_mutations_use_supported_api_contracts(
+    fake_client: FakeClient,
+) -> None:
     commands = [
         (
             ["caption", "remove-word", "draft-1", "--word", "obsolete", "--all"],
-            ("POST", "/api/dataset-drafts/draft-1/operations", {}, {"operation": "remove_word", "parameters": {"word": "obsolete"}, "item_ids": None, "tag": None, "included": None, "caption_format": None, "all": True}),
+            (
+                "POST",
+                "/api/dataset-drafts/draft-1/operations",
+                {},
+                {
+                    "operation": "remove_word",
+                    "parameters": {"word": "obsolete"},
+                    "item_ids": None,
+                    "tag": None,
+                    "included": None,
+                    "caption_format": None,
+                    "all": True,
+                },
+            ),
         ),
         (
             ["asset", "delete", "asset-1", "--delete-content"],
-            ("DELETE", "/api/assets/asset-1?report=true&delete_content=true", None, None),
+            (
+                "DELETE",
+                "/api/assets/asset-1?report=true&delete_content=true",
+                None,
+                None,
+            ),
         ),
         (
             ["workspace", "rename", "workspace-1", "--name", "Studio"],
@@ -748,15 +946,38 @@ def test_cli_parity_mutations_use_supported_api_contracts(fake_client: FakeClien
         ),
         (
             ["caption", "set-included", "draft-1", "--included", "--all"],
-            ("POST", "/api/dataset-drafts/draft-1/operations", {}, {"operation": "set_included", "parameters": {}, "item_ids": None, "tag": None, "included": True, "caption_format": None, "all": True}),
+            (
+                "POST",
+                "/api/dataset-drafts/draft-1/operations",
+                {},
+                {
+                    "operation": "set_included",
+                    "parameters": {},
+                    "item_ids": None,
+                    "tag": None,
+                    "included": True,
+                    "caption_format": None,
+                    "all": True,
+                },
+            ),
         ),
         (
             ["caption", "format", "draft-1", "--value", "json"],
-            ("PATCH", "/api/dataset-drafts/draft-1/caption-format", None, {"caption_format": "json"}),
+            (
+                "PATCH",
+                "/api/dataset-drafts/draft-1/caption-format",
+                None,
+                {"caption_format": "json"},
+            ),
         ),
         (
             ["caption", "undo", "draft-1", "operation-1"],
-            ("POST", "/api/dataset-drafts/draft-1/operations/operation-1/undo", {}, None),
+            (
+                "POST",
+                "/api/dataset-drafts/draft-1/operations/operation-1/undo",
+                {},
+                None,
+            ),
         ),
     ]
 
@@ -775,7 +996,19 @@ def test_local_import_encodes_supported_folder_files(monkeypatch, tmp_path) -> N
     fake = FakeClient()
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
-    result = runner.invoke(main.app, ["--json", "import", "local", str(folder), "--project", "project-1", "--name", "Local set"])
+    result = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "import",
+            "local",
+            str(folder),
+            "--project",
+            "project-1",
+            "--name",
+            "Local set",
+        ],
+    )
 
     assert result.exit_code == 0, result.output
     body = fake.calls[0][3]
@@ -788,24 +1021,59 @@ def test_local_import_encodes_supported_folder_files(monkeypatch, tmp_path) -> N
 
 def test_settings_update_accepts_nonsecret_json_patch(monkeypatch, tmp_path) -> None:
     patch_file = tmp_path / "settings.json"
-    patch_file.write_text(json.dumps({"generation": {"prompt_prepend": "studio"}}), encoding="utf-8")
+    patch_file.write_text(
+        json.dumps({"generation": {"prompt_prepend": "studio"}}), encoding="utf-8"
+    )
     fake = FakeClient()
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
-    result = runner.invoke(main.app, ["--json", "settings", "update", "--file", str(patch_file)])
+    result = runner.invoke(
+        main.app, ["--json", "settings", "update", "--file", str(patch_file)]
+    )
 
     assert result.exit_code == 0, result.output
-    assert fake.calls == [("PATCH", "/api/operator-settings", None, {"generation": {"prompt_prepend": "studio"}})]
+    assert fake.calls == [
+        (
+            "PATCH",
+            "/api/operator-settings",
+            None,
+            {"generation": {"prompt_prepend": "studio"}},
+        )
+    ]
 
 
 def test_image_generate_dry_run_compiles_without_admitting(monkeypatch) -> None:
-    fake = FakeClient([
-        {"id": "version-1", "project_id": "project-1", "model_id": "model-1", "checkpoint_revision_id": "revision-1"},
-        {"kind": "compiled_generation", "admission": {"id": "admission-1", "state": "ready", "version": 0}},
-    ])
+    fake = FakeClient(
+        [
+            {
+                "id": "version-1",
+                "project_id": "project-1",
+                "model_id": "model-1",
+                "checkpoint_revision_id": "revision-1",
+            },
+            {
+                "kind": "compiled_generation",
+                "admission": {"id": "admission-1", "state": "ready", "version": 0},
+            },
+        ]
+    )
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
-    result = runner.invoke(main.app, ["--json", "image", "generate", "--model-version", "version-1", "--prompt", "A portrait", "--param", "num_images=1", "--dry-run"])
+    result = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "image",
+            "generate",
+            "--model-version",
+            "version-1",
+            "--prompt",
+            "A portrait",
+            "--param",
+            "num_images=1",
+            "--dry-run",
+        ],
+    )
 
     assert result.exit_code == 0, result.output
     assert [call[:2] for call in fake.calls] == [
@@ -817,7 +1085,20 @@ def test_image_generate_dry_run_compiles_without_admitting(monkeypatch) -> None:
 
 
 def test_checkpoint_verify_reports_persisted_evidence(monkeypatch) -> None:
-    fake = FakeClient([{"artifact": {"asset_id": "asset-1", "checkpoint_revision_id": "revision-1", "sha256": "a" * 64, "storage": [{"provider": "s3", "size": 42, "verification_state": "verified"}]}}])
+    fake = FakeClient(
+        [
+            {
+                "artifact": {
+                    "asset_id": "asset-1",
+                    "checkpoint_revision_id": "revision-1",
+                    "sha256": "a" * 64,
+                    "storage": [
+                        {"provider": "s3", "size": 42, "verification_state": "verified"}
+                    ],
+                }
+            }
+        ]
+    )
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
     result = runner.invoke(main.app, ["--json", "checkpoint", "verify", "checkpoint-1"])
@@ -828,12 +1109,27 @@ def test_checkpoint_verify_reports_persisted_evidence(monkeypatch) -> None:
 
 
 def test_lineage_path_follows_directed_edges(monkeypatch) -> None:
-    first = {"source_type": "asset", "source_id": "asset-1", "relationship": "input_to", "target_type": "run", "target_id": "run-1"}
-    second = {"source_type": "run", "source_id": "run-1", "relationship": "produced", "target_type": "checkpoint", "target_id": "checkpoint-1"}
+    first = {
+        "source_type": "asset",
+        "source_id": "asset-1",
+        "relationship": "input_to",
+        "target_type": "run",
+        "target_id": "run-1",
+    }
+    second = {
+        "source_type": "run",
+        "source_id": "run-1",
+        "relationship": "produced",
+        "target_type": "checkpoint",
+        "target_id": "checkpoint-1",
+    }
     fake = FakeClient([[first], [second]])
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
 
-    result = runner.invoke(main.app, ["--json", "lineage", "path", "asset:asset-1", "checkpoint:checkpoint-1"])
+    result = runner.invoke(
+        main.app,
+        ["--json", "lineage", "path", "asset:asset-1", "checkpoint:checkpoint-1"],
+    )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -862,15 +1158,31 @@ def test_plan_helpers_build_inline_cases_and_digest() -> None:
     assert plan["targets"][0]["overrides"] == {"seed": 42}
 
 
-def test_grid_command_uses_project_scoped_preflight_route(fake_client: FakeClient) -> None:
+def test_grid_command_uses_project_scoped_preflight_route(
+    fake_client: FakeClient,
+) -> None:
     result = runner.invoke(
         main.app,
         [
-            "--json", "grid", "preflight", "--project", "project-1",
-            "--prompt", "a prompt", "--target", "fal:ideogram/v4/lora",
-            "--x-axis", "guidance_scale", "--x-value", "5",
-            "--y-axis", "aspect_ratio", "--y-value", "1:1",
-            "--idempotency-key", "idem-1",
+            "--json",
+            "grid",
+            "preflight",
+            "--project",
+            "project-1",
+            "--prompt",
+            "a prompt",
+            "--target",
+            "fal:ideogram/v4/lora",
+            "--x-axis",
+            "guidance_scale",
+            "--x-value",
+            "5",
+            "--y-axis",
+            "aspect_ratio",
+            "--y-value",
+            "1:1",
+            "--idempotency-key",
+            "idem-1",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -895,18 +1207,43 @@ def test_prompt_set_new_writes_are_removed() -> None:
 def test_request_plan_strips_authoritative_schema_and_defaults() -> None:
     from titles_cli.plan import request_plan
 
-    payload = request_plan({
-        "contract_version": "2026-07-22.v1",
-        "axes": {
-            "x": {"name": "target", "values": [{"value": "a", "digest": "sha256:x"}]},
-            "y": {"name": "prompt", "values": [{"value": "b", "digest": "sha256:y"}]},
-            "z": None,
-        },
-        "cases": [{"case_id": "c", "ordinal": 0, "input": {"prompt": "p"}, "input_digest": "sha256:z"}],
-        "targets": [{"target_id": "t", "ordinal": 0, "provider": "fal", "endpoint_id": "ideogram/v4/lora", "schema": {"type": "object"}, "schema_digest": "sha256:s", "target_overrides": {"seed": 4}}],
-        "shared_params": {"num_images": 1},
-        "endpoint_defaults": {"seed": 1},
-    })
+    payload = request_plan(
+        {
+            "contract_version": "2026-07-22.v1",
+            "axes": {
+                "x": {
+                    "name": "target",
+                    "values": [{"value": "a", "digest": "sha256:x"}],
+                },
+                "y": {
+                    "name": "prompt",
+                    "values": [{"value": "b", "digest": "sha256:y"}],
+                },
+                "z": None,
+            },
+            "cases": [
+                {
+                    "case_id": "c",
+                    "ordinal": 0,
+                    "input": {"prompt": "p"},
+                    "input_digest": "sha256:z",
+                }
+            ],
+            "targets": [
+                {
+                    "target_id": "t",
+                    "ordinal": 0,
+                    "provider": "fal",
+                    "endpoint_id": "ideogram/v4/lora",
+                    "schema": {"type": "object"},
+                    "schema_digest": "sha256:s",
+                    "target_overrides": {"seed": 4},
+                }
+            ],
+            "shared_params": {"num_images": 1},
+            "endpoint_defaults": {"seed": 1},
+        }
+    )
     assert payload["targets"][0]["overrides"] == {"seed": 4}
     assert "schema" not in payload["targets"][0]
     assert "schema_digest" not in payload["targets"][0]
@@ -917,9 +1254,14 @@ def test_two_targets_and_cases_require_axes() -> None:
     from titles_cli.main import build_plan
 
     plan = build_plan(
-        project="p", prompt=["one", "two"], prompt_file=None,
+        project="p",
+        prompt=["one", "two"],
+        prompt_file=None,
         target=["fal:ideogram/v4/lora", "fal:fal-ai/krea-2/turbo/lora"],
-        x_axis="target", x_value=["0", "1"], y_axis="prompt", y_value=["0", "1"],
+        x_axis="target",
+        x_value=["0", "1"],
+        y_axis="prompt",
+        y_value=["0", "1"],
     )
     assert len(plan["targets"]) == 2
     assert len(plan["cases"]) == 2
@@ -928,7 +1270,20 @@ def test_two_targets_and_cases_require_axes() -> None:
 def test_grid_queue_requires_billing_acknowledgement(fake_client: FakeClient) -> None:
     rejected = runner.invoke(
         main.app,
-        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x", "--idempotency-key", "queue-1"],
+        [
+            "--json",
+            "grid",
+            "queue",
+            "--project",
+            "project-1",
+            "grid-1",
+            "--plan-version",
+            "1",
+            "--plan-digest",
+            "sha256:x",
+            "--idempotency-key",
+            "queue-1",
+        ],
     )
     assert rejected.exit_code == 2
     assert "acknowledge-billing" in rejected.output
@@ -936,10 +1291,27 @@ def test_grid_queue_requires_billing_acknowledgement(fake_client: FakeClient) ->
 
     accepted = runner.invoke(
         main.app,
-        ["--json", "grid", "queue", "--project", "project-1", "grid-1", "--plan-version", "1", "--plan-digest", "sha256:x", "--idempotency-key", "queue-1", "--acknowledge-billing"],
+        [
+            "--json",
+            "grid",
+            "queue",
+            "--project",
+            "project-1",
+            "grid-1",
+            "--plan-version",
+            "1",
+            "--plan-digest",
+            "sha256:x",
+            "--idempotency-key",
+            "queue-1",
+            "--acknowledge-billing",
+        ],
     )
     assert accepted.exit_code == 0, accepted.output
-    assert fake_client.calls[-1][3]["billing_acknowledgement"] == "I understand FAL may bill this run even if checkpoint fetch fails"
+    assert (
+        fake_client.calls[-1][3]["billing_acknowledgement"]
+        == "I understand FAL may bill this run even if checkpoint fetch fails"
+    )
 
 
 def test_eval_help_has_no_removed_run_command() -> None:

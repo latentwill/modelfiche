@@ -34,7 +34,9 @@ from .wandb_helpers import (
 )
 
 
-app = typer.Typer(name="mfiche", no_args_is_help=True, help="Modelfiche operator and agent CLI")
+app = typer.Typer(
+    name="mfiche", no_args_is_help=True, help="Modelfiche operator and agent CLI"
+)
 
 
 @dataclass(slots=True)
@@ -73,7 +75,9 @@ def root(
     local = LocalContext.load()
     if api_url:
         local.api_url = api_url
-    ctx.obj = Runtime(local, profile, workspace, request_id, timeout, json_output, jsonl, quiet)
+    ctx.obj = Runtime(
+        local, profile, workspace, request_id, timeout, json_output, jsonl, quiet
+    )
 
 
 def rt(ctx: typer.Context) -> Runtime:
@@ -100,7 +104,6 @@ def read_json(path: Path) -> Any:
         raise typer.BadParameter(f"Cannot read JSON from {path}: {exc}") from exc
 
 
-
 def parse_json_option(value: str, option: str) -> Any:
     try:
         return json.loads(value)
@@ -119,7 +122,9 @@ def raw_call(ctx: typer.Context, operation: Callable[[TitlesClient], Any]) -> An
         client.close()
 
 
-def emit_raw(ctx: typer.Context, payload: bytes | str, output: Path | None, *, kind: str) -> None:
+def emit_raw(
+    ctx: typer.Context, payload: bytes | str, output: Path | None, *, kind: str
+) -> None:
     runtime = rt(ctx)
     if output is not None:
         destination = output.expanduser()
@@ -144,7 +149,11 @@ def emit_raw(ctx: typer.Context, payload: bytes | str, output: Path | None, *, k
             except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
         emit(
-            {"content": payload.decode("utf-8") if isinstance(payload, bytes) else payload},
+            {
+                "content": payload.decode("utf-8")
+                if isinstance(payload, bytes)
+                else payload
+            },
             json_output=True,
             jsonl=runtime.jsonl,
         )
@@ -153,6 +162,7 @@ def emit_raw(ctx: typer.Context, payload: bytes | str, output: Path | None, *, k
         typer.echo(payload.decode("utf-8"), nl=False)
     else:
         typer.echo(payload, nl=False)
+
 
 def parse_params(values: list[str]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -169,14 +179,18 @@ def parse_params(values: list[str]) -> dict[str, Any]:
 
 def split_subject(subject: str) -> tuple[str, str]:
     if ":" not in subject:
-        raise typer.BadParameter("Subject must use typed form, for example asset:<uuid>")
+        raise typer.BadParameter(
+            "Subject must use typed form, for example asset:<uuid>"
+        )
     subject_type, subject_id = subject.split(":", 1)
     if not subject_type or not subject_id:
         raise typer.BadParameter("Subject type and ID are required")
     return subject_type, subject_id
 
 
-def unsupported(ctx: typer.Context, command: str, reason: str, *, alternative: str | None = None) -> None:
+def unsupported(
+    ctx: typer.Context, command: str, reason: str, *, alternative: str | None = None
+) -> None:
     details = {"command": command}
     if alternative:
         details["alternative"] = alternative
@@ -221,7 +235,9 @@ def s3_object(client: TitlesClient, source: str, key: str) -> dict[str, Any]:
             )
 
 
-def s3_prefix_tree(client: TitlesClient, source: str, prefix: str, depth: int, limit: int) -> dict[str, Any]:
+def s3_prefix_tree(
+    client: TitlesClient, source: str, prefix: str, depth: int, limit: int
+) -> dict[str, Any]:
     nodes: list[dict[str, Any]] = []
     pending = [(prefix, 0)]
     visited: set[str] = set()
@@ -334,8 +350,12 @@ def workspace_list(ctx: typer.Context) -> None:
 
 
 @workspace_app.command("rename")
-def workspace_rename(ctx: typer.Context, workspace: str, name: str = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.patch(f"/api/workspaces/{workspace}", {"name": name}))
+def workspace_rename(
+    ctx: typer.Context, workspace: str, name: str = typer.Option(...)
+) -> None:
+    call(
+        ctx, lambda client: client.patch(f"/api/workspaces/{workspace}", {"name": name})
+    )
 
 
 profile_app = typer.Typer(no_args_is_help=True)
@@ -344,7 +364,10 @@ app.add_typer(profile_app, name="profile")
 
 @profile_app.command("list")
 def profile_list(ctx: typer.Context, include_archived: bool = False) -> None:
-    call(ctx, lambda client: client.get("/api/profiles", include_archived=include_archived))
+    call(
+        ctx,
+        lambda client: client.get("/api/profiles", include_archived=include_archived),
+    )
 
 
 @profile_app.command("create")
@@ -354,7 +377,13 @@ def profile_create(
     email: str | None = typer.Option(None),
     color: str | None = typer.Option(None),
 ) -> None:
-    call(ctx, lambda client: client.post("/api/profiles", {"display_name": name, "email": email, "avatar_color": color}))
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/profiles",
+            {"display_name": name, "email": email, "avatar_color": color},
+        ),
+    )
 
 
 @profile_app.command("show")
@@ -385,7 +414,13 @@ def profile_update(
     email: str | None = typer.Option(None),
     color: str | None = typer.Option(None),
 ) -> None:
-    call(ctx, lambda client: client.patch(f"/api/profiles/{profile}", {"display_name": name, "email": email, "avatar_color": color}))
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/profiles/{profile}",
+            {"display_name": name, "email": email, "avatar_color": color},
+        ),
+    )
 
 
 @profile_app.command("archive")
@@ -409,7 +444,13 @@ def project_create(
     description: str | None = typer.Option(None),
     trigger: list[str] = typer.Option([], "--trigger"),
 ) -> None:
-    call(ctx, lambda client: client.post("/api/projects", {"title": name, "description": description, "trigger_words": trigger}))
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/projects",
+            {"title": name, "description": description, "trigger_words": trigger},
+        ),
+    )
 
 
 @project_app.command("show")
@@ -425,17 +466,28 @@ def project_update(
     description: str | None = typer.Option(None),
     state: str | None = typer.Option(None),
 ) -> None:
-    call(ctx, lambda client: client.patch(f"/api/projects/{project}", {"title": name, "description": description, "state": state}))
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/projects/{project}",
+            {"title": name, "description": description, "state": state},
+        ),
+    )
 
 
 @project_app.command("archive")
 def project_archive(ctx: typer.Context, project: str) -> None:
-    call(ctx, lambda client: client.patch(f"/api/projects/{project}", {"state": "archived"}))
+    call(
+        ctx,
+        lambda client: client.patch(f"/api/projects/{project}", {"state": "archived"}),
+    )
 
 
 @project_app.command("activity")
 def project_activity(ctx: typer.Context, project: str, limit: int = 100) -> None:
-    call(ctx, lambda client: client.get("/api/activity", project_id=project, limit=limit))
+    call(
+        ctx, lambda client: client.get("/api/activity", project_id=project, limit=limit)
+    )
 
 
 wandb_app = typer.Typer(no_args_is_help=True)
@@ -484,6 +536,7 @@ def wandb_key_public(
         jsonl=rt(ctx).jsonl,
     )
 
+
 wandb_credential_app = typer.Typer(no_args_is_help=True)
 wandb_app.add_typer(wandb_credential_app, name="credential")
 wandb_app.add_typer(wandb_credential_app, name="credentials")
@@ -505,7 +558,12 @@ def wandb_credential_list(
     ctx: typer.Context,
     project: str | None = typer.Option(None, "--project-id", "--project"),
 ) -> None:
-    call(ctx, lambda client: client.get("/api/integrations/wandb/credentials", project_id=project))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/integrations/wandb/credentials", project_id=project
+        ),
+    )
 
 
 @wandb_credential_app.command("rotate")
@@ -525,7 +583,12 @@ def wandb_credential_rotate(
 
 @wandb_credential_app.command("revoke")
 def wandb_credential_revoke(ctx: typer.Context, credential: str) -> None:
-    call(ctx, lambda client: client.post(f"/api/integrations/wandb/credentials/{credential}/revoke"))
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/integrations/wandb/credentials/{credential}/revoke"
+        ),
+    )
 
 
 training_launch_app = typer.Typer(no_args_is_help=True)
@@ -591,7 +654,9 @@ def training_launch_payload(
         "output_directory": output_directory,
         "expected_duration_seconds": expected_duration_seconds,
     }
-    payload.update({key: value for key, value in direct_values.items() if value is not None})
+    payload.update(
+        {key: value for key, value in direct_values.items() if value is not None}
+    )
     if checkpoint_policy is not None:
         value = parse_json_option(checkpoint_policy, "--checkpoint-policy")
         if not isinstance(value, dict):
@@ -603,9 +668,15 @@ def training_launch_payload(
             raise typer.BadParameter("--backup-policy must be a JSON object")
         payload["backup_policy"] = value
     if supported_endpoint_ids_json is not None:
-        value = parse_json_option(supported_endpoint_ids_json, "--supported-endpoint-ids")
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-            raise typer.BadParameter("--supported-endpoint-ids must be a JSON array of strings")
+        value = parse_json_option(
+            supported_endpoint_ids_json, "--supported-endpoint-ids"
+        )
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise typer.BadParameter(
+                "--supported-endpoint-ids must be a JSON array of strings"
+            )
         payload["supported_endpoint_ids"] = value
     elif supported_endpoint_ids:
         payload["supported_endpoint_ids"] = supported_endpoint_ids
@@ -645,8 +716,12 @@ def training_launch_create(
     checkpoint_policy: str | None = typer.Option(None, "--checkpoint-policy"),
     backup_policy: str | None = typer.Option(None, "--backup-policy"),
     supported_endpoint_ids: list[str] = typer.Option([], "--supported-endpoint-id"),
-    supported_endpoint_ids_json: str | None = typer.Option(None, "--supported-endpoint-ids"),
-    expected_duration_seconds: int | None = typer.Option(None, "--expected-duration-seconds"),
+    supported_endpoint_ids_json: str | None = typer.Option(
+        None, "--supported-endpoint-ids"
+    ),
+    expected_duration_seconds: int | None = typer.Option(
+        None, "--expected-duration-seconds"
+    ),
 ) -> None:
     payload = training_launch_payload(
         input_file=input_file,
@@ -678,7 +753,10 @@ def training_launch_manifest(
     launch: str,
     output: Path | None = typer.Option(None, "--output", "--output-file", "-o"),
 ) -> None:
-    payload = raw_call(ctx, lambda client: client.get_bytes(f"/api/training-launches/{launch}/manifest"))
+    payload = raw_call(
+        ctx,
+        lambda client: client.get_bytes(f"/api/training-launches/{launch}/manifest"),
+    )
     emit_raw(ctx, payload, output, kind="manifest")
 
 
@@ -690,7 +768,10 @@ def training_launch_environment(
     launch: str,
     output: Path | None = typer.Option(None, "--output", "--output-file", "-o"),
 ) -> None:
-    payload = raw_call(ctx, lambda client: client.get_text(f"/api/training-launches/{launch}/environment"))
+    payload = raw_call(
+        ctx,
+        lambda client: client.get_text(f"/api/training-launches/{launch}/environment"),
+    )
     emit_raw(ctx, payload, output, kind="environment")
 
 
@@ -700,6 +781,7 @@ training_launch_app.command("environment")(training_launch_environment)
 @training_launch_app.command("inspect")
 def training_launch_inspect(ctx: typer.Context, launch: str) -> None:
     """Return the launch contract and current live run projection together."""
+
     def projection(client: TitlesClient) -> dict[str, Any]:
         launch_value = client.get(f"/api/training-launches/{launch}")
         run_id = launch_value.get("run_id") if isinstance(launch_value, dict) else None
@@ -726,6 +808,7 @@ def training_launch_agent_environment(
     output: Path | None = typer.Option(None, "--output", "--output-file", "-o"),
 ) -> None:
     """Render a ready-to-source environment while keeping the private key local."""
+
     def inputs(client: TitlesClient) -> tuple[Any, str]:
         return (
             client.get(f"/api/training-launches/{launch}"),
@@ -734,14 +817,20 @@ def training_launch_agent_environment(
 
     launch_value, template = raw_call(ctx, inputs)
     try:
-        manifest = launch_value.get("manifest") if isinstance(launch_value, dict) else None
+        manifest = (
+            launch_value.get("manifest") if isinstance(launch_value, dict) else None
+        )
         telemetry = manifest.get("telemetry") if isinstance(manifest, dict) else None
         token = telemetry.get("token") if isinstance(telemetry, dict) else None
         claims = token.get("claims") if isinstance(token, dict) else None
         if not isinstance(claims, dict):
-            raise ValueError("training launch manifest is missing telemetry token claims")
+            raise ValueError(
+                "training launch manifest is missing telemetry token claims"
+            )
         private_key = read_private_key(private_key_file)
-        environment = render_agent_environment(template, sign_launch_claims(claims, private_key))
+        environment = render_agent_environment(
+            template, sign_launch_claims(claims, private_key)
+        )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
@@ -751,7 +840,9 @@ def training_launch_agent_environment(
     try:
         destination = write_secret_text(output, environment)
     except OSError as exc:
-        raise typer.BadParameter(f"cannot write agent environment to {output}: {exc}", param_hint="--output") from exc
+        raise typer.BadParameter(
+            f"cannot write agent environment to {output}: {exc}", param_hint="--output"
+        ) from exc
     emit(
         {
             "launch_id": launch,
@@ -802,7 +893,9 @@ def training_launch_wait(
         client.close()
 
 
-training_app = typer.Typer(no_args_is_help=True, help="Guided training setup, preflight, and launch")
+training_app = typer.Typer(
+    no_args_is_help=True, help="Guided training setup, preflight, and launch"
+)
 training_run_app = typer.Typer(no_args_is_help=True)
 app.add_typer(training_app, name="training")
 training_app.add_typer(training_run_app, name="run")
@@ -826,7 +919,9 @@ def _load_training_profile() -> dict[str, Any]:
 def _save_training_profile(value: dict[str, Any]) -> Path:
     path = _training_profile_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     path.chmod(0o600)
     return path
 
@@ -904,21 +999,34 @@ def training_setup(
         client.close()
 
 
-def _resolve_dataset_version(client: TitlesClient, dataset_value: str, version_value: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _resolve_dataset_version(
+    client: TitlesClient, dataset_value: str, version_value: str | None
+) -> tuple[dict[str, Any], dict[str, Any]]:
     datasets = client.get("/api/datasets", limit=1000)
-    matches = [item for item in datasets if item.get("id") == dataset_value or str(item.get("name", "")).casefold() == dataset_value.casefold()]
+    matches = [
+        item
+        for item in datasets
+        if item.get("id") == dataset_value
+        or str(item.get("name", "")).casefold() == dataset_value.casefold()
+    ]
     if len(matches) != 1:
         raise ApiError(
             f"Dataset {dataset_value!r} did not resolve uniquely",
             status_code=4,
             code="TRAINING_DATASET_AMBIGUOUS",
-            details={"matches": [{"id": item.get("id"), "name": item.get("name")} for item in matches]},
+            details={
+                "matches": [
+                    {"id": item.get("id"), "name": item.get("name")} for item in matches
+                ]
+            },
         )
     dataset = matches[0]
     versions = client.get(f"/api/datasets/{dataset['id']}/versions")
     if version_value is None:
         version_id = dataset.get("current_version_id")
-        selected = next((item for item in versions if item.get("id") == version_id), None)
+        selected = next(
+            (item for item in versions if item.get("id") == version_id), None
+        )
     else:
         selected = next(
             (
@@ -949,7 +1057,9 @@ def training_run_create(
     output_directory: str = typer.Option("/workspace/output", "--output-directory"),
     checkpoint_every: int = typer.Option(1000, "--checkpoint-every", min=1),
     backup_every: int = typer.Option(300, "--backup-every", min=30, max=3600),
-    max_duration: int = typer.Option(86400, "--max-duration-seconds", min=300, max=2592000),
+    max_duration: int = typer.Option(
+        86400, "--max-duration-seconds", min=300, max=2592000
+    ),
 ) -> None:
     """Create a launch from human-readable inputs using verified setup defaults."""
     runtime = rt(ctx)
@@ -959,12 +1069,23 @@ def training_run_create(
         setup = client.get("/api/training-setup")
         profile = _load_training_profile()
         credential_id = profile.get("credential_id")
-        credential = next((item for item in setup.get("credentials", []) if item.get("id") == credential_id), None)
+        credential = next(
+            (
+                item
+                for item in setup.get("credentials", [])
+                if item.get("id") == credential_id
+            ),
+            None,
+        )
         if credential is None and len(setup.get("credentials", [])) == 1:
             credential = setup["credentials"][0]
         sources = [item for item in setup.get("sources", []) if item.get("verified")]
         if credential is None:
-            raise ApiError("Run `mfiche training setup` first", status_code=4, code="TRAINING_SIGNING_NOT_CONFIGURED")
+            raise ApiError(
+                "Run `mfiche training setup` first",
+                status_code=4,
+                code="TRAINING_SIGNING_NOT_CONFIGURED",
+            )
         if len(sources) != 1:
             raise ApiError(
                 "Exactly one verified training storage source is required for guided launch",
@@ -994,7 +1115,11 @@ def training_run_create(
             {
                 "launch": launch,
                 "dataset": {"id": dataset_row["id"], "name": dataset_row.get("name")},
-                "version": {"id": version_row["id"], "name": version_row.get("name"), "number": version_row.get("version_number")},
+                "version": {
+                    "id": version_row["id"],
+                    "name": version_row.get("name"),
+                    "number": version_row.get("version_number"),
+                },
                 "next_action": f"mfiche training run preflight {launch['id']}",
             },
             json_output=runtime.json_output,
@@ -1020,27 +1145,39 @@ def training_run_prepare(
 ) -> None:
     """Write a checksummed, ready-to-run packet only after preflight passes."""
     profile = _load_training_profile()
-    key_path = (private_key_file or Path(str(profile.get("private_key_path", "")))).expanduser()
+    key_path = (
+        private_key_file or Path(str(profile.get("private_key_path", "")))
+    ).expanduser()
     if not str(key_path) or not key_path.is_file():
-        raise typer.BadParameter("Run `mfiche training setup` or provide --private-key-file")
+        raise typer.BadParameter(
+            "Run `mfiche training setup` or provide --private-key-file"
+        )
     runtime = rt(ctx)
     client = runtime.client()
     try:
         packet = client.get(f"/api/training-launches/{launch}/packet")
         template = client.get_text(f"/api/training-launches/{launch}/environment")
         claims = packet["manifest"]["telemetry"]["token"]["claims"]
-        secret_environment = render_agent_environment(template, sign_launch_claims(claims, read_private_key(key_path)))
+        secret_environment = render_agent_environment(
+            template, sign_launch_claims(claims, read_private_key(key_path))
+        )
         dataset_url = str(packet["manifest"]["dataset"]["download_url"])
         dataset_archive = client.get_bytes(dataset_url)
         destination = output.expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         destination.chmod(0o700)
         files = {
-            "manifest.json": json.dumps(packet["manifest"], indent=2, sort_keys=True) + "\n",
-            "preflight.json": json.dumps(packet["preflight"], indent=2, sort_keys=True) + "\n",
-            "ai-toolkit-logging.yaml": yaml.safe_dump(packet["ai_toolkit"], sort_keys=False),
+            "manifest.json": json.dumps(packet["manifest"], indent=2, sort_keys=True)
+            + "\n",
+            "preflight.json": json.dumps(packet["preflight"], indent=2, sort_keys=True)
+            + "\n",
+            "ai-toolkit-logging.yaml": yaml.safe_dump(
+                packet["ai_toolkit"], sort_keys=False
+            ),
             "trainer.env": secret_environment,
-            "modelfiche-run-sync.py": Path(__file__).with_name("run_sync.py").read_text(encoding="utf-8"),
+            "modelfiche-run-sync.py": Path(__file__)
+            .with_name("run_sync.py")
+            .read_text(encoding="utf-8"),
             "run-sync-command.txt": "python3 modelfiche-run-sync.py --manifest manifest.json\n",
             "README.txt": (
                 "ModelFiche training packet\n\n"
@@ -1062,7 +1199,12 @@ def training_run_prepare(
         dataset_path.write_bytes(dataset_archive)
         dataset_path.chmod(0o644)
         checksums["training-dataset.zip"] = hashlib.sha256(dataset_archive).hexdigest()
-        checksum_body = json.dumps({"algorithm": "sha256", "files": checksums}, indent=2, sort_keys=True) + "\n"
+        checksum_body = (
+            json.dumps(
+                {"algorithm": "sha256", "files": checksums}, indent=2, sort_keys=True
+            )
+            + "\n"
+        )
         (destination / "checksums.json").write_text(checksum_body, encoding="utf-8")
         emit(
             {
@@ -1154,7 +1296,13 @@ def s3_source_update(
         "credential_env_prefix": credential_env_prefix,
         "is_active": active,
     }
-    call(ctx, lambda client: client.patch(f"/api/import-sources/{source}", {key: value for key, value in values.items() if value is not None}))
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/import-sources/{source}",
+            {key: value for key, value in values.items() if value is not None},
+        ),
+    )
 
 
 @s3_app.command("source-test")
@@ -1176,7 +1324,15 @@ def s3_ls(
     cursor: str | None = None,
     limit: int = 100,
 ) -> None:
-    call(ctx, lambda client: client.get(f"/api/import-sources/{source}/browse", prefix=prefix, cursor=cursor, page_size=limit))
+    call(
+        ctx,
+        lambda client: client.get(
+            f"/api/import-sources/{source}/browse",
+            prefix=prefix,
+            cursor=cursor,
+            page_size=limit,
+        ),
+    )
 
 
 @s3_app.command("stat")
@@ -1186,7 +1342,12 @@ def s3_stat(ctx: typer.Context, key: str, source: str = typer.Option(...)) -> No
 
 @s3_app.command("detect")
 def s3_detect(ctx: typer.Context, prefix: str, source: str = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.post(f"/api/import-sources/{source}/detect", {"prefix": prefix}))
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/import-sources/{source}/detect", {"prefix": prefix}
+        ),
+    )
 
 
 @s3_app.command("tree")
@@ -1238,7 +1399,15 @@ def transfer_preview(
     include_files: bool = typer.Option(True, "--include-files/--exclude-files"),
     include_reviews: bool = typer.Option(True, "--include-reviews/--exclude-reviews"),
 ) -> None:
-    payload = transfer_payload(project=project, assets=asset, dataset_versions=dataset_version, model_versions=model_version, eval_runs=eval_run, include_files=include_files, include_reviews=include_reviews)
+    payload = transfer_payload(
+        project=project,
+        assets=asset,
+        dataset_versions=dataset_version,
+        model_versions=model_version,
+        eval_runs=eval_run,
+        include_files=include_files,
+        include_reviews=include_reviews,
+    )
     payload.pop("review_token")
     call(ctx, lambda client: client.post("/api/transfers/preview", payload))
 
@@ -1246,7 +1415,9 @@ def transfer_preview(
 @transfer_app.command("create")
 def transfer_create(
     ctx: typer.Context,
-    review_token: str = typer.Option(..., help="Token returned by `mfiche transfer preview`"),
+    review_token: str = typer.Option(
+        ..., help="Token returned by `mfiche transfer preview`"
+    ),
     project: str | None = typer.Option(None),
     asset: list[str] = typer.Option([], "--asset"),
     dataset_version: list[str] = typer.Option([], "--dataset-version"),
@@ -1255,7 +1426,16 @@ def transfer_create(
     include_files: bool = typer.Option(True, "--include-files/--exclude-files"),
     include_reviews: bool = typer.Option(True, "--include-reviews/--exclude-reviews"),
 ) -> None:
-    payload = transfer_payload(project=project, assets=asset, dataset_versions=dataset_version, model_versions=model_version, eval_runs=eval_run, include_files=include_files, include_reviews=include_reviews, review_token=review_token)
+    payload = transfer_payload(
+        project=project,
+        assets=asset,
+        dataset_versions=dataset_version,
+        model_versions=model_version,
+        eval_runs=eval_run,
+        include_files=include_files,
+        include_reviews=include_reviews,
+        review_token=review_token,
+    )
     call(ctx, lambda client: client.post("/api/transfers", payload))
 
 
@@ -1273,6 +1453,7 @@ def transfer_show(ctx: typer.Context, transfer: str) -> None:
 def transfer_cancel(ctx: typer.Context, transfer: str) -> None:
     call(ctx, lambda client: client.post(f"/api/transfers/{transfer}/cancel"))
 
+
 import_app = typer.Typer(no_args_is_help=True)
 app.add_typer(import_app, name="import")
 
@@ -1283,7 +1464,12 @@ def import_preview(
     prefix: str = typer.Option(...),
     source: str = typer.Option(...),
 ) -> None:
-    call(ctx, lambda client: client.post(f"/api/import-sources/{source}/detect", {"prefix": prefix}))
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/import-sources/{source}/detect", {"prefix": prefix}
+        ),
+    )
 
 
 @import_app.command("create")
@@ -1295,7 +1481,9 @@ def import_create(
     kind: str | None = typer.Option(None),
     hydrate_dataset: bool = typer.Option(True),
     dry_run: bool = typer.Option(False),
-    review_token: str | None = typer.Option(None, help="Token returned by `mfiche import preview`; required for mutation"),
+    review_token: str | None = typer.Option(
+        None, help="Token returned by `mfiche import preview`; required for mutation"
+    ),
     wait: bool = typer.Option(False),
 ) -> None:
     payload = {
@@ -1341,18 +1529,23 @@ def import_refresh(ctx: typer.Context, subject: str) -> None:
     call(ctx, lambda client: client.post(f"/api/runs/{subject_id}/refresh"))
 
 
-
 @import_app.command("backfill-metrics")
 def import_backfill_metrics(
     ctx: typer.Context,
-    run: str | None = typer.Option(None, "--run", help="One training run ID or run:<id> subject."),
-    project: str | None = typer.Option(None, "--project", help="Limit the backfill to one project."),
+    run: str | None = typer.Option(
+        None, "--run", help="One training run ID or run:<id> subject."
+    ),
+    project: str | None = typer.Option(
+        None, "--project", help="Limit the backfill to one project."
+    ),
 ) -> None:
     """Re-import existing remote run metadata without hydrating large artifacts."""
     if run:
         subject_type, run_id = split_subject(run) if ":" in run else ("run", run)
         if subject_type not in {"run", "training-run", "training_run"}:
-            unsupported(ctx, "import backfill-metrics", "Only training runs can be backfilled")
+            unsupported(
+                ctx, "import backfill-metrics", "Only training runs can be backfilled"
+            )
             return
         call(ctx, lambda client: client.post(f"/api/runs/{run_id}/refresh"))
         return
@@ -1364,12 +1557,15 @@ def import_backfill_metrics(
         for row in candidates if isinstance(candidates, list) else []:
             run_id = row.get("id")
             if not run_id or not row.get("source_prefix"):
-                skipped.append({"run_id": run_id, "reason": "missing remote source prefix"})
+                skipped.append(
+                    {"run_id": run_id, "reason": "missing remote source prefix"}
+                )
                 continue
             queued.append(client.post(f"/api/runs/{run_id}/refresh"))
         return {"queued": queued, "skipped": skipped}
 
     call(ctx, enqueue)
+
 
 @import_app.command("local")
 def import_local(
@@ -1378,8 +1574,24 @@ def import_local(
     project: str = typer.Option(...),
     name: str = typer.Option(..., help="Dataset name"),
 ) -> None:
-    supported = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif", ".txt", ".json"}
-    paths = sorted(path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in supported)
+    supported = {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".avif",
+        ".txt",
+        ".json",
+    }
+    paths = sorted(
+        path
+        for path in folder.rglob("*")
+        if path.is_file() and path.suffix.lower() in supported
+    )
     if not paths:
         raise typer.BadParameter("Folder contains no supported images or sidecars")
     if len(paths) > 1000:
@@ -1396,7 +1608,13 @@ def import_local(
         }
         for path in paths
     ]
-    call(ctx, lambda client: client.post("/api/local-imports", {"project_id": project, "dataset_name": name, "files": files}))
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/local-imports",
+            {"project_id": project, "dataset_name": name, "files": files},
+        ),
+    )
 
 
 job_app = typer.Typer(no_args_is_help=True)
@@ -1404,7 +1622,9 @@ app.add_typer(job_app, name="job")
 
 
 @job_app.command("list")
-def job_list(ctx: typer.Context, state: str | None = None, kind: str | None = None) -> None:
+def job_list(
+    ctx: typer.Context, state: str | None = None, kind: str | None = None
+) -> None:
     call(ctx, lambda client: client.get("/api/jobs", state=state, kind=kind))
 
 
@@ -1434,7 +1654,12 @@ def wait_for_job(ctx: typer.Context, job: str, timeout: float = 600.0) -> None:
                     raise typer.Exit(7)
                 return
             if time.monotonic() >= deadline:
-                raise ApiError("Timed out waiting for job", status_code=6, code="JOB_WAIT_TIMEOUT", retryable=True)
+                raise ApiError(
+                    "Timed out waiting for job",
+                    status_code=6,
+                    code="JOB_WAIT_TIMEOUT",
+                    retryable=True,
+                )
             time.sleep(1.0)
     except ApiError as exc:
         fail(exc, json_output=runtime.json_output)
@@ -1479,12 +1704,27 @@ def dataset_items(
     limit: int = 100,
     offset: int = 0,
 ) -> None:
-    call(ctx, lambda client: client.get(f"/api/dataset-versions/{version}/items", included=included, limit=limit, offset=offset))
+    call(
+        ctx,
+        lambda client: client.get(
+            f"/api/dataset-versions/{version}/items",
+            included=included,
+            limit=limit,
+            offset=offset,
+        ),
+    )
 
 
 @dataset_app.command("draft-create")
-def dataset_draft_create(ctx: typer.Context, dataset: str, base_version: str = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.post(f"/api/datasets/{dataset}/drafts", {"base_version_id": base_version}))
+def dataset_draft_create(
+    ctx: typer.Context, dataset: str, base_version: str = typer.Option(...)
+) -> None:
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/datasets/{dataset}/drafts", {"base_version_id": base_version}
+        ),
+    )
 
 
 @dataset_app.command("draft-show")
@@ -1498,8 +1738,15 @@ def dataset_draft_discard(ctx: typer.Context, draft: str) -> None:
 
 
 @dataset_app.command("publish")
-def dataset_publish(ctx: typer.Context, draft: str, name: str = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.post(f"/api/dataset-drafts/{draft}/publish", {"name": name}))
+def dataset_publish(
+    ctx: typer.Context, draft: str, name: str = typer.Option(...)
+) -> None:
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/dataset-drafts/{draft}/publish", {"name": name}
+        ),
+    )
 
 
 caption_app = typer.Typer(no_args_is_help=True)
@@ -1522,8 +1769,14 @@ def caption_operation(
     all_items: bool = False,
 ) -> None:
     if not any([item, tag, included is not None, caption_format, all_items]):
-        raise typer.BadParameter("An explicit scope is required: --item, --tag, --included, --caption-format, or --all")
-    parameters = {key: value for key, value in {"find": find, "replace": replace, "word": word}.items() if value is not None}
+        raise typer.BadParameter(
+            "An explicit scope is required: --item, --tag, --included, --caption-format, or --all"
+        )
+    parameters = {
+        key: value
+        for key, value in {"find": find, "replace": replace, "word": word}.items()
+        if value is not None
+    }
     body = {
         "operation": action,
         "parameters": parameters,
@@ -1550,7 +1803,19 @@ def caption_replace(
     caption_format: str | None = None,
     all_items: bool = typer.Option(False, "--all"),
 ) -> None:
-    caption_operation(ctx, draft, "replace", preview=preview, find=find, replace=replace, item=item, tag=tag, included=included, caption_format=caption_format, all_items=all_items)
+    caption_operation(
+        ctx,
+        draft,
+        "replace",
+        preview=preview,
+        find=find,
+        replace=replace,
+        item=item,
+        tag=tag,
+        included=included,
+        caption_format=caption_format,
+        all_items=all_items,
+    )
 
 
 @caption_app.command("add-word")
@@ -1565,7 +1830,18 @@ def caption_add_word(
     caption_format: str | None = None,
     all_items: bool = typer.Option(False, "--all"),
 ) -> None:
-    caption_operation(ctx, draft, "add_word", preview=preview, word=word, item=item, tag=tag, included=included, caption_format=caption_format, all_items=all_items)
+    caption_operation(
+        ctx,
+        draft,
+        "add_word",
+        preview=preview,
+        word=word,
+        item=item,
+        tag=tag,
+        included=included,
+        caption_format=caption_format,
+        all_items=all_items,
+    )
 
 
 @caption_app.command("remove-word")
@@ -1580,7 +1856,18 @@ def caption_remove_word(
     caption_format: str | None = None,
     all_items: bool = typer.Option(False, "--all"),
 ) -> None:
-    caption_operation(ctx, draft, "remove_word", preview=preview, word=word, item=item, tag=tag, included=included, caption_format=caption_format, all_items=all_items)
+    caption_operation(
+        ctx,
+        draft,
+        "remove_word",
+        preview=preview,
+        word=word,
+        item=item,
+        tag=tag,
+        included=included,
+        caption_format=caption_format,
+        all_items=all_items,
+    )
 
 
 @caption_app.command("set-included")
@@ -1594,19 +1881,41 @@ def caption_set_included(
     caption_format: str | None = None,
     all_items: bool = typer.Option(False, "--all"),
 ) -> None:
-    caption_operation(ctx, draft, "set_included", preview=preview, item=item, tag=tag, caption_format=caption_format, all_items=all_items, included=included_value)
+    caption_operation(
+        ctx,
+        draft,
+        "set_included",
+        preview=preview,
+        item=item,
+        tag=tag,
+        caption_format=caption_format,
+        all_items=all_items,
+        included=included_value,
+    )
 
 
 @caption_app.command("format")
-def caption_format(ctx: typer.Context, draft: str, value: str = typer.Option(...)) -> None:
+def caption_format(
+    ctx: typer.Context, draft: str, value: str = typer.Option(...)
+) -> None:
     if value not in {"text", "json"}:
         raise typer.BadParameter("--value must be text or json")
-    call(ctx, lambda client: client.patch(f"/api/dataset-drafts/{draft}/caption-format", {"caption_format": value}))
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/dataset-drafts/{draft}/caption-format", {"caption_format": value}
+        ),
+    )
 
 
 @caption_app.command("undo")
 def caption_undo(ctx: typer.Context, draft: str, operation: str) -> None:
-    call(ctx, lambda client: client.post(f"/api/dataset-drafts/{draft}/operations/{operation}/undo"))
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/dataset-drafts/{draft}/operations/{operation}/undo"
+        ),
+    )
 
 
 @caption_app.command("history")
@@ -1615,8 +1924,17 @@ def caption_history(ctx: typer.Context, draft: str) -> None:
 
 
 @caption_app.command("set")
-def caption_set(ctx: typer.Context, draft: str, item: str, text: str = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.patch(f"/api/dataset-drafts/{draft}/items/{item}", {"caption": text}))
+def caption_set(
+    ctx: typer.Context, draft: str, item: str, text: str = typer.Option(...)
+) -> None:
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/dataset-drafts/{draft}/items/{item}", {"caption": text}
+        ),
+    )
+
+
 @caption_app.command("generate")
 def caption_generate(
     ctx: typer.Context,
@@ -1644,7 +1962,9 @@ app.add_typer(run_app, name="run")
 
 
 @run_app.command("list")
-def run_list(ctx: typer.Context, project: str | None = None, status: str | None = None) -> None:
+def run_list(
+    ctx: typer.Context, project: str | None = None, status: str | None = None
+) -> None:
     call(ctx, lambda client: client.get("/api/runs", project_id=project, status=status))
 
 
@@ -1685,13 +2005,21 @@ def run_checkpoints(ctx: typer.Context, run: str) -> None:
 
 
 @run_app.command("samples")
-def run_samples(ctx: typer.Context, run: str, step: int | None = None, limit: int = 100) -> None:
-    call(ctx, lambda client: client.get(f"/api/runs/{run}/samples", step=step, limit=limit))
+def run_samples(
+    ctx: typer.Context, run: str, step: int | None = None, limit: int = 100
+) -> None:
+    call(
+        ctx,
+        lambda client: client.get(f"/api/runs/{run}/samples", step=step, limit=limit),
+    )
 
 
 @run_app.command("lineage")
 def run_lineage(ctx: typer.Context, run: str) -> None:
-    call(ctx, lambda client: client.get("/api/lineage", subject_type="run", subject_id=run))
+    call(
+        ctx,
+        lambda client: client.get("/api/lineage", subject_type="run", subject_id=run),
+    )
 
 
 checkpoint_app = typer.Typer(no_args_is_help=True)
@@ -1704,8 +2032,16 @@ def checkpoint_show(ctx: typer.Context, checkpoint: str) -> None:
 
 
 @checkpoint_app.command("download")
-def checkpoint_download(ctx: typer.Context, checkpoint: str, output: Path | None = None, wait: bool = True) -> None:
-    result = call(ctx, lambda client: client.post(f"/api/checkpoints/{checkpoint}/hydrate", {"output": str(output) if output else None}))
+def checkpoint_download(
+    ctx: typer.Context, checkpoint: str, output: Path | None = None, wait: bool = True
+) -> None:
+    result = call(
+        ctx,
+        lambda client: client.post(
+            f"/api/checkpoints/{checkpoint}/hydrate",
+            {"output": str(output) if output else None},
+        ),
+    )
     if wait and isinstance(result, dict) and result.get("job_id"):
         wait_for_job(ctx, result["job_id"])
 
@@ -1713,22 +2049,29 @@ def checkpoint_download(ctx: typer.Context, checkpoint: str, output: Path | None
 @checkpoint_app.command("verify")
 def checkpoint_verify(ctx: typer.Context, checkpoint: str) -> None:
     """Verify the checkpoint's persisted handoff and storage evidence."""
+
     def verify(client: TitlesClient) -> dict[str, Any]:
         row = client.get(f"/api/checkpoints/{checkpoint}")
         artifact = row.get("artifact") or {}
         digest = str(artifact.get("sha256") or "")
-        storage = artifact.get("storage") if isinstance(artifact.get("storage"), list) else []
+        storage = (
+            artifact.get("storage") if isinstance(artifact.get("storage"), list) else []
+        )
         evidenced = [
             location
             for location in storage
-            if str(location.get("verification_state") or "").lower() in {"available", "verified"}
+            if str(location.get("verification_state") or "").lower()
+            in {"available", "verified"}
             and location.get("size") is not None
         ]
         checks = {
             "artifact_registered": bool(artifact.get("asset_id")),
-            "sha256_recorded": len(digest) == 64 and all(character in "0123456789abcdefABCDEF" for character in digest),
+            "sha256_recorded": len(digest) == 64
+            and all(character in "0123456789abcdefABCDEF" for character in digest),
             "storage_evidence_recorded": bool(evidenced),
-            "checkpoint_revision_recorded": bool(artifact.get("checkpoint_revision_id")),
+            "checkpoint_revision_recorded": bool(
+                artifact.get("checkpoint_revision_id")
+            ),
         }
         return {
             "checkpoint_id": checkpoint,
@@ -1752,8 +2095,15 @@ def model_list(ctx: typer.Context, project: str | None = None) -> None:
 
 
 @model_app.command("create")
-def model_create(ctx: typer.Context, project: str = typer.Option(...), name: str = typer.Option(...)) -> None:
-    call(ctx, lambda client: client.post("/api/models", {"project_id": project, "name": name}))
+def model_create(
+    ctx: typer.Context, project: str = typer.Option(...), name: str = typer.Option(...)
+) -> None:
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/models", {"project_id": project, "name": name}
+        ),
+    )
 
 
 @model_app.command("version-create")
@@ -1764,7 +2114,18 @@ def model_version_create(
     state: str = typer.Option("candidate"),
     name: str | None = typer.Option(None),
 ) -> None:
-    call(ctx, lambda client: client.post("/api/model-versions", {"model_id": model, "checkpoint_id": checkpoint, "lifecycle_state": state, "name": name or f"checkpoint-{checkpoint[:8]}"}))
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/model-versions",
+            {
+                "model_id": model,
+                "checkpoint_id": checkpoint,
+                "lifecycle_state": state,
+                "name": name or f"checkpoint-{checkpoint[:8]}",
+            },
+        ),
+    )
 
 
 @model_app.command("version-show")
@@ -1774,12 +2135,22 @@ def model_version_show(ctx: typer.Context, version: str) -> None:
 
 @model_app.command("version-approve")
 def model_version_approve(ctx: typer.Context, version: str) -> None:
-    call(ctx, lambda client: client.patch(f"/api/model-versions/{version}/state", {"lifecycle_state": "approved"}))
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/model-versions/{version}/state", {"lifecycle_state": "approved"}
+        ),
+    )
 
 
 @model_app.command("version-archive")
 def model_version_archive(ctx: typer.Context, version: str) -> None:
-    call(ctx, lambda client: client.patch(f"/api/model-versions/{version}/state", {"lifecycle_state": "archived"}))
+    call(
+        ctx,
+        lambda client: client.patch(
+            f"/api/model-versions/{version}/state", {"lifecycle_state": "archived"}
+        ),
+    )
 
 
 prompt_app = typer.Typer(no_args_is_help=True)
@@ -1791,18 +2162,21 @@ def prompt_list(ctx: typer.Context, project: str | None = None) -> None:
     call(ctx, lambda client: client.get("/api/prompt-sets", project_id=project))
 
 
-
-
 @prompt_app.command("show")
 def prompt_show(ctx: typer.Context, prompt_set: str) -> None:
     call(ctx, lambda client: client.get(f"/api/prompt-sets/{prompt_set}"))
 
 
-
-
-
-
-from .plan import CONTRACT_VERSION, digest, load_prompts, normalize_cases, parse_axis, parse_json_object, request_plan, validate_cardinality
+from .plan import (
+    CONTRACT_VERSION,
+    digest,
+    load_prompts,
+    normalize_cases,
+    parse_axis,
+    parse_json_object,
+    request_plan,
+    validate_cardinality,
+)
 
 GRID_PREFLIGHT_ROUTE = "/api/projects/{project_id}/experiment-plans/preflight"
 
@@ -1813,7 +2187,9 @@ def parse_target(value: str, ordinal: int) -> dict[str, Any]:
     except json.JSONDecodeError:
         parts = value.split(":")
         if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
-            raise typer.BadParameter("target must be JSON or provider:endpoint[:model_version[:checkpoint]]")
+            raise typer.BadParameter(
+                "target must be JSON or provider:endpoint[:model_version[:checkpoint]]"
+            )
         target = {"provider": parts[0], "endpoint_id": parts[1]}
         if len(parts) > 2 and parts[2]:
             target["model_version_id"] = parts[2]
@@ -1821,11 +2197,22 @@ def parse_target(value: str, ordinal: int) -> dict[str, Any]:
             target["checkpoint_revision_id"] = parts[3]
     if not isinstance(target, dict):
         raise typer.BadParameter("target must be a JSON object")
-    if not str(target.get("provider") or "").strip() or not str(target.get("endpoint_id") or "").strip():
+    if (
+        not str(target.get("provider") or "").strip()
+        or not str(target.get("endpoint_id") or "").strip()
+    ):
         raise typer.BadParameter("target requires provider and endpoint_id")
     target = {
         key: target[key]
-        for key in ("target_id", "ordinal", "provider", "endpoint_id", "model_version_id", "checkpoint_revision_id", "overrides")
+        for key in (
+            "target_id",
+            "ordinal",
+            "provider",
+            "endpoint_id",
+            "model_version_id",
+            "checkpoint_revision_id",
+            "overrides",
+        )
         if key in target
     }
     target.setdefault("target_id", f"target-{ordinal}")
@@ -1854,18 +2241,35 @@ def build_plan(
         cases.extend(load_prompts(prompt_file))
     if not cases:
         raise typer.BadParameter("at least one --prompt or --prompt-file is required")
-    cases = [{**case, "ordinal": index, "case_id": f"case-{index}", "input_digest": digest(case["input"])} for index, case in enumerate(cases)]
+    cases = [
+        {
+            **case,
+            "ordinal": index,
+            "case_id": f"case-{index}",
+            "input_digest": digest(case["input"]),
+        }
+        for index, case in enumerate(cases)
+    ]
     targets = [parse_target(value, index) for index, value in enumerate(target)]
     if not targets:
         raise typer.BadParameter("at least one --target is required")
-    overrides = [parse_json_object(value, "--target-override") for value in (target_override or [])]
+    overrides = [
+        parse_json_object(value, "--target-override")
+        for value in (target_override or [])
+    ]
     if overrides and len(overrides) not in {1, len(targets)}:
-        raise typer.BadParameter("--target-override requires one object or one object per target")
+        raise typer.BadParameter(
+            "--target-override requires one object or one object per target"
+        )
     for index, item in enumerate(overrides):
         targets[index if len(overrides) > 1 else 0]["overrides"] = item
     plan = {
         "contract_version": CONTRACT_VERSION,
-        "axes": {"x": parse_axis(x_axis, x_value), "y": parse_axis(y_axis, y_value), "z": parse_axis(z_axis, z_value or []) if z_axis else None},
+        "axes": {
+            "x": parse_axis(x_axis, x_value),
+            "y": parse_axis(y_axis, y_value),
+            "z": parse_axis(z_axis, z_value or []) if z_axis else None,
+        },
         "cases": cases,
         "targets": targets,
         "shared_params": parse_params(shared or []),
@@ -1875,11 +2279,11 @@ def build_plan(
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     return plan
-FAL_BILLING_ACKNOWLEDGEMENT = "I understand FAL may bill this run even if checkpoint fetch fails"
 
 
-
-
+FAL_BILLING_ACKNOWLEDGEMENT = (
+    "I understand FAL may bill this run even if checkpoint fetch fails"
+)
 
 
 def fal_image_projection(
@@ -1894,13 +2298,21 @@ def fal_image_projection(
     model_id = str(version.get("model_id") or "")
     checkpoint_revision_id = str(version.get("checkpoint_revision_id") or "")
     if not project_id or not checkpoint_revision_id:
-        raise ApiError("Model version has no immutable checkpoint revision", status_code=409, code="CHECKPOINT_REVISION_REQUIRED")
+        raise ApiError(
+            "Model version has no immutable checkpoint revision",
+            status_code=409,
+            code="CHECKPOINT_REVISION_REQUIRED",
+        )
     return client.post(
         "/api/generation-requests/compile",
         {
             "workflow": "image",
             "provider": "fal",
-            "context": {"kind": "model", "project_id": project_id, "model_id": model_id or None},
+            "context": {
+                "kind": "model",
+                "project_id": project_id,
+                "model_id": model_id or None,
+            },
             "model_version_id": model_version,
             "checkpoint_revision_id": checkpoint_revision_id,
             "prompt": prompt,
@@ -1924,7 +2336,12 @@ def image_generate(
     wait: bool = False,
 ) -> None:
     def operation(client: TitlesClient):
-        projection = fal_image_projection(client, model_version=model_version, prompt=prompt, parameters=parse_params(param))
+        projection = fal_image_projection(
+            client,
+            model_version=model_version,
+            prompt=prompt,
+            parameters=parse_params(param),
+        )
         if dry_run:
             return projection
         admission = projection.get("admission") or {}
@@ -1932,7 +2349,10 @@ def image_generate(
             return projection
         accepted = client.post(
             f"/api/fal-admissions/{admission['id']}/admit",
-            {"expected_version": admission["version"], "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT},
+            {
+                "expected_version": admission["version"],
+                "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT,
+            },
         )
         if accepted.get("eval_run_id"):
             run = client.get(f"/api/eval-runs/{accepted['eval_run_id']}")
@@ -1969,27 +2389,42 @@ def eval_create(
     idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
 ) -> None:
 
-
-    body = {"name": name, "idempotency_key": idempotency_key or str(uuid.uuid4()), "run_id": run_id,
-            "assessment": {"kind": assessment_kind, "parameters": parse_params(assessment_param)}}
+    body = {
+        "name": name,
+        "idempotency_key": idempotency_key or str(uuid.uuid4()),
+        "run_id": run_id,
+        "assessment": {
+            "kind": assessment_kind,
+            "parameters": parse_params(assessment_param),
+        },
+    }
     call(ctx, lambda client: client.post(f"/api/projects/{project}/evals", body))
 
 
 @eval_app.command("list")
-def eval_list(ctx: typer.Context, project: str = typer.Option(..., "--project")) -> None:
+def eval_list(
+    ctx: typer.Context, project: str = typer.Option(..., "--project")
+) -> None:
     call(ctx, lambda client: client.get(f"/api/projects/{project}/evals"))
 
 
 @eval_app.command("show")
-def eval_show(ctx: typer.Context, project: str = typer.Option(..., "--project"), eval_id: str = typer.Argument(...)) -> None:
+def eval_show(
+    ctx: typer.Context,
+    project: str = typer.Option(..., "--project"),
+    eval_id: str = typer.Argument(...),
+) -> None:
     call(ctx, lambda client: client.get(f"/api/projects/{project}/evals/{eval_id}"))
-
-
 
 
 @eval_app.command("lineage")
 def eval_lineage(ctx: typer.Context, eval_id: str = typer.Argument(...)) -> None:
-    call(ctx, lambda client: client.get("/api/lineage", subject_type="eval_run", subject_id=eval_id))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/lineage", subject_type="eval_run", subject_id=eval_id
+        ),
+    )
 
 
 grid_app = typer.Typer(no_args_is_help=True)
@@ -1997,11 +2432,33 @@ app.add_typer(grid_app, name="grid")
 
 
 def grid_plan_from_options(
-    project: str, prompt: list[str], prompt_file: Path | None, target: list[str],
-    x_axis: str, x_value: list[str], y_axis: str, y_value: list[str],
-    z_axis: str | None, z_value: list[str], shared: list[str], target_override: list[str],
+    project: str,
+    prompt: list[str],
+    prompt_file: Path | None,
+    target: list[str],
+    x_axis: str,
+    x_value: list[str],
+    y_axis: str,
+    y_value: list[str],
+    z_axis: str | None,
+    z_value: list[str],
+    shared: list[str],
+    target_override: list[str],
 ) -> dict[str, Any]:
-    return build_plan(project=project, prompt=prompt, prompt_file=prompt_file, target=target, x_axis=x_axis, x_value=x_value, y_axis=y_axis, y_value=y_value, z_axis=z_axis, z_value=z_value, shared=shared, target_override=target_override)
+    return build_plan(
+        project=project,
+        prompt=prompt,
+        prompt_file=prompt_file,
+        target=target,
+        x_axis=x_axis,
+        x_value=x_value,
+        y_axis=y_axis,
+        y_value=y_value,
+        z_axis=z_axis,
+        z_value=z_value,
+        shared=shared,
+        target_override=target_override,
+    )
 
 
 @grid_app.command("preflight")
@@ -2021,9 +2478,30 @@ def grid_preflight(
     target_override: list[str] = typer.Option([], "--target-override"),
     idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
 ) -> None:
-    plan = grid_plan_from_options(project, prompt, prompt_file, target, x_axis, x_value, y_axis, y_value, z_axis, z_value, shared, target_override)
-    body = {**request_plan(plan), "idempotency_key": idempotency_key or str(uuid.uuid4())}
-    call(ctx, lambda client: client.post(GRID_PREFLIGHT_ROUTE.format(project_id=project), body))
+    plan = grid_plan_from_options(
+        project,
+        prompt,
+        prompt_file,
+        target,
+        x_axis,
+        x_value,
+        y_axis,
+        y_value,
+        z_axis,
+        z_value,
+        shared,
+        target_override,
+    )
+    body = {
+        **request_plan(plan),
+        "idempotency_key": idempotency_key or str(uuid.uuid4()),
+    }
+    call(
+        ctx,
+        lambda client: client.post(
+            GRID_PREFLIGHT_ROUTE.format(project_id=project), body
+        ),
+    )
 
 
 @grid_app.command("create")
@@ -2044,17 +2522,46 @@ def grid_create(
     target_override: list[str] = typer.Option([], "--target-override"),
     idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
 ) -> None:
-    plan = grid_plan_from_options(project, prompt, prompt_file, target, x_axis, x_value, y_axis, y_value, z_axis, z_value, shared, target_override)
-    call(ctx, lambda client: client.post(f"/api/projects/{project}/grids", {"name": name, "idempotency_key": idempotency_key or str(uuid.uuid4()), "plan": request_plan(plan)}))
+    plan = grid_plan_from_options(
+        project,
+        prompt,
+        prompt_file,
+        target,
+        x_axis,
+        x_value,
+        y_axis,
+        y_value,
+        z_axis,
+        z_value,
+        shared,
+        target_override,
+    )
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/projects/{project}/grids",
+            {
+                "name": name,
+                "idempotency_key": idempotency_key or str(uuid.uuid4()),
+                "plan": request_plan(plan),
+            },
+        ),
+    )
 
 
 @grid_app.command("list")
-def grid_list(ctx: typer.Context, project: str = typer.Option(..., "--project")) -> None:
+def grid_list(
+    ctx: typer.Context, project: str = typer.Option(..., "--project")
+) -> None:
     call(ctx, lambda client: client.get(f"/api/projects/{project}/grids"))
 
 
 @grid_app.command("show")
-def grid_show(ctx: typer.Context, project: str = typer.Option(..., "--project"), grid_id: str = typer.Argument(...)) -> None:
+def grid_show(
+    ctx: typer.Context,
+    project: str = typer.Option(..., "--project"),
+    grid_id: str = typer.Argument(...),
+) -> None:
     call(ctx, lambda client: client.get(f"/api/projects/{project}/grids/{grid_id}"))
 
 
@@ -2070,7 +2577,9 @@ def grid_queue(
     acknowledge_billing: bool = typer.Option(False, "--acknowledge-billing"),
 ) -> None:
     if not acknowledge_billing:
-        raise typer.BadParameter("--acknowledge-billing is required before queueing provider work")
+        raise typer.BadParameter(
+            "--acknowledge-billing is required before queueing provider work"
+        )
     body = {
         "idempotency_key": idempotency_key or str(uuid.uuid4()),
         "plan_version": plan_version,
@@ -2078,7 +2587,12 @@ def grid_queue(
         "cell_ordinals": cell_ordinal,
         "billing_acknowledgement": FAL_BILLING_ACKNOWLEDGEMENT,
     }
-    call(ctx, lambda client: client.post(f"/api/projects/{project}/grids/{grid_id}/queue", body))
+    call(
+        ctx,
+        lambda client: client.post(
+            f"/api/projects/{project}/grids/{grid_id}/queue", body
+        ),
+    )
 
 
 gallery_app = typer.Typer(no_args_is_help=True)
@@ -2096,7 +2610,19 @@ def gallery_list(
     limit: int = 100,
     offset: int = 0,
 ) -> None:
-    call(ctx, lambda client: client.get("/api/gallery", project_id=project, kind=kind, q=query, decision=decision, rating=rating, limit=limit, offset=offset))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/gallery",
+            project_id=project,
+            kind=kind,
+            q=query,
+            decision=decision,
+            rating=rating,
+            limit=limit,
+            offset=offset,
+        ),
+    )
 
 
 asset_app = typer.Typer(no_args_is_help=True)
@@ -2120,17 +2646,29 @@ def asset_metadata(ctx: typer.Context, asset: str) -> None:
 
 @asset_app.command("lineage")
 def asset_lineage(ctx: typer.Context, asset: str) -> None:
-    call(ctx, lambda client: client.get("/api/lineage", subject_type="asset", subject_id=asset))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/lineage", subject_type="asset", subject_id=asset
+        ),
+    )
 
 
 @asset_app.command("delete")
 def asset_delete(
     ctx: typer.Context,
     asset: str,
-    delete_content: bool = typer.Option(False, help="Also delete supported local content"),
+    delete_content: bool = typer.Option(
+        False, help="Also delete supported local content"
+    ),
 ) -> None:
     content = "true" if delete_content else "false"
-    call(ctx, lambda client: client.delete(f"/api/assets/{asset}?report=true&delete_content={content}"))
+    call(
+        ctx,
+        lambda client: client.delete(
+            f"/api/assets/{asset}?report=true&delete_content={content}"
+        ),
+    )
 
 
 review_app = typer.Typer(no_args_is_help=True)
@@ -2145,18 +2683,44 @@ def review_set(
     decision: str | None = typer.Option(None),
 ) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.post("/api/reviews", {"subject_type": subject_type, "subject_id": subject_id, "rating": rating, "decision": decision}))
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/reviews",
+            {
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+                "rating": rating,
+                "decision": decision,
+            },
+        ),
+    )
 
 
 @review_app.command("show")
 def review_show(ctx: typer.Context, subject: str) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.get("/api/reviews", subject_type=subject_type, subject_id=subject_id))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/reviews", subject_type=subject_type, subject_id=subject_id
+        ),
+    )
 
 
 @review_app.command("list")
-def review_list(ctx: typer.Context, project: str | None = None, decision: str | None = None, profile: str | None = None) -> None:
-    call(ctx, lambda client: client.get("/api/reviews", project_id=project, decision=decision, profile_id=profile))
+def review_list(
+    ctx: typer.Context,
+    project: str | None = None,
+    decision: str | None = None,
+    profile: str | None = None,
+) -> None:
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/reviews", project_id=project, decision=decision, profile_id=profile
+        ),
+    )
 
 
 comment_app = typer.Typer(no_args_is_help=True)
@@ -2166,15 +2730,26 @@ app.add_typer(comment_app, name="comment")
 @comment_app.command("list")
 def comment_list(ctx: typer.Context, subject: str) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.get("/api/comments", subject_type=subject_type, subject_id=subject_id))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/comments", subject_type=subject_type, subject_id=subject_id
+        ),
+    )
 
 
 @comment_app.command("add")
-def comment_add(ctx: typer.Context, subject: str, text: str = typer.Option(...)) -> None:
+def comment_add(
+    ctx: typer.Context, subject: str, text: str = typer.Option(...)
+) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.post("/api/comments", {"subject_type": subject_type, "subject_id": subject_id, "body": text}))
-
-
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/comments",
+            {"subject_type": subject_type, "subject_id": subject_id, "body": text},
+        ),
+    )
 
 
 note_app = typer.Typer(no_args_is_help=True)
@@ -2184,13 +2759,28 @@ app.add_typer(note_app, name="note")
 @note_app.command("list")
 def note_list(ctx: typer.Context, subject: str) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.get("/api/notes", subject_type=subject_type, subject_id=subject_id))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/notes", subject_type=subject_type, subject_id=subject_id
+        ),
+    )
 
 
 @note_app.command("add")
 def note_add(ctx: typer.Context, subject: str, file: Path = typer.Option(...)) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.post("/api/notes", {"subject_type": subject_type, "subject_id": subject_id, "body": file.read_text(encoding="utf-8")}))
+    call(
+        ctx,
+        lambda client: client.post(
+            "/api/notes",
+            {
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+                "body": file.read_text(encoding="utf-8"),
+            },
+        ),
+    )
 
 
 activity_app = typer.Typer(no_args_is_help=True)
@@ -2198,8 +2788,23 @@ app.add_typer(activity_app, name="activity")
 
 
 @activity_app.command("list")
-def activity_list(ctx: typer.Context, project: str | None = None, profile: str | None = None, since: str | None = None, limit: int = 100) -> None:
-    call(ctx, lambda client: client.get("/api/activity", project_id=project, profile_id=profile, since=since, limit=limit))
+def activity_list(
+    ctx: typer.Context,
+    project: str | None = None,
+    profile: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+) -> None:
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/activity",
+            project_id=project,
+            profile_id=profile,
+            since=since,
+            limit=limit,
+        ),
+    )
 
 
 lineage_app = typer.Typer(no_args_is_help=True)
@@ -2209,7 +2814,12 @@ app.add_typer(lineage_app, name="lineage")
 @lineage_app.command("show")
 def lineage_show(ctx: typer.Context, subject: str) -> None:
     subject_type, subject_id = split_subject(subject)
-    call(ctx, lambda client: client.get("/api/lineage", subject_type=subject_type, subject_id=subject_id))
+    call(
+        ctx,
+        lambda client: client.get(
+            "/api/lineage", subject_type=subject_type, subject_id=subject_id
+        ),
+    )
 
 
 @lineage_app.command("path")
@@ -2224,19 +2834,34 @@ def lineage_path(
     target_node = split_subject(target)
 
     def find_path(client: TitlesClient) -> dict[str, Any]:
-        frontier: list[tuple[tuple[str, str], list[dict[str, Any]]]] = [(source_node, [])]
+        frontier: list[tuple[tuple[str, str], list[dict[str, Any]]]] = [
+            (source_node, [])
+        ]
         visited = {source_node}
         for _depth in range(max_depth):
             next_frontier: list[tuple[tuple[str, str], list[dict[str, Any]]]] = []
             for node, path in frontier:
-                edges = client.get("/api/lineage", subject_type=node[0], subject_id=node[1])
+                edges = client.get(
+                    "/api/lineage", subject_type=node[0], subject_id=node[1]
+                )
                 for edge in edges if isinstance(edges, list) else []:
-                    if (str(edge.get("source_type")), str(edge.get("source_id"))) != node:
+                    if (
+                        str(edge.get("source_type")),
+                        str(edge.get("source_id")),
+                    ) != node:
                         continue
-                    next_node = (str(edge.get("target_type")), str(edge.get("target_id")))
+                    next_node = (
+                        str(edge.get("target_type")),
+                        str(edge.get("target_id")),
+                    )
                     next_path = [*path, edge]
                     if next_node == target_node:
-                        return {"source": source, "target": target, "depth": len(next_path), "edges": next_path}
+                        return {
+                            "source": source,
+                            "target": target,
+                            "depth": len(next_path),
+                            "edges": next_path,
+                        }
                     if next_node not in visited:
                         visited.add(next_node)
                         next_frontier.append((next_node, next_path))
@@ -2277,7 +2902,10 @@ def settings_show(ctx: typer.Context) -> None:
 
 
 @settings_app.command("update")
-def settings_update(ctx: typer.Context, file: Path = typer.Option(..., exists=True, dir_okay=False, readable=True)) -> None:
+def settings_update(
+    ctx: typer.Context,
+    file: Path = typer.Option(..., exists=True, dir_okay=False, readable=True),
+) -> None:
     payload = read_json(file)
     if not isinstance(payload, dict):
         raise typer.BadParameter("--file must contain a JSON object")
@@ -2295,7 +2923,9 @@ backup_app = typer.Typer(no_args_is_help=True)
 app.add_typer(backup_app, name="backup")
 
 
-def backup_paths(data_root: Path | None, backup_root: Path | None) -> tuple[Path, Path, str]:
+def backup_paths(
+    data_root: Path | None, backup_root: Path | None
+) -> tuple[Path, Path, str]:
     if data_root is not None:
         root = data_root.expanduser().resolve()
         database_name = "modelfiche.sqlite3"
@@ -2304,12 +2934,18 @@ def backup_paths(data_root: Path | None, backup_root: Path | None) -> tuple[Path
         if database_url and database_url.startswith("sqlite"):
             from sqlalchemy.engine import make_url
 
-            database_path = Path(make_url(database_url).database or "").expanduser().resolve()
+            database_path = (
+                Path(make_url(database_url).database or "").expanduser().resolve()
+            )
             root, database_name = database_path.parent, database_path.name
         else:
             root = (project_root() / "var").resolve()
             database_name = "titles-dam.sqlite3"
-    archives = backup_root.expanduser().resolve() if backup_root else root.parent / f"{root.name}-backups"
+    archives = (
+        backup_root.expanduser().resolve()
+        if backup_root
+        else root.parent / f"{root.name}-backups"
+    )
     return root, archives, database_name
 
 
@@ -2324,7 +2960,14 @@ def backup_create(
     root, archives, database_name = backup_paths(data_root, backup_root)
     receipt = InstallationBackupStore(archives).create(root, database_name)
     emit(
-        {"backup_id": receipt.backup_id, "archive": str(receipt.archive), "created_at": receipt.created_at, "files": receipt.files, "bytes": receipt.bytes, "sha256": receipt.sha256},
+        {
+            "backup_id": receipt.backup_id,
+            "archive": str(receipt.archive),
+            "created_at": receipt.created_at,
+            "files": receipt.files,
+            "bytes": receipt.bytes,
+            "sha256": receipt.sha256,
+        },
         json_output=rt(ctx).json_output,
     )
 
@@ -2336,7 +2979,14 @@ def backup_list(
     backup_root: Path | None = typer.Option(None, "--backup-root"),
 ) -> None:
     _root, archives, _database_name = backup_paths(data_root, backup_root)
-    rows = [{"archive": str(path), "bytes": path.stat().st_size} for path in sorted(archives.glob("modelfiche-*.tar.gz"), reverse=True)] if archives.exists() else []
+    rows = (
+        [
+            {"archive": str(path), "bytes": path.stat().st_size}
+            for path in sorted(archives.glob("modelfiche-*.tar.gz"), reverse=True)
+        ]
+        if archives.exists()
+        else []
+    )
     emit(rows, json_output=rt(ctx).json_output, jsonl=rt(ctx).jsonl)
 
 
@@ -2348,9 +2998,16 @@ def backup_verify(
 ) -> None:
     from titles_api.storage.installation_backup import InstallationBackupStore
 
-    archives = backup_root.expanduser().resolve() if backup_root else archive.expanduser().resolve().parent
+    archives = (
+        backup_root.expanduser().resolve()
+        if backup_root
+        else archive.expanduser().resolve().parent
+    )
     digest = InstallationBackupStore(archives).verify(archive)
-    emit({"ok": True, "archive": str(archive.expanduser().resolve()), "sha256": digest}, json_output=rt(ctx).json_output)
+    emit(
+        {"ok": True, "archive": str(archive.expanduser().resolve()), "sha256": digest},
+        json_output=rt(ctx).json_output,
+    )
 
 
 @backup_app.command("restore")
@@ -2364,7 +3021,9 @@ def backup_restore(
     from titles_api.storage.installation_backup import InstallationBackupStore
 
     if confirm != "RESTORE MODELFICHE BACKUP":
-        raise typer.BadParameter('--confirm must exactly equal "RESTORE MODELFICHE BACKUP"')
+        raise typer.BadParameter(
+            '--confirm must exactly equal "RESTORE MODELFICHE BACKUP"'
+        )
     runtime = rt(ctx)
     if _url_is_ready(f"{runtime.context.api_url.rstrip('/')}/api/health"):
         raise typer.BadParameter("stop Modelfiche before restoring a backup")
@@ -2372,16 +3031,28 @@ def backup_restore(
     store = InstallationBackupStore(archives)
     store.recover(root)
     store.restore(archive, root)
-    emit({"ok": True, "archive": str(archive.expanduser().resolve()), "restored": str(root)}, json_output=runtime.json_output)
+    emit(
+        {
+            "ok": True,
+            "archive": str(archive.expanduser().resolve()),
+            "restored": str(root),
+        },
+        json_output=runtime.json_output,
+    )
 
 
 @backup_app.command("recover")
-def backup_recover(ctx: typer.Context, data_root: Path | None = typer.Option(None, "--data-root")) -> None:
+def backup_recover(
+    ctx: typer.Context, data_root: Path | None = typer.Option(None, "--data-root")
+) -> None:
     from titles_api.storage.installation_backup import InstallationBackupStore
 
     root, _archives, _database_name = backup_paths(data_root, None)
     recovered = InstallationBackupStore.recover(root)
-    emit({"ok": True, "recovered": recovered, "data_root": str(root)}, json_output=rt(ctx).json_output)
+    emit(
+        {"ok": True, "recovered": recovered, "data_root": str(root)},
+        json_output=rt(ctx).json_output,
+    )
 
 
 storage_app = typer.Typer(no_args_is_help=True)
@@ -2398,7 +3069,9 @@ def storage_database_path(value: Path | None) -> Path:
 def storage_verify_contract(
     ctx: typer.Context,
     database: Path | None = typer.Option(None, "--database"),
-    run_lease_id: str | None = typer.Option(None, "--run-lease-id", envvar="TITLES_RUN_LEASE_ID"),
+    run_lease_id: str | None = typer.Option(
+        None, "--run-lease-id", envvar="TITLES_RUN_LEASE_ID"
+    ),
 ) -> None:
     if not run_lease_id:
         raise typer.BadParameter("--run-lease-id or TITLES_RUN_LEASE_ID is required")
@@ -2412,8 +3085,12 @@ def storage_verify_contract(
             "SELECT marker,binding_digest FROM storage_cutover_marker WHERE id=1"
         ).fetchone()
         if version is None or marker is None or int(marker["marker"]) != 1:
-            raise typer.BadParameter("database head/marker is not ready for verification")
-        payload = f"{version['version_num']}:{marker['marker']}:{marker['binding_digest']}:1"
+            raise typer.BadParameter(
+                "database head/marker is not ready for verification"
+            )
+        payload = (
+            f"{version['version_num']}:{marker['marker']}:{marker['binding_digest']}:1"
+        )
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         projection = StorageGateStore(db).verify_storage_contract(
             GateEvidence(
@@ -2446,7 +3123,11 @@ def storage_recover_cutover(
     confirm: str | None = typer.Option(None, "--confirm"),
 ) -> None:
     from titles_api.storage.backup import EnvelopeStore, FileKeyStore
-    from titles_api.storage.cutover import RestoreEligibility, restore_raw, restore_sanitized
+    from titles_api.storage.cutover import (
+        RestoreEligibility,
+        restore_raw,
+        restore_sanitized,
+    )
 
     if kind not in {"raw", "sanitized"}:
         raise typer.BadParameter("--kind must be raw or sanitized")
@@ -2454,24 +3135,34 @@ def storage_recover_cutover(
     store = EnvelopeStore(root_path / "backups", FileKeyStore(root_path / "keys"))
     path = storage_database_path(database)
     if kind == "raw":
-        receipt = restore_raw(envelope_store=store, backup_id=backup_id, database_path=path)
+        receipt = restore_raw(
+            envelope_store=store, backup_id=backup_id, database_path=path
+        )
     else:
         with sqlite3.connect(path) as db:
             gates = {
                 str(name): str(state)
-                for name, state in db.execute("SELECT name,state FROM storage_feature_gates")
+                for name, state in db.execute(
+                    "SELECT name,state FROM storage_feature_gates"
+                )
             }
-            marker = db.execute("SELECT effect_epoch FROM storage_cutover_marker WHERE id=1").fetchone()
+            marker = db.execute(
+                "SELECT effect_epoch FROM storage_cutover_marker WHERE id=1"
+            ).fetchone()
             if marker is None:
                 raise typer.BadParameter("cutover marker is missing")
             effect_rows = 0
             table_names = {
                 str(row[0])
-                for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
             }
             for table in ("publication_receipts", "fal_submission_intents"):
                 if table in table_names:
-                    effect_rows += int(db.execute(f"SELECT count(*) FROM {table}").fetchone()[0])
+                    effect_rows += int(
+                        db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                    )
         receipt = restore_sanitized(
             envelope_store=store,
             backup_id=backup_id,
@@ -2484,7 +3175,12 @@ def storage_recover_cutover(
             confirmation=confirm or "",
         )
     emit(
-        {"backup_id": receipt.backup_id, "kind": receipt.kind, "sha256": receipt.sha256, "restored": str(path)},
+        {
+            "backup_id": receipt.backup_id,
+            "kind": receipt.kind,
+            "sha256": receipt.sha256,
+            "restored": str(path),
+        },
         json_output=rt(ctx).json_output,
     )
 
@@ -2499,9 +3195,12 @@ def project_root() -> Path:
         return Path(configured).resolve()
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
-        if (candidate / "IMPLEMENTATION_PLAN.md").exists() and (candidate / "apps").exists():
+        if (candidate / "IMPLEMENTATION_PLAN.md").exists() and (
+            candidate / "apps"
+        ).exists():
             return candidate
     return Path(__file__).resolve().parents[4]
+
 
 def _pid_is_alive(path: Path) -> tuple[int | None, bool]:
     try:
@@ -2537,6 +3236,7 @@ def _service_pid_paths(var: Path) -> dict[str, Path]:
     return {
         "supervisor": var / "supervisor.pid",
         "api": var / "server.pid",
+        "wandb": var / "wandb-ingress.pid",
         "worker": var / "worker.pid",
         "web": var / "web.pid",
     }
@@ -2546,6 +3246,7 @@ def _stack_state(root_path: Path) -> dict[str, Any]:
     var = root_path / "var"
     paths = _service_pid_paths(var)
     api_port = int(os.environ.get("TITLES_API_PORT", "8400"))
+    wandb_ingress_port = int(os.environ.get("TITLES_WANDB_INGRESS_PORT", "8401"))
     web_port = int(os.environ.get("TITLES_WEB_PORT", "5173"))
     services: dict[str, dict[str, Any]] = {}
     for name, path in paths.items():
@@ -2553,6 +3254,10 @@ def _stack_state(root_path: Path) -> dict[str, Any]:
         healthy = alive
         if name == "api":
             healthy = alive and _url_is_ready(f"http://127.0.0.1:{api_port}/api/health")
+        elif name == "wandb":
+            healthy = alive and _url_is_ready(
+                f"http://127.0.0.1:{wandb_ingress_port}/health"
+            )
         elif name == "web":
             healthy = alive and _url_is_ready(f"http://127.0.0.1:{web_port}/")
         services[name] = {"pid": pid, "running": alive, "healthy": healthy}
@@ -2583,7 +3288,9 @@ def server_start(ctx: typer.Context) -> None:
         pid_path.unlink(missing_ok=True)
     (var / "server.ready").unlink(missing_ok=True)
     (var / "server.error").unlink(missing_ok=True)
-    pythonpath = os.pathsep.join(str(root_path / "apps" / name) for name in ("api", "worker", "cli"))
+    pythonpath = os.pathsep.join(
+        str(root_path / "apps" / name) for name in ("api", "worker", "cli")
+    )
     env = {
         **os.environ,
         "PYTHONPATH": pythonpath,
@@ -2612,7 +3319,11 @@ def server_start(ctx: typer.Context) -> None:
             emit(state, json_output=rt(ctx).json_output)
             return
         if supervisor.poll() is not None:
-            detail = (var / "server.error").read_text(encoding="utf-8") if (var / "server.error").exists() else "service supervisor exited during startup"
+            detail = (
+                (var / "server.error").read_text(encoding="utf-8")
+                if (var / "server.error").exists()
+                else "service supervisor exited during startup"
+            )
             raise typer.BadParameter(detail)
         time.sleep(0.1)
     _terminate_pid(supervisor.pid)

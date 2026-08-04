@@ -52,3 +52,14 @@ def test_asset_cache_retains_hydration_compatibility(tmp_path: Path) -> None:
 
     assert entry.path.read_bytes() == b"content"
     assert entry.size == 7
+
+
+def test_asset_cache_persists_verified_hydration_outside_transient_cache(tmp_path: Path) -> None:
+    cache = AssetCache(CacheSettings(root=tmp_path / "cache", max_bytes=512 * 1024**2))
+
+    entry = cache.hydrate(7, lambda destination: destination.write(b"content"))
+    durable = cache.persist(entry, tmp_path / "assets")
+    entry.path.unlink()
+
+    assert durable.path.read_bytes() == b"content"
+    assert durable.path.is_relative_to(tmp_path / "assets")

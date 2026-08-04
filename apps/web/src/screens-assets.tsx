@@ -30,7 +30,7 @@ import { api, idOf, jsonBody, listOf, patchBody, query, routeQuery, str } from "
 import { galleryOpenHref, safeReturnTarget } from "./gallery-routing";
 import { AssetImage } from "./asset-image";
 import { useResource, useRunLive } from "./hooks";
-import { DataTable, Dropdown, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status, useFocusWorkspace } from "./ui";
+import { CopyMetadataButton, DataTable, Dropdown, Field, Form, Json, Notice, Page, Pagination, Panel, SelectRecords, Status, useDragTextSelection, useFocusWorkspace } from "./ui";
 import { generationReplayFromMetadata, generatorHref, loraScaleFromMetadata, normalizedParametersFromMetadata } from "./generation";
 import { DitherLossChart } from "./dither-loss-chart";
 import { LineageList } from "./lineage";
@@ -39,6 +39,25 @@ import type { DitherColor } from "./components/dither-kit/palette";
 
 type Row = Record<string, unknown>;
 const rows = (value: unknown) => listOf<Row>(value);
+function primarySubdataset(item: Row): Row | undefined {
+  const subsets = rows(item.subdatasets);
+  return subsets.find(subset => str(subset.membership_role) === "primary") ?? subsets[0];
+}
+
+function sortDatasetItemsBySubdataset(items: Row[]): Row[] {
+  return [...items].sort((left, right) => {
+    const leftSubset = primarySubdataset(left);
+    const rightSubset = primarySubdataset(right);
+    return Number(leftSubset?.position ?? Number.MAX_SAFE_INTEGER) - Number(rightSubset?.position ?? Number.MAX_SAFE_INTEGER)
+      || str(leftSubset?.name).localeCompare(str(rightSubset?.name))
+      || Number(left.position ?? 0) - Number(right.position ?? 0);
+  });
+}
+
+function isInSubdataset(item: Row, subsetId: string): boolean {
+  return !subsetId || rows(item.subdatasets).some(subset => idOf(subset) === subsetId);
+}
+
 function isGridOutput(metadata: Row, asset: Row = {}) {
   const grid = metadata.grid && typeof metadata.grid === "object" ? metadata.grid as Row : {};
   return [metadata.grid_cell_id, metadata.grid_definition_id, metadata.grid_id, grid.cell_id, grid.definition_id, asset.grid_cell_id, asset.grid_definition_id, asset.grid_id]
@@ -248,6 +267,8 @@ export function DatasetScreen({ id }: { id: string }) {
   const [busy, setBusy] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [subsetFilter, setSubsetFilter] = useState("");
+  const [itemSort, setItemSort] = useState<"position" | "subdataset">("position");
   const data = resource.data;
   const activeDraft = viewingDraft ? draft : null;
   const operationHistory = useResource<unknown>(activeDraft?.id ? `/api/dataset-drafts/${activeDraft.id}/operations` : null);
@@ -287,9 +308,15 @@ export function DatasetScreen({ id }: { id: string }) {
   const activeVersionId = selectedVersionId || currentVersionId;
   const activeVersion = versions.find(version => idOf(version) === activeVersionId);
   const activeVersionReferenced = activeVersion?.status === "referenced";
-  const publishedItems = useResource<Row>(activeVersionId && !activeDraft ? `/api/dataset-versions/${activeVersionId}/items${query({ limit: pageSize, offset: (page - 1) * pageSize, paginated: true })}` : null);
+  const publishedItems = useResource<Row>(activeVersionId && !activeDraft ? `/api/dataset-versions/${activeVersionId}/items${query({ subset_id: subsetFilter || undefined, sort: itemSort, limit: pageSize, offset: (page - 1) * pageSize, paginated: true })}` : null);
   const compositionResource = useResource<unknown>(activeVersionId && !activeDraft ? `/api/dataset-versions/${activeVersionId}/subsets` : null);
-  const items = activeDraft ? rows(activeDraft.items) : rows(publishedItems.data?.items);
+  const compositionSubsets = activeDraft ? rows(activeDraft.subsets) : rows(compositionResource.data);
+  const rawItems = activeDraft ? rows(activeDraft.items) : rows(publishedItems.data?.items);
+  const items = activeDraft
+    ? itemSort === "subdataset"
+      ? sortDatasetItemsBySubdataset(rawItems.filter(item => isInSubdataset(item, subsetFilter)))
+      : rawItems.filter(item => isInSubdataset(item, subsetFilter))
+    : rawItems;
   const totalItems = activeDraft ? items.length : Number(publishedItems.data?.total ?? activeVersion?.item_count ?? 0);
   const visibleItems = activeDraft ? items.slice((page - 1) * pageSize, page * pageSize) : items;
   const visibleItemIds = visibleItems.map(item => idOf(item)).filter(Boolean);
@@ -315,7 +342,7 @@ export function DatasetScreen({ id }: { id: string }) {
     caption_format: captionFormat,
   });
 
-  useEffect(() => setPage(1), [activeVersionId, pageSize]);
+  useEffect(() => setPage(1), [activeVersionId, pageSize, subsetFilter, itemSort]);
   useEffect(() => {
     if (!activeDraft) setCaptionFormat(str(activeVersion?.caption_format, "text") === "json" ? "json" : "text");
   }, [activeVersion?.caption_format, activeDraft]);
@@ -500,7 +527,6 @@ export function DatasetScreen({ id }: { id: string }) {
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
 
-  const compositionSubsets = activeDraft ? rows(activeDraft.subsets) : rows(compositionResource.data);
   const compositionColors: DitherColor[] = ["blue", "cyan", "teal", "green", "mint", "grey"];
   const compositionSegments: DitherBarSegment[] = compositionSubsets.map((subset, index) => ({
     key: idOf(subset) || str(subset.key),
@@ -744,6 +770,16 @@ export function DatasetScreen({ id }: { id: string }) {
 
     <Panel title="Images and captions">
       <Notice error={!activeDraft ? publishedItems.error : undefined} loading={!activeDraft && publishedItems.loading} empty={!publishedItems.loading && !totalItems} />
+      {!!compositionSubsets.length && <div className="dataset-item-controls">
+        <Field label="Sub-dataset"><Dropdown aria-label="Filter dataset images by sub-dataset" value={subsetFilter} onChange={setSubsetFilter} options={[
+          { value: "", label: "All sub-datasets" },
+          ...compositionSubsets.map(subset => ({ value: idOf(subset), label: `${str(subset.name, str(subset.key, "Sub-dataset"))} · ${Number(subset.item_count ?? 0)} images` })),
+        ]} /></Field>
+        <Field label="Order"><Dropdown aria-label="Sort dataset images" value={itemSort} onChange={value => setItemSort(value === "subdataset" ? "subdataset" : "position")} options={[
+          { value: "position", label: "Dataset order" },
+          { value: "subdataset", label: "Sub-dataset, then dataset order" },
+        ]} /></Field>
+      </div>}
       {!publishedItems.loading && !totalItems && Boolean(data?.empty_reason) && <div className="vela-notice" role="status"><strong>Dataset is empty</strong><span>{str(data?.empty_reason)}</span></div>}
       {!!visibleItems.length && <div className="caption-list">{visibleItems.map((item, index) => <CaptionItem key={idOf(item) || index} item={item} selected={selected.includes(idOf(item))} onSelect={checked => setSelected(previous => {
         const itemId = idOf(item);
@@ -765,14 +801,16 @@ function CaptionItem({ item, datasetId, projectId, draftId, selected, onSelect, 
   const assetId = item.asset_revision_id ?? item.asset_id ?? item.id;
   const filename = str(item.filename ?? item.name, "Dataset image");
   const imageHref = galleryOpenHref({ ...item, dataset_id: datasetId, project_id: projectId }, "dataset_image");
+  const subdatasets = rows(item.subdatasets);
+  const subdatasetLabel = subdatasets.map(subset => str(subset.name, str(subset.key, "Sub-dataset"))).join(", ");
   useEffect(() => setCaption(captionPresentation(item, filename).rendered), [item.caption, item.caption_format, filename]);
   return <article className={`caption-item ${selected ? "selected" : ""}`}>
     <div className="caption-image">
-      <label className="caption-select"><input type="checkbox" checked={selected} onChange={event => onSelect(event.target.checked)} aria-label={`Select ${filename}`} /></label>
       <a href={imageHref} aria-label={`Open ${filename} in the image reviewer`} title={`Open ${filename} in the image reviewer`}><AssetImage assetRevisionId={String(assetId)} alt={presentation.alt} loading="lazy" /></a>
     </div>
     <div className="caption-copy">
-      <div className="caption-heading"><strong>{filename}</strong><span className="caption-heading-actions"><a className="caption-open-link" href={imageHref} aria-label={`Open ${filename} in the image reviewer`}>Open image</a><Status value={presentation.format.toUpperCase()} /></span></div>
+      <div className="caption-heading"><strong>{filename}</strong><span className="caption-heading-actions">{draftId && <label className="caption-select"><input type="checkbox" checked={selected} onChange={event => onSelect(event.target.checked)} aria-label={`Select ${filename}`} /> Select</label>}<a className="caption-open-link" href={imageHref} aria-label={`Open ${filename} in the image reviewer`}>Open image</a><Status value={presentation.format.toUpperCase()} /></span></div>
+      {!!subdatasetLabel && <dl className="caption-subdataset"><dt>Sub-dataset</dt><dd>{subdatasetLabel}</dd></dl>}
       {presentation.format === "json" && !draftId
         ? <pre className="caption-json" aria-label={`JSON caption for ${filename}`}>{presentation.rendered}</pre>
         : <textarea className={presentation.format === "json" ? "caption-json-editor" : undefined} aria-label={`${presentation.format === "json" ? "JSON caption" : "Caption"} for ${filename}`} value={caption} readOnly={!draftId} title={!draftId ? "Create a new version to edit this caption" : undefined} onChange={event => setCaption(event.target.value)} />}
@@ -1419,6 +1457,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const [ratingError, setRatingError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const metadataSelection = useDragTextSelection();
   const contextItems = rows(galleryContext.data?.items);
   const navigationItems = contextItems.length ? contextItems : items;
   const index = navigationItems.findIndex(item => idOf(item) === id || str(item.asset_revision_id ?? item.asset_id) === id);
@@ -1474,10 +1513,10 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const allImageMetadata = useMemo(() => metadataWithoutImageFilenames({ asset: asset.data, image: context.data?.image, metadata, storage: context.data?.storage }), [asset.data, context.data?.image, metadata, context.data?.storage]);
   return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby="image-review-title"><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a ref={closeButton} className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
     <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></nav><div className="image-review-visual"><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={promptPresentation.alt} /></div>{prompt && (promptPresentation.format === "json" ? <pre className="image-review-prompt caption-json">{promptPresentation.rendered}</pre> : <p className="image-review-prompt">{prompt}</p>)}<div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div></div>
-      <aside id="storage_details" className="image-review-inspector">
+      <aside {...metadataSelection} id="storage_details" className="image-review-inspector vela-copyable-metadata">
         <header className="image-review-inspector-header">
           <h2 id="image-review-title">Image review</h2>
-          <span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{displayOriginType}</span>
+          <div className="image-review-inspector-actions"><span className={`asset-origin-badge origin-${originType.toLowerCase()}`}>{displayOriginType}</span><CopyMetadataButton value={allImageMetadata} /></div>
         </header>
         <Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} />
         <section className="image-review-meta-block" aria-labelledby="image-primary-metadata-heading">
@@ -1528,12 +1567,10 @@ export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsse
     const modelLine = [model, checkpoint].filter(Boolean).join(" · ");
     const assetId = String(asset.asset_revision_id ?? asset.asset_id ?? asset.id);
     const name = str(asset.filename ?? asset.name, "Generated image");
-    const replay = generationReplayFromMetadata({ ...metadata, project_id: metadata.project_id ?? asset.project_id });
     const loraScale = loraScaleFromMetadata(metadata);
     return <article className="asset-card" key={idOf(asset) || index}>
       <a className="asset-card-preview" href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}><AssetImage assetRevisionId={assetId} alt={name} loading="lazy" /><span className="asset-card-name">{name}</span></a>
       <small className="asset-card-footer"><span>{originLine || "Unknown"}</span><span>{modelLine || "Unknown"}</span><span>LoRA scale · {loraScale ?? "Not recorded"}</span></small>
-      {replay && <a className="button vela-button asset-card-generate" href={generatorHref("image", replay.context, assetId)}><ImagePlus size={13} /> Generate</a>}
     </article>;
   })}</div>;
 }

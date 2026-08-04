@@ -72,10 +72,10 @@ describe("settings dropdowns", () => {
     fireEvent.click(model);
     expect(screen.queryByRole("option", { name: /Claude Sonnet/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: /GPT-4o Mini/ }));
-    const llmPanel = screen.getByRole("heading", { name: "LLM" }).closest("section")!;
-    expect(llmPanel.querySelectorAll(".llm-settings-grid .vela-field")).toHaveLength(4);
+    const llmPanel = screen.getByRole("heading", { name: "LLM provider" }).closest("section")!;
+    expect(llmPanel.querySelectorAll(".llm-settings-grid .vela-field")).toHaveLength(3);
     expect(llmPanel.querySelector(".llm-credential-grid")).toBeInTheDocument();
-    fireEvent.click(within(llmPanel).getByRole("button", { name: "Validate LLM" }));
+    fireEvent.click(within(llmPanel).getByRole("button", { name: "Validate" }));
     const key = within(llmPanel).getByLabelText("OpenRouter API key");
     expect(key).toHaveValue("••••••••••••");
     expect(llmPanel).not.toHaveTextContent(/No provider contact|Optional override|Write-only|OPENROUTER_API_KEY|Caption-capable models|Changing provider/);
@@ -83,18 +83,18 @@ describe("settings dropdowns", () => {
     fireEvent.change(key, { target: { value: "replacement-key" } });
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Save key" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings/llm-key", expect.objectContaining({ method: "PUT" })));
-    expect(new FormData(screen.getByRole("button", { name: "Save LLM configuration" }).closest("form")!).get("llm_provider")).toBe("openrouter");
-    expect(new FormData(screen.getByRole("button", { name: "Save LLM configuration" }).closest("form")!).get("llm_model")).toBe("openai/gpt-4o-mini");
-    const form = screen.getByRole("button", { name: "Save LLM configuration" }).closest("form")!;
+    expect(new FormData(screen.getByRole("button", { name: "Save generation settings" }).closest("form")!).get("llm_provider")).toBe("openrouter");
+    expect(new FormData(screen.getByRole("button", { name: "Save generation settings" }).closest("form")!).get("llm_model")).toBe("openai/gpt-4o-mini");
+    const form = screen.getByRole("button", { name: "Save generation settings" }).closest("form")!;
     expect(new FormData(form).get("llm_provider")).toBe("openrouter");
-    expect(new FormData(form).get("llm_base_url")).toBe("");
+    expect(new FormData(form).get("llm_base_url")).toBeNull();
     expect(new FormData(form).get("llm_model")).toBe("openai/gpt-4o-mini");
 
-    fireEvent.click(screen.getByRole("button", { name: "Save LLM configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings", expect.objectContaining({ method: "PATCH" })));
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ llm: { provider: "openrouter", base_url: null } });
-    await waitFor(() => expect(within(screen.getByRole("button", { name: "Save all provider settings" }).closest("form")!).getByRole("button", { name: "Model" })).toHaveTextContent("GPT-4o Mini"));
+    await waitFor(() => expect(within(screen.getByRole("button", { name: /Save generation settings|Saved/ }).closest("form")!).getByRole("button", { name: "Model" })).toHaveTextContent("GPT-4o Mini"));
   });
 
   it("persists an alternate model within the same OpenRouter provider", async () => {
@@ -131,7 +131,7 @@ describe("settings dropdowns", () => {
     fireEvent.change(filter, { target: { value: "luna" } });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: /GPT-5.6 Luna/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save LLM configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings", expect.objectContaining({ method: "PATCH" })));
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
@@ -180,7 +180,7 @@ describe("settings dropdowns", () => {
 
     window.location.hash = "#/settings?section=generation";
     render(<SettingsScreen />);
-    const llmPanel = (await screen.findByRole("heading", { name: "LLM" })).closest("section")!;
+    const llmPanel = (await screen.findByRole("heading", { name: "LLM provider" })).closest("section")!;
     const key = within(llmPanel).getByLabelText("OpenAI API key");
     fireEvent.change(key, { target: { value: "secret-llm-key" } });
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Save key" }));
@@ -192,3 +192,40 @@ describe("settings dropdowns", () => {
     fireEvent.click(within(llmPanel).getByRole("button", { name: "Clear saved key" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings/llm-key", expect.objectContaining({ method: "DELETE" })));
   });
+
+it("validates a configured FAL key without sending an LLM request body", async () => {
+  const configuredSettings = {
+    ...settings,
+    credentials: { ...settings.credentials, fal_configured: true },
+    fal_connection: { configured: true, source: "FAL_KEY" },
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.includes("/api/operator-settings/test/fal")) return response({ ok: true, source: "FAL_KEY" });
+    if (path.includes("/api/operator-settings/llm-models")) return response({ models: [], credential: { configured: true, source: "saved" } });
+    if (path.includes("/api/system/doctor")) return response({ ok: true });
+    if (path.includes("/api/operator-settings")) return response(configuredSettings);
+    if (path.includes("/api/workspaces")) return response([{ id: "workspace-1", name: "Workspace" }]);
+    if (path.includes("/api/profiles")) return response([{ id: "profile-1", display_name: "Operator", email: null, is_active: true }]);
+    if (path.includes("/api/import-sources")) return response([]);
+    return response({});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+  window.location.hash = "#/settings?section=generation";
+  render(<SettingsScreen />);
+  const falPanel = (await screen.findByRole("heading", { name: "FAL image generation" })).closest("section")!;
+  const falKey = within(falPanel).getByLabelText("FAL API key");
+  expect(falKey).toHaveValue("••••••••••••");
+  fireEvent.focus(falKey);
+  expect(falKey).toHaveValue("");
+  fireEvent.blur(falKey);
+  expect(falKey).toHaveValue("••••••••••••");
+  fireEvent.click(within(falPanel).getByRole("button", { name: "Validate" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/operator-settings/test/fal", expect.objectContaining({ method: "POST" })));
+  const request = fetchMock.mock.calls.find(([path]) => String(path).includes("/api/operator-settings/test/fal"));
+  expect(request?.[1]?.body).toBeUndefined();
+  expect(await screen.findByText("FAL: credential accepted by the provider. No generation was submitted.")).toBeInTheDocument();
+});

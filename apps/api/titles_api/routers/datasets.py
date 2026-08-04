@@ -40,6 +40,47 @@ def _asset_fields(db: Session, asset_id: str) -> dict[str, Any]:
         "availability_error": None if locations else "No storage object is associated with this dataset asset.",
     }
 
+def _version_item_subsets(db: Session, version_id: str) -> dict[str, list[dict[str, Any]]]:
+    memberships = db.execute(
+        select(models.DatasetSubsetItem, models.DatasetVersionSubset)
+        .join(models.DatasetVersionSubset, models.DatasetVersionSubset.id == models.DatasetSubsetItem.subset_id)
+        .where(models.DatasetVersionSubset.dataset_version_id == version_id)
+        .order_by(models.DatasetVersionSubset.position, models.DatasetVersionSubset.key, models.DatasetSubsetItem.position)
+    ).all()
+    result: dict[str, list[dict[str, Any]]] = {}
+    for membership, subset in memberships:
+        result.setdefault(membership.dataset_item_id, []).append({
+            "id": subset.id,
+            "key": subset.key,
+            "name": subset.name,
+            "role": subset.role,
+            "color_token": subset.color_token,
+            "position": subset.position,
+            "membership_role": membership.membership_role,
+        })
+    return result
+
+
+def _draft_item_subsets(db: Session, draft_id: str) -> dict[str, list[dict[str, Any]]]:
+    memberships = db.execute(
+        select(models.DatasetDraftSubsetItem, models.DatasetDraftSubset)
+        .join(models.DatasetDraftSubset, models.DatasetDraftSubset.id == models.DatasetDraftSubsetItem.subset_id)
+        .where(models.DatasetDraftSubset.draft_id == draft_id)
+        .order_by(models.DatasetDraftSubset.position, models.DatasetDraftSubset.key, models.DatasetDraftSubsetItem.position)
+    ).all()
+    result: dict[str, list[dict[str, Any]]] = {}
+    for membership, subset in memberships:
+        result.setdefault(membership.draft_item_id, []).append({
+            "id": subset.id,
+            "key": subset.key,
+            "name": subset.name,
+            "role": subset.role,
+            "color_token": subset.color_token,
+            "position": subset.position,
+            "membership_role": membership.membership_role,
+        })
+    return result
+
 def _version_subset_rows(db: Session, version_id: str) -> list[dict[str, Any]]:
     subsets = db.scalars(
         select(models.DatasetVersionSubset)
@@ -88,9 +129,10 @@ def _dump_draft(db: Session, draft: models.DatasetDraft) -> dict[str, Any]:
         .where(models.DatasetDraftItem.draft_id == draft.id)
         .order_by(models.DatasetDraftItem.position)
     ).all()
+    item_subsets = _draft_item_subsets(db, draft.id)
     return {
         **_dump(draft),
-        "items": [{**_dump(item), **_asset_fields(db, item.asset_id)} for item in items],
+        "items": [{**_dump(item), **_asset_fields(db, item.asset_id), "subdatasets": item_subsets.get(item.id, [])} for item in items],
         "subsets": _draft_subset_rows(db, draft.id),
     }
 
@@ -500,18 +542,52 @@ def active_draft(dataset_id: str, db: DB):
 
 
 @router.get("/dataset-versions/{version_id}/items")
-def version_items(version_id: str, db: DB, included: bool | None = None, limit: int = Query(200, le=1000), offset: int = 0, paginated: bool = False):
+def version_items(
+    version_id: str,
+    db: DB,
+    included: bool | None = None,
+    subset_id: str | None = None,
+    sort: str = "position",
+    limit: int = Query(200, le=1000),
+    offset: int = 0,
+    paginated: bool = False,
+):
     get_or_404(db, models.DatasetVersion, version_id)
-    query = select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version_id).order_by(models.DatasetItem.position)
+    if sort not in {"position", "subdataset"}:
+        raise HTTPException(status_code=422, detail="sort must be position or subdataset")
+    query = select(models.DatasetItem).where(models.DatasetItem.dataset_version_id == version_id)
     if included is not None:
         query = query.where(models.DatasetItem.included == included)
+    if subset_id:
+        subset = get_or_404(db, models.DatasetVersionSubset, subset_id)
+        if subset.dataset_version_id != version_id:
+            raise HTTPException(status_code=400, detail="sub-dataset belongs to a different dataset version")
+        query = query.join(models.DatasetSubsetItem, models.DatasetSubsetItem.dataset_item_id == models.DatasetItem.id).where(
+            models.DatasetSubsetItem.subset_id == subset_id
+        )
+    if sort == "subdataset" and subset_id:
+        query = query.order_by(models.DatasetSubsetItem.position, models.DatasetItem.position)
+    elif sort == "subdataset":
+        query = query.outerjoin(
+            models.DatasetSubsetItem,
+            (models.DatasetSubsetItem.dataset_item_id == models.DatasetItem.id)
+            & (models.DatasetSubsetItem.membership_role == "primary"),
+        ).outerjoin(models.DatasetVersionSubset, models.DatasetVersionSubset.id == models.DatasetSubsetItem.subset_id).order_by(
+            func.coalesce(models.DatasetVersionSubset.position, 2147483647),
+            func.coalesce(models.DatasetVersionSubset.key, ""),
+            models.DatasetItem.position,
+        )
+    else:
+        query = query.order_by(models.DatasetItem.position)
     total = int(db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0)
+    item_subsets = _version_item_subsets(db, version_id)
     rows = []
     for item in db.scalars(query.offset(offset).limit(limit)).all():
         rows.append(
             {
                 **_dump(item),
                 **_asset_fields(db, item.asset_id),
+                "subdatasets": item_subsets.get(item.id, []),
             }
         )
     return {"items": rows, "total": total, "limit": limit, "offset": offset} if paginated else rows

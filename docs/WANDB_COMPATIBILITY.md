@@ -2,6 +2,11 @@
 
 Modelfiche implements the narrow W&B 0.28.0 protocol surface used by AI Toolkit. It accepts live scalar and text metrics, configuration, image samples and captions, run resume, and run completion. It is not a general W&B server.
 
+No wandb.ai account or vendor API key is used. `WANDB_API_KEY` is only the
+environment-variable slot that the pinned SDK uses to build its HTTP Basic
+header; Modelfiche fills that slot with its own run-scoped `MF1_...` launch
+token and directs all traffic to `WANDB_BASE_URL`.
+
 ## Compatibility contract
 
 | Item | Contract |
@@ -9,7 +14,7 @@ Modelfiche implements the narrow W&B 0.28.0 protocol surface used by AI Toolkit.
 | W&B SDK | Exactly `wandb==0.28.0` |
 | Trainer | AI Toolkit `WandbLogger` and the canonical calls covered by the compatibility tests |
 | Run ownership | The DAM creates the launch and expected run before the trainer connects |
-| Authentication | Run-scoped Ed25519 token in `WANDB_API_KEY`; the private key remains outside the DAM |
+| Authentication | Modelfiche run-scoped Ed25519 `MF1_...` token carried in the SDK's `WANDB_API_KEY` compatibility slot; no wandb.ai key |
 | Metrics | Scalar numbers and text values, persisted by step in the database |
 | Media | Images and captions only |
 | Artifacts | Images, the pinned SDK's allowlisted configuration files, and manifest-declared checkpoints in S3 |
@@ -36,10 +41,12 @@ export TITLES_DATABASE_URL='postgresql+psycopg://modelfiche:...@db/modelfiche'
 export TITLES_WANDB_INGRESS_DATABASE_URL="$TITLES_DATABASE_URL"
 export TITLES_WANDB_INGRESS_BASE_URL='https://dam.example.com'
 
-uv run mfiche-api
-uv run mfiche-worker
-uv run mfiche-wandb-ingress
+mfiche start
+mfiche status
 ```
+
+`mfiche start` supervises the operator API, W&B compatibility ingress, worker,
+and web UI as one stack. If any process exits, the stack is no longer healthy.
 
 The ingress listens on `127.0.0.1:8401` by default. Override it with `TITLES_WANDB_INGRESS_HOST` and `TITLES_WANDB_INGRESS_PORT`.
 
@@ -184,8 +191,8 @@ WANDB_BASE_URL=https://dam.example.com
 WANDB_PROJECT=<expected-project-name>
 WANDB_RUN_ID=<expected-wandb-run-id>
 WANDB_RESUME=allow
-WANDB_API_KEY=<run-scoped-signed-token>
-MODELFICHE_HANDOFF_TOKEN=<same-token>
+WANDB_API_KEY=<Modelfiche-MF1-run-scoped-signed-token>
+MODELFICHE_HANDOFF_TOKEN=<same-Modelfiche-token>
 ```
 
 Source it only in the trainer process:
@@ -301,17 +308,25 @@ Rate-limited responses include `Retry-After`. The pinned W&B SDK buffers locally
 
 ## Troubleshooting
 
-### `401 W&B API key authentication is required`
+### `401 Modelfiche launch token is required; a wandb.ai API key is not used`
 
-The trainer did not send `WANDB_API_KEY`, or a proxy removed the `Authorization` header. Confirm the rendered environment was sourced by the trainer process and preserve HTTP Basic authentication through the reverse proxy.
+The trainer did not send the generated Modelfiche token through the SDK's
+`WANDB_API_KEY` compatibility slot, or a proxy removed the `Authorization`
+header. Confirm the rendered environment was sourced by the trainer process
+and preserve HTTP Basic authentication through the reverse proxy. Do not add a
+wandb.ai API key.
 
-### `401 malformed W&B launch token`
+### `401 malformed Modelfiche launch token`
 
-The environment still contains the placeholder, the token was truncated, or output was transformed. Regenerate it with `training-launch agent-environment`.
+The environment still contains the placeholder, the token was truncated, or
+output was transformed. Regenerate it with `training-launch
+agent-environment`.
 
-### `401 W&B launch token signature is invalid`
+### `401 Modelfiche launch token signature is invalid`
 
-The private key does not match the registered public key, or the credential was rotated. Compare `wandb key public` with the registered credential and create a new launch token.
+The local private key does not match the public key registered in Modelfiche,
+or the signing credential was rotated. Compare `wandb key public` with the
+registered credential and create a new launch token.
 
 ### `409 training launch is not accepting W&B events`
 

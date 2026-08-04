@@ -127,6 +127,34 @@ body:has(.vela-theme) { overflow-x: clip; }
   -webkit-user-select: text;
   user-select: text;
 }
+.vela-theme .vela-copyable-metadata,
+.vela-theme .vela-copyable-metadata :is(dt, dd, p, pre, code, h2, h3) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+.vela-theme .vela-copyable-metadata :is(dt, dd, p, pre, code) {
+  cursor: text;
+}
+.vela-theme .vela-copyable-metadata :is(button, a, input, textarea, summary),
+.vela-theme .vela-copyable-metadata :is(button, a, input, textarea, summary) * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.vela-theme .vela-copyable-metadata ::selection {
+  background: color-mix(in oklch, var(--vela-accent) 38%, transparent);
+  color: var(--vela-fg);
+}
+.vela-theme .metadata-copy-button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vela-space-1);
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .vela-theme h1, .vela-theme h2, .vela-theme h3, .vela-theme p { margin: 0; }
 .vela-theme h1, .vela-theme h2, .vela-theme h3 { text-wrap: balance; }
 .vela-theme button, .vela-theme input { color: inherit; font: inherit; }
@@ -849,6 +877,13 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   position: static;
   flex: 0 0 auto;
 }
+.vela-focus-workspace .image-review-inspector-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--vela-space-2);
+  flex-wrap: wrap;
+}
 .vela-focus-workspace .image-review-inspector > .vela-notice { margin: 0; }
 .vela-focus-workspace .image-review-meta-block {
   display: grid;
@@ -1017,7 +1052,7 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-theme .asset-image-unavailable { border: 2px solid var(--vela-danger); background: var(--mf-surface-muted) !important; }
 .vela-theme .image-review-inspector h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vela-theme .image-review-inspector h2 .asset-origin-badge { position: static; }
-.vela-theme .image-review-inspector :is(dd, pre, code, p) {
+.vela-theme .image-review-inspector :is(dt, dd, pre, code, p) {
   -webkit-user-select: text;
   user-select: text;
   cursor: text;
@@ -1854,29 +1889,8 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   margin: 0;
 }
 
-/* Settings console: compact overview, paired provider controls, and full-width storage. */
-.vela-theme .settings-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr);
-  grid-template-areas:
-    "account credential"
-    "provider provider"
-    "message message"
-    "storage storage"
-    "profiles profiles";
-  gap: var(--vela-space-4);
-  align-items: start;
-}
-.vela-theme .settings-account { grid-area: account; }
-.vela-theme .settings-provider { grid-area: provider; }
-.vela-theme .settings-credential { grid-area: credential; }
-.vela-theme .settings-storage { grid-area: storage; }
-.vela-theme .settings-profiles { grid-area: profiles; }
-.vela-theme .settings-layout > .vela-notice {
-  grid-area: message;
-  margin: 0;
-}
-.vela-theme :is(.settings-account, .settings-credential, .settings-storage, .settings-profiles) > .vela-panel {
+/* Settings: one focused section, with compact controls instead of dashboard cards. */
+.vela-theme :is(.settings-account, .settings-storage, .settings-profiles) > .vela-panel {
   height: 100%;
   margin: 0;
 }
@@ -1905,9 +1919,9 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   width: 100%;
   min-width: 0;
 }
-.vela-theme .settings-provider > .vela-form {
+.vela-theme .settings-generation > .vela-form {
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(230px, .7fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
   gap: var(--vela-space-4);
   max-width: none;
   margin: 0;
@@ -1916,24 +1930,18 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   background: transparent;
   box-shadow: none;
 }
-.vela-theme .settings-provider > .vela-form::before {
+.vela-theme .settings-generation > .vela-form::before {
   display: none;
 }
-.vela-theme .settings-provider > .vela-form > .vela-panel {
-  height: 100%;
+.vela-theme .settings-generation > .vela-form > .vela-panel {
+  min-width: 0;
+  height: auto;
   margin: 0;
-  counter-reset: mf-field;
 }
-.vela-theme .settings-provider > .vela-form > .vela-button {
+.vela-theme .settings-generation > .vela-form > .vela-button {
   grid-column: 1 / -1;
   justify-self: end;
-}
-.vela-theme .settings-provider-status,
-.vela-theme .settings-provider > .vela-form > .vela-panel:first-of-type {
-  grid-column: 1 / -1;
-}
-.vela-theme .settings-provider-status {
-  margin: 0;
+  min-width: 190px;
 }
 .vela-theme .model-catalog-picker {
   display: grid;
@@ -1944,36 +1952,80 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   width: 100%;
   min-width: 0;
 }
-.vela-theme .settings-layout .integration-heading {
-  min-height: 38px;
-  justify-content: flex-end;
-  margin: 0 0 var(--vela-space-3);
-}
 .vela-theme .llm-settings-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(150px, .7fr) minmax(180px, 1.3fr);
   gap: var(--vela-space-3);
   align-items: end;
 }
+.vela-theme .llm-settings-grid .vela-field:nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
 .vela-theme .llm-settings-grid .vela-field,
-.vela-theme .llm-key-field .vela-field {
+.vela-theme .llm-key-field .vela-field,
+.vela-theme .fal-settings-grid .vela-field {
   min-width: 0;
   margin: 0;
 }
 .vela-theme .llm-credential-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1.6fr) auto auto;
-  gap: var(--vela-space-3);
-  align-items: end;
+  gap: var(--vela-space-2);
   margin-top: var(--vela-space-3);
+  padding-top: var(--vela-space-3);
+  border-top: 1px solid var(--mf-border);
 }
 .vela-theme .llm-key-actions,
-.vela-theme .llm-config-actions {
-  flex-wrap: nowrap;
-  justify-content: flex-end;
+.vela-theme .fal-key-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 .vela-theme .llm-credential-grid .vela-field > input {
   width: 100%;
+}
+.vela-theme .credential-state {
+  min-height: 20px;
+  margin: 0 0 var(--vela-space-3);
+  color: var(--mf-text-muted);
+  font-size: 12px;
+}
+.vela-theme .fal-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: var(--vela-space-3);
+  align-items: end;
+}
+.vela-theme .fal-key-actions {
+  margin-top: var(--vela-space-3);
+}
+.vela-theme .generation-advanced {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--vela-space-3) var(--vela-space-4);
+  border: 1px solid var(--mf-border);
+  background: var(--mf-surface);
+}
+.vela-theme .generation-advanced > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--vela-space-3);
+  cursor: pointer;
+  color: var(--mf-text);
+  font: 700 11px var(--vela-font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.vela-theme .generation-advanced > summary small {
+  color: var(--mf-text-muted);
+  font: 400 12px var(--vela-font-sans);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.vela-theme .generation-advanced[open] > summary {
+  margin-bottom: var(--vela-space-3);
+}
+.vela-theme .generation-advanced .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
 }
 .vela-theme .settings-storage .vela-table-wrap {
   margin-block: var(--vela-space-3);
@@ -2030,39 +2082,18 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   letter-spacing: .08em;
 }
 @media (max-width: 1020px) {
-  .vela-theme .settings-layout {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "account"
-      "credential"
-      "provider"
-      "message"
-      "storage"
-      "profiles";
-  }
-  .vela-theme .settings-provider > .vela-form,
+  .vela-theme .settings-generation > .vela-form,
   .vela-theme .settings-profiles > .vela-panel {
     grid-template-columns: 1fr;
   }
-  .vela-theme .llm-settings-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .vela-theme .llm-credential-grid {
-    grid-template-columns: 1fr;
-  }
-  .vela-theme .llm-key-actions,
-  .vela-theme .llm-config-actions {
-    justify-content: flex-start;
+  .vela-theme .settings-generation > .vela-form > :is(.generation-advanced, .vela-button) {
+    grid-column: 1;
   }
   .vela-theme .settings-profiles > .vela-panel > :is(.vela-section-heading, .vela-notice, .vela-table-wrap, .vela-form, button) {
     grid-column: 1;
   }
   .vela-theme .settings-account .form-grid {
     grid-template-columns: 1fr;
-  }
-  .vela-theme .settings-layout .integration-heading {
-    justify-content: flex-start;
-    margin: 0 0 var(--vela-space-3);
   }
 }
 @media (max-width: 860px) {
@@ -2085,12 +2116,21 @@ html[data-theme="dark"] .vela-theme .image-review-prompt {
   .vela-theme .mf-rail-ornament { display: none !important; }
   .vela-theme .image-review-media { padding: 0; }
   .vela-theme .image-review-media > img { width: auto; max-width: 100%; height: auto; max-height: min(62vh, 620px); }
-  .vela-theme .llm-settings-grid {
+  .vela-theme .llm-settings-grid,
+  .vela-theme .fal-settings-grid,
+  .vela-theme .generation-advanced .form-grid {
     grid-template-columns: 1fr;
   }
+  .vela-theme .llm-settings-grid .vela-field:nth-child(n + 3) {
+    grid-column: 1;
+  }
   .vela-theme .llm-key-actions,
-  .vela-theme .llm-config-actions {
+  .vela-theme .fal-key-actions {
     flex-wrap: wrap;
+  }
+  .vela-theme .generation-advanced > summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

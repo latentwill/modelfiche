@@ -7,7 +7,6 @@ from typer.testing import CliRunner
 from titles_cli import main
 
 
-
 runner = CliRunner()
 
 
@@ -31,6 +30,7 @@ def test_root_lifecycle_aliases_delegate_to_server_commands(monkeypatch) -> None
 
     assert calls == ["start", "status", "stop"]
 
+
 def _write_pid(path: Path, pid: int | None = None) -> None:
     path.write_text(str(pid or os.getpid()), encoding="utf-8")
 
@@ -48,9 +48,12 @@ def test_stack_state_requires_every_service(tmp_path, monkeypatch) -> None:
 
     assert state["ok"] is True
     assert state["ready"] is True
-    assert {name for name, service in state["services"].items() if service["healthy"]} == {
+    assert {
+        name for name, service in state["services"].items() if service["healthy"]
+    } == {
         "supervisor",
         "api",
+        "wandb",
         "worker",
         "web",
     }
@@ -59,7 +62,11 @@ def test_stack_state_requires_every_service(tmp_path, monkeypatch) -> None:
     state = main._stack_state(tmp_path)
 
     assert state["ok"] is False
-    assert state["services"]["worker"] == {"pid": None, "running": False, "healthy": False}
+    assert state["services"]["worker"] == {
+        "pid": None,
+        "running": False,
+        "healthy": False,
+    }
 
 
 def test_stack_state_requires_readiness_marker(tmp_path, monkeypatch) -> None:

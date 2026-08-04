@@ -92,6 +92,37 @@ class AssetCache:
             temp_path.unlink(missing_ok=True)
             raise
 
+    def persist(self, entry: CacheEntry, destination_root: Path) -> CacheEntry:
+        """Publish a verified cache entry into immutable local asset storage."""
+        if not entry.path.is_file():
+            raise FileNotFoundError(f"cache entry is missing: {entry.path}")
+        destination_root = Path(destination_root).resolve()
+        destination = destination_root / "objects" / entry.sha256[:2] / entry.sha256
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if destination.is_file():
+            if destination.stat().st_size != entry.size:
+                raise CacheCapacityError("durable asset path conflicts with a different size")
+            return CacheEntry(destination, entry.size, entry.sha256)
+        try:
+            os.link(entry.path, destination)
+        except FileExistsError:
+            if destination.stat().st_size != entry.size:
+                raise CacheCapacityError("durable asset path conflicts with a different size")
+        except OSError:
+            fd, raw_temp = tempfile.mkstemp(prefix="persist-", dir=destination.parent)
+            temp_path = Path(raw_temp)
+            try:
+                with entry.path.open("rb") as source, os.fdopen(fd, "wb") as target:
+                    shutil.copyfileobj(source, target)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temp_path, destination)
+            finally:
+                temp_path.unlink(missing_ok=True)
+        destination.chmod(0o600)
+        _fsync_directory(destination.parent)
+        return CacheEntry(destination, entry.size, entry.sha256)
+
     def thumbnail(self, asset_id: str, source: Path, size: int = 512) -> Path:
         from .storage.cache import ThumbnailCapacityError
 

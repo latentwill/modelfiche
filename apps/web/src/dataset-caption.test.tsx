@@ -118,6 +118,52 @@ describe("dataset image action layout", () => {
   });
 });
 
+describe("dataset sub-dataset controls", () => {
+  it("shows membership metadata, filters and sorts draft items, and keeps selection off the image", async () => {
+    const items = [
+      { id: "item-bravo", filename: "bravo.png", caption: "Bravo", included: true, position: 1, asset_revision_id: "asset-bravo", subdatasets: [{ id: "subset-bravo", name: "Bravo", key: "bravo", position: 1, membership_role: "primary" }] },
+      { id: "item-alpha", filename: "alpha.png", caption: "Alpha", included: true, position: 0, asset_revision_id: "asset-alpha", subdatasets: [{ id: "subset-alpha", name: "Alpha", key: "alpha", position: 0, membership_role: "primary" }] },
+    ];
+    const draft = {
+      id: "draft-subsets",
+      items,
+      subsets: [
+        { id: "subset-alpha", name: "Alpha", key: "alpha", item_count: 1 },
+        { id: "subset-bravo", name: "Bravo", key: "bravo", item_count: 1 },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/datasets/dataset-subsets/drafts/active")) return response(draft);
+      if (path.includes("/api/dataset-drafts/draft-subsets")) return response(draft);
+      if (path.includes("/api/datasets/dataset-subsets/versions")) return response([{ id: "version-subsets", version_number: 1, name: "Imported", item_count: 2, caption_format: "text", status: "published" }]);
+      if (path.includes("/api/datasets/dataset-subsets")) return response({ id: "dataset-subsets", project_id: "project-subsets", name: "Subset dataset", current_version_id: "version-subsets", versions: [{ id: "version-subsets", version_number: 1, name: "Imported", item_count: 2, caption_format: "text", status: "published" }] });
+      if (path.includes("/api/operator-settings")) return response({ captioning: {}, llm: {} });
+      return response({});
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<DatasetScreen id="dataset-subsets" />);
+    await screen.findByRole("checkbox", { name: "Select bravo.png" });
+    expect(screen.getAllByText("Sub-dataset", { selector: "dt" })).toHaveLength(2);
+    const selection = screen.getByRole("checkbox", { name: "Select bravo.png" });
+    const card = selection.closest("article") as HTMLElement;
+    expect(card.querySelector(".caption-image")).not.toContainElement(selection);
+    expect(card.querySelector(".caption-heading")).toContainElement(selection);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort dataset images" }));
+    fireEvent.click(screen.getByRole("option", { name: "Sub-dataset, then dataset order" }));
+    await waitFor(() => expect(screen.getAllByRole("article").map(article => article.querySelector("strong")?.textContent)).toEqual(["alpha.png", "bravo.png"]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter dataset images by sub-dataset" }));
+    fireEvent.click(screen.getByRole("option", { name: /Alpha · 1 images/ }));
+    await waitFor(() => {
+      expect(screen.getByText("alpha.png")).toBeInTheDocument();
+      expect(screen.queryByText("bravo.png")).not.toBeInTheDocument();
+    });
+  });
+});
+
 describe("dataset pagination and immutable batch previews", () => {
   it("reaches every item, scopes selection truthfully, invalidates stale input, and renders JSON captions", async () => {
     const items = Array.from({ length: 54 }, (_, index) => ({

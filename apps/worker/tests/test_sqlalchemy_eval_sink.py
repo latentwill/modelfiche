@@ -6,11 +6,13 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from titles_api import models
+from titles_api.asset_cache import AssetCache
+from titles_api.integrations.config import CacheSettings
 from titles_api.database import Base
 from titles_worker.sqlalchemy_eval_sink import SQLAlchemyEvalOutputSink
 
 
-def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
+def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path, monkeypatch):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
@@ -40,7 +42,10 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
 
     local = tmp_path / "fal-output.png"
     local.write_bytes(b"image")
-    sink = SQLAlchemyEvalOutputSink(factory, cache=object())
+    durable_root = tmp_path / "assets"
+    monkeypatch.setattr("titles_worker.sqlalchemy_eval_sink.get_settings", lambda: SimpleNamespace(asset_root=durable_root))
+    cache = AssetCache(CacheSettings(root=tmp_path / "cache", max_bytes=512 * 1024**2))
+    sink = SQLAlchemyEvalOutputSink(factory, cache=cache)
     sink._download = lambda _url, _size: SimpleNamespace(path=local, size=5, sha256="a" * 64)
     result = sink.ingest_outputs(
         run.id,
@@ -91,6 +96,9 @@ def test_ingest_outputs_preserves_prompt_and_fal_metadata(tmp_path: Path):
         assert location.verification_state == "available"
         assert location.verified_sha256 == "a" * 64
         assert asset.content_blob_id is not None
+        assert Path(location.uri).is_relative_to(durable_root)
+        local.unlink()
+        assert Path(location.uri).read_bytes() == b"image"
         assert asset.preferred_location_id == location.id
         activity = session.scalar(select(models.ActivityEvent).where(models.ActivityEvent.subject_id == asset.id))
         assert activity.action == "asset.generated"

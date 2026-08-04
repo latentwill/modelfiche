@@ -65,6 +65,31 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/transfers?workspace=workspace-1&mode=import");
     expect(screen.queryByRole("menuitem", { name: "Import" })).not.toBeInTheDocument();
   });
+  it("links sidebar overflow to the complete model and grid catalogs", async () => {
+    const models = Array.from({ length: 6 }, (_, index) => ({ id: `model-${index}`, project_id: "project-1", name: `Model ${index + 1}` }));
+    const grids = Array.from({ length: 6 }, (_, index) => ({ id: `grid-${index}`, project_id: "project-1", name: `Grid ${index + 1}` }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/api/workspaces")) return response([workspace]);
+      if (path.includes("/api/projects/project-1/grids")) return response(grids);
+      if (path.includes("/api/projects")) return response([projects[0]]);
+      if (path.includes("/api/import-sources")) return response([]);
+      if (path.includes("/api/models")) return response(models);
+      if (path.includes("/api/datasets")) return response([]);
+      if (path.includes("/api/activity")) return response([]);
+      return response({});
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<WorkbenchShell section="models" id="" params={new URLSearchParams("project=project-1")}><main>Screen</main></WorkbenchShell>);
+
+    const allModels = await screen.findByRole("link", { name: "View all 6 models" });
+    expect(allModels).toHaveAttribute("href", "#/models?workspace=workspace-1&project=project-1");
+    expect(screen.queryByRole("link", { name: "Model 6" })).not.toBeInTheDocument();
+    const allGrids = await screen.findByRole("link", { name: "View all 6 grids" });
+    expect(allGrids).toHaveAttribute("href", "#/grids?workspace=workspace-1&project=project-1");
+    expect(screen.queryByRole("link", { name: "Grid 6" })).not.toBeInTheDocument();
+  });
   it("links the transfer import shortcut to the S3 browser with project context", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
@@ -186,5 +211,27 @@ describe("workspace navigation", () => {
     fireEvent.keyDown(drawer, { key: "Escape" });
     await waitFor(() => expect(opener).toHaveFocus());
     expect(screen.queryByRole("dialog", { name: "Primary navigation" })).not.toBeInTheDocument();
+  });
+  it("copies metadata from the global inspector", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { writeText }, configurable: true } }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/api/projects/project-1")) return response(projects[0]);
+      if (path.includes("/api/workspaces")) return response([workspace]);
+      if (path.includes("/api/projects")) return response([projects[0]]);
+      if (path.includes("/api/import-sources") || path.includes("/api/activity")) return response([]);
+      return response({});
+    }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+
+    render(<WorkbenchShell section="project" id="project-1" params={new URLSearchParams("project=project-1")}><main>Project</main></WorkbenchShell>);
+
+    const inspector = document.querySelector(".vela-inspector");
+    expect(inspector).toHaveClass("vela-copyable-metadata");
+    fireEvent.click(await screen.findByRole("button", { name: "JSON" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(writeText.mock.calls[0]?.[0]))).toMatchObject({ id: "project-1", title: "Project One" });
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 });

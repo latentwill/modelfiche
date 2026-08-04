@@ -50,7 +50,14 @@ def _write_pid(path: Path, process: subprocess.Popen[bytes]) -> None:
 
 
 def _remove_pid_files(var: Path) -> None:
-    for name in ("supervisor.pid", "server.pid", "worker.pid", "web.pid", "server.ready"):
+    for name in (
+        "supervisor.pid",
+        "server.pid",
+        "wandb-ingress.pid",
+        "worker.pid",
+        "web.pid",
+        "server.ready",
+    ):
         (var / name).unlink(missing_ok=True)
 
 
@@ -86,9 +93,12 @@ def main() -> None:
     var = root / "var"
     var.mkdir(parents=True, exist_ok=True)
     api_port = int(os.environ.get("TITLES_API_PORT", "8400"))
+    wandb_ingress_port = int(os.environ.get("TITLES_WANDB_INGRESS_PORT", "8401"))
     web_port = int(os.environ.get("TITLES_WEB_PORT", "5173"))
     timeout = float(os.environ.get("TITLES_SERVER_START_TIMEOUT", "20"))
-    pythonpath = os.pathsep.join(str(root / "apps" / name) for name in ("api", "worker", "cli"))
+    pythonpath = os.pathsep.join(
+        str(root / "apps" / name) for name in ("api", "worker", "cli")
+    )
     env = {
         **os.environ,
         "PYTHONPATH": pythonpath,
@@ -117,7 +127,25 @@ def main() -> None:
             start_new_session=True,
         )
         _write_pid(var / "server.pid", processes["api"])
-        _wait_for_api(processes["api"], f"http://127.0.0.1:{api_port}/api/health", timeout)
+        _wait_for_api(
+            processes["api"], f"http://127.0.0.1:{api_port}/api/health", timeout
+        )
+        wandb_ingress_log = (var / "wandb-ingress.log").open("ab")
+        logs.append(wandb_ingress_log)
+        processes["wandb"] = subprocess.Popen(
+            [sys.executable, "-m", "titles_api.wandb_ingress_main"],
+            cwd=root,
+            env=env,
+            stdout=wandb_ingress_log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        _write_pid(var / "wandb-ingress.pid", processes["wandb"])
+        _wait_for_api(
+            processes["wandb"],
+            f"http://127.0.0.1:{wandb_ingress_port}/health",
+            timeout,
+        )
 
         worker_log = (var / "worker.log").open("ab")
         logs.append(worker_log)
@@ -134,7 +162,16 @@ def main() -> None:
         web_log = (var / "web.log").open("ab")
         logs.append(web_log)
         processes["web"] = subprocess.Popen(
-            ["pnpm", "--dir", "apps/web", "dev", "--host", "127.0.0.1", "--port", str(web_port)],
+            [
+                "pnpm",
+                "--dir",
+                "apps/web",
+                "dev",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(web_port),
+            ],
             cwd=root,
             env=env,
             stdout=web_log,
@@ -148,7 +185,9 @@ def main() -> None:
         while not stopping:
             for name, process in processes.items():
                 if process.poll() is not None:
-                    raise RuntimeError(f"{name} exited while the service stack was running")
+                    raise RuntimeError(
+                        f"{name} exited while the service stack was running"
+                    )
             time.sleep(POLL_INTERVAL)
     except Exception as exc:
         (var / "server.error").write_text(str(exc), encoding="utf-8")

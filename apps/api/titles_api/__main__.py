@@ -3,13 +3,34 @@ from __future__ import annotations
 import os
 import socket
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import uvicorn
 
 from .app import create_app, initialize_database
-from .security_middleware import LocalLaunchContract
+from .security_middleware import LocalLaunchContract, RemoteAccessContract
 from .settings import get_settings
 from .storage.run_lease import RunLease
+
+
+def _remote_access_contract() -> RemoteAccessContract | None:
+    origin = os.environ.get("TITLES_REMOTE_ACCESS_ORIGIN", "").strip()
+    client_id = os.environ.get("TITLES_REMOTE_ACCESS_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("TITLES_REMOTE_ACCESS_CLIENT_SECRET", "").strip()
+    configured = (origin, client_id, client_secret)
+    if not any(configured):
+        return None
+    if not all(configured):
+        raise SystemExit(
+            "TITLES_REMOTE_ACCESS_ORIGIN, TITLES_REMOTE_ACCESS_CLIENT_ID, and "
+            "TITLES_REMOTE_ACCESS_CLIENT_SECRET must be configured together"
+        )
+    return RemoteAccessContract(
+        host=urlsplit(origin).netloc.lower(),
+        origin=origin,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
 
 
 def main() -> None:
@@ -18,7 +39,9 @@ def main() -> None:
     if not 1 <= port <= 65535:
         raise SystemExit("TITLES_API_PORT must be between 1 and 65535")
     with RunLease.acquire(
-        Path(os.environ.get("TITLES_RUN_LOCK", "var/titles-dam.run.lock")).expanduser().resolve(),
+        Path(os.environ.get("TITLES_RUN_LOCK", "var/titles-dam.run.lock"))
+        .expanduser()
+        .resolve(),
         lease_id=os.environ.get("TITLES_RUN_LEASE_ID"),
     ) as lease:
         os.environ["TITLES_RUN_LEASE_ID"] = lease.lease_id
@@ -37,6 +60,7 @@ def main() -> None:
                 allowed_hosts=frozenset({f"127.0.0.1:{port}", f"localhost:{port}"}),
                 allowed_origins=frozenset(get_settings().cors_origins),
                 allow_uds=False,
+                remote_access=_remote_access_contract(),
             )
             config = uvicorn.Config(
                 create_app(contract),

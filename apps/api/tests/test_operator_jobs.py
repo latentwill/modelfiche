@@ -2,11 +2,14 @@ import io
 import zipfile
 from datetime import datetime, timezone
 
+from pathlib import Path
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from PIL import Image
 import pytest
 
 from titles_api import app as app_module
+from titles_api import models
 from titles_api.asset_cache import AssetCache
 from titles_api.integrations.config import CacheSettings
 from titles_api.integrations.s3.browser import S3Browser
@@ -65,6 +68,15 @@ def test_checkpoint_hydration_job_downloads_atomically(client: TestClient, monke
     assert completed["result"]["size"] == len(body)
     assert client.get(f"/api/assets/{asset['id']}/content").content == body
     assert client.get(f"/api/checkpoints/{checkpoint['id']}").json()["state"] == "hydrated"
+    with app_module.SessionLocal() as session:
+        location = session.scalar(
+            select(models.AssetLocation).where(
+                models.AssetLocation.asset_id == asset["id"],
+                models.AssetLocation.provider == "local",
+            )
+        )
+        assert location is not None
+        assert Path(location.uri).resolve().is_relative_to(settings.asset_root.resolve())
 
 
 
@@ -195,6 +207,12 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         assert sample["asset_revision_id"] == sample["asset_id"]
     locations = client.get(f"/api/assets/{asset_id}/locations").json()
     assert any(location["provider"] == "local" and location["hydration_state"] == "hydrated" for location in locations)
+    durable_locations = [
+        location for location in locations
+        if location["provider"] == "local" and location["hydration_state"] == "hydrated"
+        and Path(location["uri"]).is_relative_to(get_settings().asset_root.resolve())
+    ]
+    assert len(durable_locations) == 1
     assert client.get(f"/api/assets/{asset_id}/content").content == image_body
     thumbnail = client.get(f"/api/assets/{asset_id}/thumbnail")
     assert thumbnail.status_code == 200

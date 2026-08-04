@@ -45,7 +45,7 @@ describe("gallery navigation contracts", () => {
   });
 
 
-  it("shows LoRA scale and offers exact generation replay for eligible images", () => {
+  it("shows LoRA scale without generation actions in the multi-image grid", () => {
     render(<AssetGrid assets={[{
       id: "a1", name: "generated.png", project_id: "p1",
       metadata: {
@@ -55,9 +55,7 @@ describe("gallery navigation contracts", () => {
       },
     }]} />);
     expect(screen.getByText("LoRA scale · 0.65")).toBeInTheDocument();
-    const replay = screen.getByRole("link", { name: /Generate/ });
-    const params = new URLSearchParams(replay.getAttribute("href")?.split("?", 2)[1]);
-    expect(Object.fromEntries(params)).toMatchObject({ workflow: "image", project: "p1", model: "m1", model_version: "v1", prefill_asset: "a1" });
+    expect(screen.queryByRole("link", { name: /Generate/ })).not.toBeInTheDocument();
   });
 
   it("keeps gallery tiles square and responsive at boundary widths", () => {
@@ -145,6 +143,8 @@ describe("gallery navigation contracts", () => {
     const asset = { id: "asset-1", asset_id: "asset-1", asset_revision_id: "asset-1", project_id: "project-1", dataset_id: "dataset-1", name: "lighthouse.png", kind: "image", mime_type: "image/png", origin_type: "DATASET" };
     const caption = "{\"description\":\"Orange lighthouse with a long sentence that must remain fully readable and selectable in the single-image gallery review without an ellipsis or clipping\"}";
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { writeText }, configurable: true } }));
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       const body = path.includes("/api/gallery/context")
@@ -174,9 +174,14 @@ describe("gallery navigation contracts", () => {
     expect(dialog.querySelector(".image-review-prompt")).toHaveTextContent("Orange lighthouse with a long sentence that must remain fully readable and selectable");
     const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
     expect(metadataFields).toEqual(expect.arrayContaining(["Dimensions", "Dataset", "Provider"]));
+    expect(dialog.querySelector(".image-review-inspector")).toHaveClass("vela-copyable-metadata");
     expect(metadataFields).not.toEqual(expect.arrayContaining(["File", "Type", "Kind"]));
     await waitFor(() => expect(screen.getByRole("link", { name: "Close image review" })).toHaveFocus());
     expect(screen.getByRole("heading", { name: "Filters", hidden: true }).closest("section")).toHaveAttribute("aria-hidden", "true");
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(String(writeText.mock.calls[0]?.[0])).toContain("caption_format");
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
     const focusables = Array.from(dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), textarea:not([disabled])"));
     focusables.at(-1)?.focus();
     fireEvent.keyDown(focusables.at(-1)!, { key: "Tab" });

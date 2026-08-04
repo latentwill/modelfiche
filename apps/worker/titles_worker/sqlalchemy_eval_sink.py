@@ -16,6 +16,7 @@ from titles_api.asset_cache import AssetCache
 from titles_api.storage.network import SafeHttpTransport
 from titles_api.storage.repository import StorageRepository
 from titles_api.image_provenance import fal_generated_at
+from titles_api.settings import get_settings
 
 
 
@@ -68,7 +69,7 @@ class SQLAlchemyEvalOutputSink:
                 if not isinstance(image, dict) or not image.get("url"):
                     continue
                 source_url = str(image["url"])
-                entry = self._download(source_url, image.get("file_size"))
+                entry = self.cache.persist(self._download(source_url, image.get("file_size")), get_settings().asset_root)
                 if source_url.startswith("data:"):
                     extension = mimetypes.guess_extension(source_url[5:].split(";", 1)[0]) or ".bin"
                     filename = f"fal-output-{index}{extension}"
@@ -121,13 +122,15 @@ class SQLAlchemyEvalOutputSink:
                         "eval_run_id": run.id,
                     },
                 ))
-                StorageRepository(session, project.workspace_id).attach_verified_local_location(
+                location = StorageRepository(session, project.workspace_id).attach_verified_local_location(
                     asset_id=asset.id,
                     uri=str(entry.path),
                     size=entry.size,
                     sha256=entry.sha256,
                     mime_type=asset.mime_type or "application/octet-stream",
                 )
+                location.relative_path = str(entry.path.relative_to(get_settings().asset_root.resolve()))
+                asset.preferred_location_id = location.id
                 width, height = image.get("width"), image.get("height")
                 if width or height:
                     session.add(models.ImageMetadata(asset_id=asset.id, width=width, height=height))

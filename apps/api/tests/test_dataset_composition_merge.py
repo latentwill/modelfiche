@@ -110,6 +110,8 @@ def test_composed_version_requires_one_primary_membership_and_changes_digest(
         },
     )
     assert assigned.status_code == 200
+    draft_with_subsets = client.get(f"/api/dataset-drafts/{draft_id}").json()
+    assert [item["subdatasets"][0]["name"] for item in draft_with_subsets["items"]] == ["First", "Second"]
     published = client.post(
         f"/api/dataset-drafts/{draft_id}/publish",
         headers=headers,
@@ -123,6 +125,17 @@ def test_composed_version_requires_one_primary_membership_and_changes_digest(
         ("first", 1),
         ("second", 1),
     ]
+    ordered = client.get(
+        f"/api/dataset-versions/{composed['id']}/items",
+        params={"paginated": True, "sort": "subdataset"},
+    ).json()
+    assert ordered["total"] == 2
+    assert [item["subdatasets"][0]["name"] for item in ordered["items"]] == ["First", "Second"]
+    filtered = client.get(
+        f"/api/dataset-versions/{composed['id']}/items",
+        params={"paginated": True, "subset_id": next(row["id"] for row in subsets if row["key"] == "second"), "sort": "subdataset"},
+    ).json()
+    assert [item["subdatasets"][0]["key"] for item in filtered["items"]] == ["second"]
 
 
 def test_training_run_composes_independent_dataset_versions(client: TestClient):

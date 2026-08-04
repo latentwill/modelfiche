@@ -22,6 +22,30 @@ describe("AssetImage", () => {
     );
   });
 
+  it("uses the server-provided alternate when a transient local image copy is missing", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        kind: "failure",
+        failure: { redacted_message: "The preferred image copy is unavailable.", action: { kind: "consume_alternate_once", alternate_token: "alternate-token" } },
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        kind: "descriptor",
+        descriptor: { delivery_url: "/api/asset-deliveries/remote-token", asset_revision_id: "alternate-asset", variant: { kind: "thumbnail" } },
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const view = render(<AssetImage assetRevisionId="alternate-asset" alt="Recovered portrait" />);
+    await waitFor(() => expect(view.getByRole("img")).toHaveAttribute("src", "/api/asset-deliveries/remote-token"));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/assets/alternate-asset/delivery/alternate",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({
+        asset_revision_id: "alternate-asset",
+        variant: { kind: "thumbnail", max_pixels: 512 },
+        alternate_token: "alternate-token",
+        diagnostic_token: "alternate-token",
+      }) }),
+    );
+  });
+
   it("defers delivery descriptor work for offscreen lazy images", async () => {
     let callback: IntersectionObserverCallback | undefined;
     const observe = vi.fn();
