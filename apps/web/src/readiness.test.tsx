@@ -16,8 +16,8 @@ describe("first-run readiness", () => {
       if (path.includes("/api/operator-settings/test/fal") && init?.method === "POST") return Promise.resolve(response({ ok: true }));
       if (path.includes("/api/operator-settings")) return Promise.resolve(response({ credentials: { fal_configured: true } }));
       if (path.includes("/api/import-sources/source-1/test") && init?.method === "POST") return Promise.resolve(response({ ok: true }));
-      if (path.includes("/api/import-sources")) return Promise.resolve(response([{ id: "source-1", name: "Training S3", is_active: true, identity_fingerprint: "verified" }]));
-      if (path.includes("/api/training-setup")) return Promise.resolve(response({ ready: false, checks: [{ status: "blocked", fix: "Verify an S3 training source." }] }));
+      if (path.includes("/api/import-sources")) return Promise.resolve(response([{ id: "source-1", name: "Training S3", is_active: true }]));
+      if (path.includes("/api/training-setup")) return Promise.resolve(response({ ready: false, checks: [{ status: "blocked", fix: "Connect an active S3 source." }] }));
       return Promise.resolve(response({}));
     });
     vi.stubGlobal("fetch", fetchMock);

@@ -6,6 +6,7 @@ import hashlib
 import mimetypes
 import os
 import signal
+import shutil
 import subprocess
 import sqlite3
 import sys
@@ -3257,6 +3258,45 @@ def project_root() -> Path:
             return candidate
     return Path(__file__).resolve().parents[4]
 
+_RUNTIME_ENV_FILE = ".env.1password"
+_RUNTIME_ENV_MARKER = "MODELFICHE_RUNTIME_ENV_LOADED"
+
+
+def _load_runtime_environment(root_path: Path) -> None:
+    """Re-exec the start command through 1Password when this checkout defines it."""
+    env_file = root_path / _RUNTIME_ENV_FILE
+    if (
+        not env_file.is_file()
+        or os.getenv("TITLES_REMOTE_ACCESS_ORIGIN")
+        or os.getenv(_RUNTIME_ENV_MARKER) == "1"
+    ):
+        return
+    op = shutil.which("op")
+    if op is None:
+        raise typer.BadParameter(
+            f"{_RUNTIME_ENV_FILE} requires the 1Password CLI. Install and sign in to `op`, "
+            "or set the runtime environment directly."
+        )
+    env = {
+        **os.environ,
+        _RUNTIME_ENV_MARKER: "1",
+        "TITLES_PROJECT_ROOT": str(root_path),
+    }
+    os.execvpe(
+        op,
+        [
+            op,
+            "run",
+            f"--env-file={env_file}",
+            "--",
+            sys.executable,
+            "-m",
+            "titles_cli.main",
+            *sys.argv[1:],
+        ],
+        env,
+    )
+
 
 def _pid_is_alive(path: Path) -> tuple[int | None, bool]:
     try:
@@ -3332,6 +3372,7 @@ def _stack_state(root_path: Path) -> dict[str, Any]:
 @server_app.command("start")
 def server_start(ctx: typer.Context) -> None:
     root_path = project_root()
+    _load_runtime_environment(root_path)
     var = root_path / "var"
     var.mkdir(parents=True, exist_ok=True)
     pid_paths = _service_pid_paths(var)
@@ -3399,7 +3440,7 @@ def server_stop(ctx: typer.Context) -> None:
     var = project_root() / "var"
     pid_paths = _service_pid_paths(var)
     pids: list[int] = []
-    for name in ("supervisor", "web", "worker", "api"):
+    for name in ("supervisor", "web", "worker", "wandb", "api"):
         path = pid_paths[name]
         pid, alive = _pid_is_alive(path)
         if pid is not None:

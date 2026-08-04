@@ -50,10 +50,6 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(
             "credential_env_prefix": "TRAINING_S3",
         },
     ).json()
-    with app_module.SessionLocal.begin() as db:
-        db.get(
-            models.ImportSource, source["id"]
-        ).identity_fingerprint = "source-fingerprint-v1"
 
     credential_response = client.post(
         "/api/integrations/wandb/credentials",
@@ -171,6 +167,7 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(
         launches = db.query(models.TrainingLaunch).all()
         exports = db.query(models.Job).filter_by(kind="export.package").all()
         assert len(runs) == len(launches) == len(exports) == 1
+        assert launches[0].source_fingerprint is None
         assert runs[0].status == "pending"
         assert runs[0].wandb_run_id == manifest["telemetry"]["run_id"]
         assert exports[0].payload["dataset_version_ids"] == [

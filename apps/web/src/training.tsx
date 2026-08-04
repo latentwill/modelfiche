@@ -43,7 +43,7 @@ export function TrainingLaunchCreateScreen({ params }: { params: URLSearchParams
 
   const versions = listOf<Row>(dataset.data?.versions);
   const credentials = listOf<Row>(setup.data?.credentials);
-  const sources = listOf<Row>(setup.data?.sources).filter(source => source.verified);
+  const sources = listOf<Row>(setup.data?.sources).filter(source => source.available);
   useEffect(() => {
     if (!versionId && dataset.data?.current_version_id) setVersionId(str(dataset.data.current_version_id));
   }, [dataset.data?.current_version_id, versionId]);
@@ -104,7 +104,7 @@ export function TrainingLaunchCreateScreen({ params }: { params: URLSearchParams
             <CheckList checks={listOf<Row>(setup.data.checks)} />
             <div className="training-form-grid">
               <Field label="Signing identity" hint="ModelFiche stores only the public key; the agent keeps the private key."><Dropdown value={credentialId} onChange={setCredentialId} options={credentials.map(item => ({ value: idOf(item), label: str(item.alias), description: str(item.key_id) }))} /></Field>
-              <Field label="Training storage" hint="Checkpoints and recovery files use this verified destination."><Dropdown value={sourceId} onChange={setSourceId} options={sources.map(item => ({ value: idOf(item), label: str(item.name), description: str(item.bucket) }))} /></Field>
+              <Field label="Training storage" hint="Checkpoints and recovery files use this active destination."><Dropdown value={sourceId} onChange={setSourceId} options={sources.map(item => ({ value: idOf(item), label: str(item.name), description: str(item.bucket) }))} /></Field>
             </div>
             {!setupReady && <div className="vela-notice vela-notice-error" role="alert"><strong>Setup needs attention</strong><span>Open Terminal and run <code>{SETUP_COMMAND}</code>, then use Settings for storage and resolve the remaining checks.</span><div className="actions"><button onClick={() => void navigator.clipboard.writeText(SETUP_COMMAND).then(() => setSetupCopied(true)).catch(() => setError("Clipboard access was denied. Select and copy the setup command manually."))}><Clipboard size={14} />{setupCopied ? "Copied" : "Copy setup command"}</button><a className="button vela-button" href={`#/settings${routeQuery({})}`}>Open settings</a></div></div>}
           </>}

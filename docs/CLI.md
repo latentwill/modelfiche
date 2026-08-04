@@ -82,7 +82,8 @@ server
 ```
 
 Root shortcuts `mfiche start`, `mfiche status`, and `mfiche stop` delegate to
-the matching `mfiche server` commands.
+the matching `mfiche server` commands. When `.env.1password` exists, `start`
+automatically resolves it with `op run` before it launches the stack.
 
 ## Output contract
 

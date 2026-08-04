@@ -5,10 +5,10 @@ import { Page, Panel } from "./ui";
 const REPOSITORY = "https://github.com/latentwill/modelfiche";
 
 const operatorWorkflows = [
-  { title: "Import and organize", body: "Connect a verified S3 source or choose a local folder, preview the detected content, then create a durable import.", href: "#/transfers", params: { mode: "import" }, label: "Open imports" },
+  { title: "Import and organize", body: "Connect an S3 source or choose a local folder, preview the detected content, then create a durable import.", href: "#/transfers", params: { mode: "import" }, label: "Open imports" },
   { title: "Build a dataset", body: "Create a draft, edit captions and inclusion state, then publish an immutable dataset version.", href: "#/datasets", params: {}, label: "Open datasets" },
   { title: "Generate and compare", body: "Select a project checkpoint, resolve the request plan, then queue Image, Eval, or Grid work.", href: "#/generate", params: {}, label: "Open generation" },
-  { title: "Prepare training", body: "Verify signing and outbound storage, create a launch, and generate a checksummed AI Toolkit trainer packet.", href: "#/training-new", params: {}, label: "Open training" },
+  { title: "Prepare training", body: "Configure signing and outbound storage, create a launch, and generate an AI Toolkit trainer packet.", href: "#/training-new", params: {}, label: "Open training" },
 ];
 
 const references = [

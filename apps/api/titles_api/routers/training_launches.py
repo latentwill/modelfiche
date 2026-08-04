@@ -66,15 +66,15 @@ def training_setup(db: DB):
         },
         {
             "code": "TRAINING_STORAGE",
-            "status": "pass" if any(source.identity_fingerprint for source in sources) else "blocked",
+            "status": "pass" if sources else "blocked",
             "message": f"{len(sources)} active training source(s)." if sources else "No active training storage source.",
-            "fix": None if sources else "Create and verify an S3 source.",
+            "fix": None if sources else "Create an active S3 source.",
         },
         {
             "code": "TRAINER_TRANSPORT",
-            "status": "pass" if any(source.identity_fingerprint for source in sources) else "blocked",
-            "message": "Training uses outbound object storage; no inbound tunnel is required." if any(source.identity_fingerprint for source in sources) else "Verify an S3 training source.",
-            "fix": None if any(source.identity_fingerprint for source in sources) else "Create and verify an S3 source.",
+            "status": "pass" if sources else "blocked",
+            "message": "Training uses outbound object storage; no inbound tunnel is required." if sources else "Connect an active S3 source.",
+            "fix": None if sources else "Create an active S3 source.",
         },
     ]
     return {
@@ -89,7 +89,7 @@ def training_setup(db: DB):
                 "id": item.id,
                 "name": item.name,
                 "bucket": item.bucket,
-                "verified": bool(item.identity_fingerprint),
+                "available": True,
             }
             for item in sources
         ],

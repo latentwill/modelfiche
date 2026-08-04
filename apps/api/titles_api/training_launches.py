@@ -550,8 +550,6 @@ def create_training_launch(
         raise LaunchError("S3 source was not found")
     if source.provider != "s3" or not source.is_active:
         raise LaunchError("training launches require an active S3 source")
-    if not source.identity_fingerprint:
-        raise LaunchError("S3 source must be verified before training launch")
 
     available_endpoints = {adapter.endpoint_id for adapter in list_adapters()}
     unsupported = sorted(set(request.supported_endpoint_ids) - available_endpoints)

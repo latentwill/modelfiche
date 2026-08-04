@@ -102,14 +102,20 @@ Without an installed entry point, replace `mfiche ...` with
 ### Authenticated remote access
 
 The API remains bound to loopback. To terminate an HTTPS Cloudflare Tunnel on
-the Modelfiche host without exposing the no-auth local boundary, configure all
-three values and start the stack through the secret manager:
+the Modelfiche host without exposing the no-auth local boundary, set all three
+values in `.env.1password`:
 
 ```bash
 TITLES_REMOTE_ACCESS_ORIGIN=https://modelfiche.example.com
 TITLES_REMOTE_ACCESS_CLIENT_ID=op://Vault/Modelfiche Remote Access/client id
 TITLES_REMOTE_ACCESS_CLIENT_SECRET=op://Vault/Modelfiche Remote Access/password
-op run --env-file=.env.1password -- mfiche start
+```
+
+When that file exists, `mfiche start` automatically re-executes through
+`op run`. Agents and operators use the same command:
+
+```bash
+mfiche start
 ```
 
 Route `/api/*` to `127.0.0.1:8400` and the UI to `127.0.0.1:5173`. The remote
