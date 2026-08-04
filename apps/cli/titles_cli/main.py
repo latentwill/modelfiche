@@ -2679,6 +2679,27 @@ def asset_metadata(ctx: typer.Context, asset: str) -> None:
     call(ctx, lambda client: client.get(f"/api/assets/{asset}/metadata"))
 
 
+@asset_app.command("repair-images")
+def asset_repair_images(
+    ctx: typer.Context,
+    project: str = typer.Option(..., "--project"),
+    wait: bool = typer.Option(True, "--wait/--no-wait"),
+) -> None:
+    """Repair legacy cache-backed image records from their recorded source."""
+    result = call(
+        ctx,
+        lambda client: client.post(
+            "/api/jobs",
+            {
+                "kind": "image.repair_lineage",
+                "payload": {"project_id": project},
+            },
+        ),
+    )
+    if wait and isinstance(result, dict) and result.get("id"):
+        wait_for_job(ctx, result["id"])
+
+
 @asset_app.command("lineage")
 def asset_lineage(ctx: typer.Context, asset: str) -> None:
     call(

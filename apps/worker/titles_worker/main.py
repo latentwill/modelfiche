@@ -37,20 +37,32 @@ def main() -> None:
     from .fal_request_resolver import SQLAlchemyFalRequestResolver
     from .import_jobs import S3ImportHandler
     from .hydration_jobs import CheckpointHydrationHandler
+    from .image_lineage_jobs import ImageLineageRepairHandler
     from .export_jobs import ExportPackageHandler
     from .runner import JobRunner
     from .sqlalchemy_eval_sink import SQLAlchemyEvalOutputSink
     from .wandb_uploads import WandbUploadReconciler
-    from .checkpoint_handoffs import CheckpointHandoffReconciler, CheckpointManifestPoller
+    from .checkpoint_handoffs import (
+        CheckpointHandoffReconciler,
+        CheckpointManifestPoller,
+    )
     from .run_maintenance import RunMaintenance
 
-    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     settings = get_settings()
     cache = AssetCache(CacheSettings(root=settings.cache_root.resolve()))
     handlers = {
         "s3.import": S3ImportHandler(SessionLocal, cache),
         "checkpoint.hydrate": CheckpointHydrationHandler(SessionLocal, cache),
-        "export.package": ExportPackageHandler(SessionLocal, settings.export_root, (settings.asset_root, settings.cache_root)),
+        "export.package": ExportPackageHandler(
+            SessionLocal,
+            settings.export_root,
+            (settings.asset_root, settings.cache_root),
+        ),
+        "image.repair_lineage": ImageLineageRepairHandler(SessionLocal, cache),
     }
     # Resolve credentials for every claimed FAL job so saves, replacements, and
     # environment changes take effect without restarting the worker.
@@ -58,13 +70,19 @@ def main() -> None:
     resolver = SQLAlchemyFalRequestResolver(SessionLocal)
 
     def fal_eval(context, payload):
-        return FalEvalHandler(FalQueueClient(FalSettings.from_env()), sink, request_resolver=resolver)(context, payload)
+        return FalEvalHandler(
+            FalQueueClient(FalSettings.from_env()), sink, request_resolver=resolver
+        )(context, payload)
 
     def fal_batch(context, payload):
-        return FalEvalBatchHandler(SessionLocal, FalQueueClient(FalSettings.from_env()), sink, resolver)(context, payload)
+        return FalEvalBatchHandler(
+            SessionLocal, FalQueueClient(FalSettings.from_env()), sink, resolver
+        )(context, payload)
 
     def fal_grid(context, payload):
-        return FalGridBatchHandler(SessionLocal, FalQueueClient(FalSettings.from_env()), sink, resolver)(context, payload)
+        return FalGridBatchHandler(
+            SessionLocal, FalQueueClient(FalSettings.from_env()), sink, resolver
+        )(context, payload)
 
     handlers["fal.eval"] = fal_eval
     handlers["fal.eval_batch"] = fal_batch

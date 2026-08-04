@@ -951,6 +951,18 @@ def test_cli_parity_mutations_use_supported_api_contracts(
             ),
         ),
         (
+            ["asset", "repair-images", "--project", "project-1", "--no-wait"],
+            (
+                "POST",
+                "/api/jobs",
+                {},
+                {
+                    "kind": "image.repair_lineage",
+                    "payload": {"project_id": "project-1"},
+                },
+            ),
+        ),
+        (
             ["workspace", "rename", "workspace-1", "--name", "Studio"],
             ("PATCH", "/api/workspaces/workspace-1", None, {"name": "Studio"}),
         ),
