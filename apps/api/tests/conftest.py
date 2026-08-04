@@ -32,7 +32,7 @@ def _install_model_test_foundation(engine) -> None:
         gates.verify_storage_contract(
             GateEvidence(
                 run_lease_id="model-test-lease",
-                alembic_head="0024_embedding_artifacts",
+                alembic_head="0025_workspace_slugs",
                 marker=1,
                 binding_digest="model-test-binding",
                 contract_version=1,

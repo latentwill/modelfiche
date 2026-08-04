@@ -82,7 +82,7 @@ export function App() {
   const parsedRoute = parseWorkspaceHash(window.location.hash);
   const [routeGate, setRouteGate] = useState<RouteGate>(parsedRoute.legacy ? "resolving" : "ready");
   const [routeError, setRouteError] = useState("");
-  useCanonicalWorkspaceLinks(parsedRoute.workspaceId);
+  useCanonicalWorkspaceLinks(parsedRoute.workspaceSlug);
   useEffect(() => {
     if (accessState !== "ready" || !parsedRoute.legacy) {
       setRouteGate("ready");
@@ -93,20 +93,20 @@ export function App() {
     const resolveWorkspace = async () => {
       const reference = legacyEntityReference(parsedRoute.route);
       if (reference) {
-        const resolution = await apiUnscoped<{ workspace_id: string }>(
+        const resolution = await apiUnscoped<{ workspace_id: string; workspace_slug: string }>(
           `/api/workspace-resolutions/${encodeURIComponent(reference.entityType)}/${encodeURIComponent(reference.entityId)}`,
         );
-        return resolution.workspace_id;
+        return { id: resolution.workspace_id, slug: resolution.workspace_slug };
       }
-      const workspaces = await apiUnscoped<Array<{ id: string }>>("/api/workspaces");
+      const workspaces = await apiUnscoped<Array<{ id: string; slug: string }>>("/api/workspaces");
       const preferred = activeWorkspaceId();
-      return workspaces.find(workspace => workspace.id === preferred)?.id ?? workspaces[0]?.id ?? "";
+      return workspaces.find(workspace => workspace.id === preferred) ?? workspaces[0] ?? null;
     };
-    void resolveWorkspace().then(workspaceId => {
+    void resolveWorkspace().then(workspace => {
       if (!active) return;
-      if (!workspaceId) throw new Error("No workspace is available");
-      setActiveWorkspaceId(workspaceId);
-      const canonical = canonicalWorkspaceHref(`#/${parsedRoute.route}`, workspaceId);
+      if (!workspace) throw new Error("No workspace is available");
+      setActiveWorkspaceId(workspace.id);
+      const canonical = canonicalWorkspaceHref(`#/${parsedRoute.route}`, workspace.slug);
       history.replaceState(history.state, "", canonical);
       window.dispatchEvent(new HashChangeEvent("hashchange"));
       setRouteGate("ready");

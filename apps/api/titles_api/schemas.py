@@ -22,6 +22,7 @@ class ORMModel(BaseModel):
 class WorkspaceOut(ORMModel):
     id: str
     name: str
+    slug: str
     created_at: datetime
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -74,10 +75,24 @@ class JobState(str, enum.Enum):
     failed = "failed"
     canceled = "canceled"
 
+def workspace_slug(name: str) -> str:
+    return (
+        re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:80] or "workspace"
+    )
+
+
+def _default_workspace_slug(context) -> str:
+    return workspace_slug(
+        str(context.get_current_parameters().get("name") or "workspace")
+    )
+
 
 class Workspace(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "workspaces"
     name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(
+        String(80), unique=True, index=True, default=_default_workspace_slug
+    )
 
 
 class UserProfile(UUIDMixin, TimestampMixin, Base):

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import models
+
 _workspace_id: ContextVar[str | None] = ContextVar("workspace_id", default=None)
 _request_method: ContextVar[str] = ContextVar("request_method", default="GET")
 
@@ -54,8 +55,14 @@ def get_or_404(db: Session, model, object_id: str):
     if value is None:
         raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
     actual_workspace_id = entity_workspace_id(db, value)
-    selected_workspace_id = _workspace_id.get()
-    if actual_workspace_id and selected_workspace_id and actual_workspace_id != selected_workspace_id:
+    selected_reference = _workspace_id.get()
+    selected_workspace = current_workspace(db) if selected_reference else None
+    selected_workspace_id = str(selected_workspace.id) if selected_workspace else None
+    if (
+        actual_workspace_id
+        and selected_workspace_id
+        and actual_workspace_id != selected_workspace_id
+    ):
         if _request_method.get() in {"POST", "PUT", "PATCH", "DELETE"}:
             raise HTTPException(status_code=409, detail={
                 "code": "workspace_entity_mismatch",
@@ -78,13 +85,23 @@ def workspace_object(db: Session, model, object_id: str):
 
 
 def current_workspace(db: Session) -> models.Workspace:
-    selected_id = _workspace_id.get()
-    workspace = db.get(models.Workspace, selected_id) if selected_id else db.scalar(select(models.Workspace).order_by(models.Workspace.created_at))
+    selected_reference = _workspace_id.get()
+    workspace = (
+        db.scalar(
+            select(models.Workspace).where(
+                (models.Workspace.id == selected_reference)
+                | (models.Workspace.slug == selected_reference)
+            )
+        )
+        if selected_reference
+        else db.scalar(select(models.Workspace).order_by(models.Workspace.created_at))
+    )
     if workspace is None:
-        if selected_id:
+        if selected_reference:
             raise HTTPException(status_code=404, detail="workspace not found")
         raise HTTPException(status_code=503, detail="workspace is not initialized")
     return workspace
+
 
 def entity_workspace_id(db: Session, value: Any) -> str | None:
     """Resolve an entity's owning workspace without ambient request state."""

@@ -1,4 +1,4 @@
-import { routeWorkspaceId } from "./workspace-routing";
+import { routeWorkspaceSlug } from "./workspace-routing";
 
 export type Entity = Record<string, unknown> & { id: string };
 
@@ -47,8 +47,8 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   headers.set("accept", "application/json");
   const profileId = localStorage.getItem("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
-  const workspaceId = routeWorkspaceId();
-  if (workspaceId) headers.set("x-workspace-id", workspaceId);
+  const workspaceSlug = routeWorkspaceSlug();
+  if (workspaceSlug) headers.set("x-workspace-id", workspaceSlug);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();
@@ -79,8 +79,8 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename:
   const headers = new Headers({ accept: "application/octet-stream" });
   const profileId = localStorage.getItem("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
-  const workspaceId = routeWorkspaceId();
-  if (workspaceId) headers.set("x-workspace-id", workspaceId);
+  const workspaceSlug = routeWorkspaceSlug();
+  if (workspaceSlug) headers.set("x-workspace-id", workspaceSlug);
   const response = await fetch(`${API_BASE}${path}`, { headers });
   if (!response.ok) {
     const text = await response.text();

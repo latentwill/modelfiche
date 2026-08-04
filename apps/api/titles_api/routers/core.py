@@ -25,13 +25,31 @@ def profile_for(db: Session, profile_id: str | None) -> models.UserProfile:
     return active_profile(db, profile_id)
 
 
+def available_workspace_slug(db: Session, name: str) -> str:
+    base = models.workspace_slug(name)
+    used = set(
+        db.scalars(
+            select(models.Workspace.slug).where(models.Workspace.slug.like(f"{base}%"))
+        )
+    )
+    if base not in used:
+        return base
+    suffix = 2
+    while True:
+        ending = f"-{suffix}"
+        candidate = f"{base[: 80 - len(ending)]}{ending}"
+        if candidate not in used:
+            return candidate
+        suffix += 1
+
+
 @router.post("/workspaces", response_model=schemas.WorkspaceOut, status_code=status.HTTP_201_CREATED)
 def create_workspace(body: schemas.WorkspaceCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     actor = active_profile(db, x_profile_id)
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="workspace name cannot be blank")
-    workspace = models.Workspace(name=name)
+    workspace = models.Workspace(name=name, slug=available_workspace_slug(db, name))
     db.add(workspace)
     db.flush()
     profile = models.UserProfile(
@@ -69,6 +87,7 @@ def workspace_resolution(entity_type: str, entity_id: str, db: DB):
         "entity_id": entity_id,
         "workspace_id": workspace.id,
         "workspace_name": workspace.name,
+        "workspace_slug": workspace.slug,
     }
 
 

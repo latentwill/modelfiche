@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
 
-def _workspace_header(workspace_id: str) -> dict[str, str]:
-    return {"X-Workspace-ID": workspace_id}
+def _workspace_header(workspace_reference: str) -> dict[str, str]:
+    return {"X-Workspace-ID": workspace_reference}
 
 
 def test_entity_resolution_and_mutations_fail_closed_across_workspaces(
@@ -19,7 +19,7 @@ def test_entity_resolution_and_mutations_fail_closed_across_workspaces(
         json={"project_id": project["id"], "name": "Primary run"},
     ).json()
     other = client.post("/api/workspaces", json={"name": "Other"}).json()
-    other_headers = _workspace_header(other["id"])
+    other_headers = _workspace_header(other["slug"])
 
     for entity_type, entity_id in (
         ("project", project["id"]),
@@ -32,6 +32,7 @@ def test_entity_resolution_and_mutations_fail_closed_across_workspaces(
         )
         assert resolution.status_code == 200
         assert resolution.json()["workspace_id"] == primary["id"]
+        assert resolution.json()["workspace_slug"] == primary["slug"]
 
     project_update = client.patch(
         f"/api/projects/{project['id']}",
@@ -59,6 +60,23 @@ def test_entity_resolution_and_mutations_fail_closed_across_workspaces(
             "entity_type": "Project",
             "entity_id": project["id"],
         }
+
+
+def test_workspace_slugs_are_readable_unique_and_selectable(client: TestClient):
+    first = client.post("/api/workspaces", json={"name": "Creative Studio"}).json()
+    second = client.post("/api/workspaces", json={"name": "Creative Studio"}).json()
+
+    assert first["slug"] == "creative-studio"
+    assert second["slug"] == "creative-studio-2"
+
+    project = client.post(
+        "/api/projects",
+        headers=_workspace_header(second["slug"]),
+        json={"title": "Slug-scoped project"},
+    )
+
+    assert project.status_code == 201
+    assert project.json()["workspace_id"] == second["id"]
 
 
 def test_api_mutations_require_explicit_workspace(client: TestClient):

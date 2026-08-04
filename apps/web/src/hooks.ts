@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { API_BASE, api } from "./api";
-import { canonicalWorkspaceHref, parseWorkspaceHash } from "./workspace-routing";
+import { canonicalWorkspaceHref, parseWorkspaceHash, routeWorkspaceSlug } from "./workspace-routing";
 
 type ResourceOptions<T> = {
   pollInterval?: number;
@@ -8,46 +8,48 @@ type ResourceOptions<T> = {
 };
 
 export function useResource<T = unknown>(path: string | null, options: ResourceOptions<T> = {}) {
+  const workspaceSlug = routeWorkspaceSlug();
+  const requestKey = path === null ? null : `${workspaceSlug}\n${path}`;
   const [data, setData] = useState<T | null>(null);
-  const [loadedPath, setLoadedPath] = useState<string | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [errorPath, setErrorPath] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
   const [pollGeneration, setPollGeneration] = useState(0);
   const latestData = useRef<T | null>(null);
-  latestData.current = loadedPath === path ? data : null;
+  latestData.current = loadedKey === requestKey ? data : null;
   const load = useCallback(async (preserveData = false): Promise<T | null> => {
     const id = ++requestId.current;
     if (!path) {
       setData(null);
       setError("");
-      setErrorPath(null);
-      setLoadedPath(null);
+      setErrorKey(null);
+      setLoadedKey(null);
       setLoading(false);
       return null;
     }
     if (!preserveData) setData(null);
     setLoading(true);
-    setErrorPath(null);
+    setErrorKey(null);
     setError("");
     try {
       const result = await api<T>(path);
       if (id === requestId.current) {
         setData(result);
-        setLoadedPath(path);
+        setLoadedKey(requestKey);
       }
       return result;
     } catch (reason) {
       if (id === requestId.current) {
         setError(reason instanceof Error ? reason.message : String(reason));
-        setErrorPath(path);
+        setErrorKey(requestKey);
       }
       return null;
     } finally {
       if (id === requestId.current) setLoading(false);
     }
-  }, [path]);
+  }, [path, requestKey]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!path || !options.pollInterval || options.pollInterval <= 0) return;
@@ -66,9 +68,9 @@ export function useResource<T = unknown>(path: string | null, options: ResourceO
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [load, options.pollInterval, options.pollWhile, path, pollGeneration]);
-  const currentError = errorPath === path ? error : "";
-  const currentData = loadedPath === path ? data : null;
-  const currentLoading = !path ? false : loadedPath !== path && !currentError ? true : loading && currentData === null;
+  const currentError = errorKey === requestKey ? error : "";
+  const currentData = loadedKey === requestKey ? data : null;
+  const currentLoading = !path ? false : loadedKey !== requestKey && !currentError ? true : loading && currentData === null;
   return { data: currentData, error: currentError, loading: currentLoading, reload: async () => { await load(true); setPollGeneration(value => value + 1); }, setData };
 }
 
@@ -234,8 +236,8 @@ export function useCanonicalWorkspaceLinks(workspaceId: string) {
 }
 
 export function useHashRoute() {
-  const read = () => parseWorkspaceHash(window.location.hash).route;
-  const [route, setRoute] = useState(read);
+  const readHash = () => window.location.hash;
+  const [hash, setHash] = useState(readHash);
   const modeRef = useRef<"initial" | "push" | "pop">("initial");
   const pendingRestore = useRef<{ scrollY: number; focusId: string } | null>(null);
   useEffect(() => {
@@ -250,14 +252,17 @@ export function useHashRoute() {
       const href = target.getAttribute("href") ?? target.hash;
       history.pushState({ modelficheRoute: { scrollY: 0, focusId: "" } }, "", workspaceRouteHref(href));
       modeRef.current = "push";
-      setRoute(read());
+      setHash(readHash());
     };
     const onPopState = (event: PopStateEvent) => {
       modeRef.current = "pop";
       pendingRestore.current = event.state?.modelficheRoute ?? { scrollY: 0, focusId: "" };
-      setRoute(read());
+      setHash(readHash());
     };
-    const onHashChange = () => { if (modeRef.current === "initial") { modeRef.current = "push"; setRoute(read()); } };
+    const onHashChange = () => {
+      if (modeRef.current === "initial") modeRef.current = "push";
+      setHash(readHash());
+    };
     document.addEventListener("click", onClick);
     window.addEventListener("popstate", onPopState);
     window.addEventListener("hashchange", onHashChange);
@@ -279,6 +284,6 @@ export function useHashRoute() {
     });
     modeRef.current = "initial";
     pendingRestore.current = null;
-  }, [route]);
-  return route;
+  }, [hash]);
+  return parseWorkspaceHash(hash).route;
 }
