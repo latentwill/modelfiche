@@ -228,7 +228,7 @@ describe("gallery navigation contracts", () => {
               : [];
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     }));
-    location.hash = "#/image/activity-image?project=project-1";
+    location.hash = "#/w/workspace-1/image/activity-image?project=project-1";
 
     render(<App />);
 

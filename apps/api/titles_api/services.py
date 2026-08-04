@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Any
+import json
+from typing import Any, Mapping
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from . import models
 _workspace_id: ContextVar[str | None] = ContextVar("workspace_id", default=None)
+_request_method: ContextVar[str] = ContextVar("request_method", default="GET")
 
 
 class WorkspaceContextMiddleware:
@@ -21,11 +23,29 @@ class WorkspaceContextMiddleware:
             return
         headers = {key.lower(): value for key, value in scope.get("headers", ())}
         selected = headers.get(b"x-workspace-id")
-        token = _workspace_id.set(selected.decode("utf-8") if selected else None)
+        method = str(scope.get("method") or "GET").upper()
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and str(scope.get("path") or "").startswith("/api/") and str(scope.get("path") or "") != "/api/remote-session" and not selected:
+            await _reject_workspace_request(send, 428, {
+                "code": "workspace_required",
+                "message": "X-Workspace-ID is required for API mutations",
+            })
+            return
+        workspace_token = _workspace_id.set(selected.decode("utf-8") if selected else None)
+        method_token = _request_method.set(method)
         try:
             await self.app(scope, receive, send)
         finally:
-            _workspace_id.reset(token)
+            _request_method.reset(method_token)
+            _workspace_id.reset(workspace_token)
+
+async def _reject_workspace_request(send, status: int, detail: Mapping[str, Any]) -> None:
+    body = json.dumps({"detail": detail}, separators=(",", ":")).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode("ascii"))],
+    })
+    await send({"type": "http.response.body", "body": body})
 
 
 
@@ -33,12 +53,25 @@ def get_or_404(db: Session, model, object_id: str):
     value = db.get(model, object_id)
     if value is None:
         raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
+    actual_workspace_id = entity_workspace_id(db, value)
+    selected_workspace_id = _workspace_id.get()
+    if actual_workspace_id and selected_workspace_id and actual_workspace_id != selected_workspace_id:
+        if _request_method.get() in {"POST", "PUT", "PATCH", "DELETE"}:
+            raise HTTPException(status_code=409, detail={
+                "code": "workspace_entity_mismatch",
+                "message": f"{model.__name__} belongs to another workspace",
+                "declared_workspace_id": selected_workspace_id,
+                "actual_workspace_id": actual_workspace_id,
+                "entity_type": model.__name__,
+                "entity_id": str(object_id),
+            })
+        raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
     return value
 
 
 def workspace_object(db: Session, model, object_id: str):
     value = get_or_404(db, model, object_id)
-    workspace_id = getattr(value, "workspace_id", None)
+    workspace_id = entity_workspace_id(db, value)
     if workspace_id is not None and workspace_id != current_workspace(db).id:
         raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
     return value
@@ -51,6 +84,62 @@ def current_workspace(db: Session) -> models.Workspace:
         if selected_id:
             raise HTTPException(status_code=404, detail="workspace not found")
         raise HTTPException(status_code=503, detail="workspace is not initialized")
+    return workspace
+
+def entity_workspace_id(db: Session, value: Any) -> str | None:
+    """Resolve an entity's owning workspace without ambient request state."""
+    direct = getattr(value, "workspace_id", None)
+    if direct:
+        return str(direct)
+    if isinstance(value, models.Workspace):
+        return str(value.id)
+    project_id = getattr(value, "project_id", None)
+    if project_id:
+        project = db.get(models.Project, str(project_id))
+        return str(project.workspace_id) if project else None
+    if isinstance(value, (models.DatasetVersion, models.DatasetDraft)):
+        dataset = db.get(models.Dataset, str(value.dataset_id))
+        return entity_workspace_id(db, dataset) if dataset else None
+    if isinstance(value, models.TrainingRun):
+        project = db.get(models.Project, str(value.project_id))
+        return str(project.workspace_id) if project else None
+    if isinstance(value, models.Checkpoint):
+        run = db.get(models.TrainingRun, str(value.run_id))
+        return entity_workspace_id(db, run) if run else None
+    if isinstance(value, models.ModelVersion):
+        model = db.get(models.Model, str(value.model_id))
+        return entity_workspace_id(db, model) if model else None
+    if isinstance(value, models.EvalRun):
+        definition = db.get(models.EvalDefinition, str(value.definition_id))
+        return entity_workspace_id(db, definition) if definition else None
+    return None
+
+
+_RESOLVABLE_ENTITY_MODELS = {
+    "asset": models.Asset,
+    "checkpoint": models.Checkpoint,
+    "dataset": models.Dataset,
+    "dataset-version": models.DatasetVersion,
+    "eval-run": models.EvalRun,
+    "grid": models.GridDefinition,
+    "job": models.Job,
+    "model": models.Model,
+    "model-version": models.ModelVersion,
+    "project": models.Project,
+    "run": models.TrainingRun,
+    "training-launch": models.TrainingLaunch,
+}
+
+
+def resolve_entity_workspace(db: Session, entity_type: str, entity_id: str) -> models.Workspace:
+    model = _RESOLVABLE_ENTITY_MODELS.get(entity_type)
+    if model is None:
+        raise HTTPException(status_code=404, detail="entity type is not workspace-resolvable")
+    value = db.get(model, entity_id)
+    workspace_id = entity_workspace_id(db, value) if value is not None else None
+    workspace = db.get(models.Workspace, workspace_id) if workspace_id else None
+    if workspace is None:
+        raise HTTPException(status_code=404, detail=f"{entity_type} not found")
     return workspace
 
 

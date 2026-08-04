@@ -130,12 +130,13 @@ describe("active training surfaces", () => {
       return response({});
     }));
     installStorage();
+    location.hash = "#/w/workspace-1/project/project-1";
 
     render(<WorkbenchShell section="project" id="project-1" params={new URLSearchParams()}><main>Project</main></WorkbenchShell>);
 
     const link = await screen.findByRole("link", { name: "Portrait live, status running" });
-    expect(link).toHaveAttribute("href", "#/run/run-live?project=project-1");
+    expect(link).toHaveAttribute("href", "#/w/workspace-1/run/run-live?project=project-1");
     expect(link).toHaveTextContent("LIVE");
-    await waitFor(() => expect(screen.getByRole("link", { name: "Active training" })).toHaveAttribute("href", "#/runs?project=project-1"));
+    await waitFor(() => expect(screen.getByRole("link", { name: "Active training" })).toHaveAttribute("href", "#/w/workspace-1/runs?project=project-1"));
   });
 });

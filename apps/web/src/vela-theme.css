@@ -399,7 +399,11 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   .vela-sidebar[data-mobile-open="true"] .vela-mobile-close { display: grid; }
   .vela-sidebar[data-mobile-open="true"] .vela-desktop-rail-control { display: none; }
   .vela-topbar { height: 62px; padding: 0 12px; }
-  .vela-breadcrumbs, .vela-search { display: none; }
+  .vela-search { display: none; }
+  .vela-breadcrumbs { display: flex; min-width: 0; }
+  .vela-breadcrumbs > :not(.vela-workspace-label):not(.vela-workspace-switcher) { display: none; }
+  .vela-workspace-label { display: none; }
+  .vela-workspace-switcher { width: min(42vw, 180px); }
   .vela-create-wrap { margin-left: auto; }
   .vela-main { padding: 14px; }
   .vela-hero { grid-template-columns: 1fr; padding: 22px; }
@@ -1180,6 +1184,34 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
 .vela-workspace-switcher .vela-dropdown-button { min-height: 34px; padding: 6px 9px; border-color: transparent; background: transparent; color: var(--mf-ink-strong); font: 10px var(--vela-font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .vela-workspace-switcher .vela-dropdown-button:hover,
 .vela-workspace-switcher .vela-dropdown-button:focus-visible { border-color: var(--mf-border-strong); background: var(--mf-surface); }
+.vela-workspace-label {
+  display: inline-flex;
+  margin-right: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--mf-accent);
+  background: color-mix(in srgb, var(--mf-accent) 12%, var(--mf-surface));
+  color: var(--mf-accent);
+  font-weight: 700;
+}
+.vela-creating-scope {
+  padding: 8px var(--vela-space-5);
+  border-bottom: 1px solid var(--mf-border);
+  background: color-mix(in srgb, var(--mf-accent) 8%, var(--mf-surface));
+  color: var(--mf-ink-muted);
+  font: 11px var(--vela-font-mono);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.vela-creating-scope strong { color: var(--mf-ink-strong); }
+@media (max-width: 680px) {
+  .vela-workspace-label,
+  .vela-entity-breadcrumb { display: none; }
+  .vela-workspace-switcher {
+    flex: 0 0 min(42vw, 150px);
+    width: min(42vw, 150px);
+    min-width: 110px;
+  }
+}
 .vela-search,
 .vela-global-search .vela-search {
   min-height: 40px;

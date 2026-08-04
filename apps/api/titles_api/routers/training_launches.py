@@ -113,6 +113,10 @@ def create_launch(
     x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
 ):
     workspace = current_workspace(db)
+    get_or_404(db, models.DatasetVersion, body.dataset_version_id)
+    get_or_404(db, models.WandbIngestCredential, body.wandb_credential_id)
+    if body.source_id:
+        get_or_404(db, models.ImportSource, body.source_id)
     actor = active_profile(db, x_profile_id)
     configured_ingress = get_settings().wandb_ingress_base_url
     live_telemetry = _resolve_live_telemetry(body.live_telemetry, configured_ingress)

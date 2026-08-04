@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
 from ..database import get_db
-from ..services import active_profile, current_workspace, get_or_404, record_activity, workspace_object
+from ..services import active_profile, current_workspace, get_or_404, record_activity, resolve_entity_workspace, workspace_object
 from ..image_provenance import normalize_fal_image_metadata
 from ..asset_cache import AssetCache
 from ..integrations.config import CacheSettings
@@ -59,6 +59,17 @@ def create_workspace(body: schemas.WorkspaceCreate, db: DB, x_profile_id: Annota
 @router.get("/workspaces", response_model=list[schemas.WorkspaceOut])
 def workspaces(db: DB):
     return db.scalars(select(models.Workspace).order_by(models.Workspace.created_at, models.Workspace.id)).all()
+
+@router.get("/workspace-resolutions/{entity_type}/{entity_id}")
+def workspace_resolution(entity_type: str, entity_id: str, db: DB):
+    """Resolve an unscoped legacy entity link to its canonical workspace."""
+    workspace = resolve_entity_workspace(db, entity_type, entity_id)
+    return {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "workspace_id": workspace.id,
+        "workspace_name": workspace.name,
+    }
 
 
 @router.patch("/workspaces/{workspace_id}", response_model=schemas.WorkspaceOut)

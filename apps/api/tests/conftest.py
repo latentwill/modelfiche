@@ -1,8 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from titles_api import app as app_module
+from titles_api import app as app_module, models
 from titles_api.database import Base, get_db
 from titles_api.settings import get_settings
 from titles_api.security_middleware import LocalLaunchContract
@@ -73,6 +74,17 @@ def client(tmp_path, monkeypatch):
     )
     application = app_module.create_app(launch_contract)
     application.dependency_overrides[get_db] = override_db
-    with TestClient(application, headers={"host": "testserver", "origin": "http://testserver"}) as test_client:
+    with TestingSession() as db:
+        workspace_id = db.scalar(
+            select(models.Workspace.id).order_by(models.Workspace.created_at)
+        )
+    with TestClient(
+        application,
+        headers={
+            "host": "testserver",
+            "origin": "http://testserver",
+            "x-workspace-id": str(workspace_id),
+        },
+    ) as test_client:
         yield test_client
     get_settings.cache_clear()

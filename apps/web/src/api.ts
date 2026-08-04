@@ -1,3 +1,5 @@
+import { routeWorkspaceId } from "./workspace-routing";
+
 export type Entity = Record<string, unknown> & { id: string };
 
 export class ApiError extends Error {
@@ -45,7 +47,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   headers.set("accept", "application/json");
   const profileId = localStorage.getItem("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
-  const workspaceId = activeWorkspaceId();
+  const workspaceId = routeWorkspaceId();
   if (workspaceId) headers.set("x-workspace-id", workspaceId);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const contentType = response.headers.get("content-type") ?? "";
@@ -59,11 +61,25 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   return body as T;
 }
 
+export async function apiUnscoped<T = unknown>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { accept: "application/json" },
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const text = await response.text();
+  const body = text ? (contentType.includes("json") ? JSON.parse(text) : text) : undefined;
+  if (!response.ok) {
+    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
+    throw new ApiError(detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`, response.status, body);
+  }
+  return body as T;
+}
+
 export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string }> {
   const headers = new Headers({ accept: "application/octet-stream" });
   const profileId = localStorage.getItem("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
-  const workspaceId = activeWorkspaceId();
+  const workspaceId = routeWorkspaceId();
   if (workspaceId) headers.set("x-workspace-id", workspaceId);
   const response = await fetch(`${API_BASE}${path}`, { headers });
   if (!response.ok) {
@@ -115,6 +131,6 @@ export function query(params: Record<string, unknown>) {
   const encoded = q.toString();
   return encoded ? `?${encoded}` : "";
 }
-export function routeQuery(params: Record<string, unknown>, workspaceId = activeWorkspaceId()) {
-  return query({ workspace: workspaceId, ...params });
+export function routeQuery(params: Record<string, unknown>, _workspaceId?: string) {
+  return query(params);
 }

@@ -33,7 +33,8 @@ describe("workspace navigation", () => {
       return response({});
     }));
 
-    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    vi.stubGlobal("localStorage", { getItem: () => "workspace-stale", setItem: vi.fn(), removeItem: vi.fn() });
+    location.hash = "#/w/workspace-1/models?project=project-1";
     render(<WorkbenchShell section="models" id="" params={new URLSearchParams("project=project-1")}><main>Screen</main></WorkbenchShell>);
     await waitFor(() => expect(screen.getByText("Project One")).toBeInTheDocument());
     expect(screen.queryByText("Other Workspace Project")).not.toBeInTheDocument();
@@ -42,15 +43,15 @@ describe("workspace navigation", () => {
     fireEvent.click(workspaceSwitcher);
     expect(screen.getByRole("option", { name: "Workspace One" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: "Personal" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("href", "#/project/project-1?workspace=workspace-1");
+    expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("href", "#/w/workspace-1/project/project-1");
     expect(screen.getByRole("link", { name: "Project One" })).toHaveAttribute("aria-current", "page");
     window.dispatchEvent(new CustomEvent("titles:project-updated", { detail: { ...projects[0], title: "Renamed Project" } }));
     await waitFor(() => expect(screen.getByRole("link", { name: "Renamed Project" })).toBeInTheDocument());
     expect(screen.queryByRole("link", { name: "Project One" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "#/models?workspace=workspace-1&project=project-1");
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "#/w/workspace-1/models?project=project-1");
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/settings?workspace=workspace-1");
-    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "#/docs?workspace=workspace-1");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#/w/workspace-1/settings");
+    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "#/w/workspace-1/docs");
     expect(screen.queryByRole("link", { name: "Setup" })).not.toBeInTheDocument();
     expect(screen.getByText(/Local cache/)).toBeInTheDocument();
 
@@ -60,9 +61,9 @@ describe("workspace navigation", () => {
     const createItems = screen.getAllByRole("menuitem").map(item => item.textContent);
     expect(createItems).not.toContain("Eval");
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
-    expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/import?workspace=workspace-1&source=s3&project=project-1");
-    expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/import?workspace=workspace-1&source=local&project=project-1");
-    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/transfers?workspace=workspace-1&mode=import");
+    expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/w/workspace-1/import?source=s3&project=project-1");
+    expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/w/workspace-1/import?source=local&project=project-1");
+    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/w/workspace-1/transfers?mode=import");
     expect(screen.queryByRole("menuitem", { name: "Import" })).not.toBeInTheDocument();
   });
   it("links sidebar overflow to the complete model and grid catalogs", async () => {
@@ -80,14 +81,15 @@ describe("workspace navigation", () => {
       return response({});
     }));
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    location.hash = "#/w/workspace-1/models?project=project-1";
 
     render(<WorkbenchShell section="models" id="" params={new URLSearchParams("project=project-1")}><main>Screen</main></WorkbenchShell>);
 
     const allModels = await screen.findByRole("link", { name: "View all 6 models" });
-    expect(allModels).toHaveAttribute("href", "#/models?workspace=workspace-1&project=project-1");
+    expect(allModels).toHaveAttribute("href", "#/w/workspace-1/models?project=project-1");
     expect(screen.queryByRole("link", { name: "Model 6" })).not.toBeInTheDocument();
     const allGrids = await screen.findByRole("link", { name: "View all 6 grids" });
-    expect(allGrids).toHaveAttribute("href", "#/grids?workspace=workspace-1&project=project-1");
+    expect(allGrids).toHaveAttribute("href", "#/w/workspace-1/grids?project=project-1");
     expect(screen.queryByRole("link", { name: "Grid 6" })).not.toBeInTheDocument();
   });
   it("links the transfer import shortcut to the S3 browser with project context", async () => {
@@ -123,13 +125,14 @@ describe("workspace navigation", () => {
     }));
 
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    location.hash = "#/w/workspace-1/dashboard";
     render(<WorkbenchShell section="dashboard" id="" params={new URLSearchParams()}><main>Screen</main></WorkbenchShell>);
     await waitFor(() => expect(screen.getByRole("link", { name: "Eval run 42" })).toBeInTheDocument());
     const evalLink = screen.getByRole("link", { name: "Eval run 42" });
-    expect(evalLink).toHaveAttribute("href", "#/eval/eval-42");
+    expect(evalLink).toHaveAttribute("href", "#/w/workspace-1/eval/eval-42");
     expect(evalLink).not.toContainElement(screen.getByTestId("asset-image-revision-eval-42"));
     const galleryLink = screen.getByRole("link", { name: "Open Eval run 42 in gallery" });
-    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("#/gallery?"));
+    expect(galleryLink).toHaveAttribute("href", expect.stringContaining("#/w/workspace-1/gallery?"));
     expect(galleryLink).toHaveAttribute("href", expect.stringContaining("eval=eval-42"));
     expect(galleryLink).toHaveAttribute("href", expect.stringContaining("asset=revision-eval-42"));
     expect(galleryLink).toContainElement(screen.getByTestId("asset-image-revision-eval-42"));

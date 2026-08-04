@@ -27,12 +27,13 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { activeWorkspaceId, api, idOf, jsonBody, listOf, query, routeQuery, setActiveWorkspaceId, str } from "./api";
+import { api, idOf, jsonBody, listOf, query, routeQuery, setActiveWorkspaceId, str } from "./api";
 import { ActiveTrainingNavigation } from "./active-training";
 import { activityDisplayText, activityLabel, activityObjectHref, previewAssetId } from "./activity";
 import { galleryOpenHref } from "./gallery-routing";
 import { AssetImage } from "./asset-image";
-import { useResource } from "./hooks";
+import { useCanonicalWorkspaceLinks, useResource } from "./hooks";
+import { canonicalWorkspaceHref, parseWorkspaceHash, routeWorkspaceId, workspaceHref } from "./workspace-routing";
 import { CopyMetadataButton, Dropdown, Notice, ProfileSelect, Status, useDragTextSelection, useFocusWorkspace } from "./ui";
 
 type Row = Record<string, unknown>;
@@ -118,23 +119,20 @@ export function WorkbenchShell({ section, id, params, children, theme: controlle
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const navOpenerRef = useRef<HTMLButtonElement>(null);
   const inspectorOpenerRef = useRef<HTMLButtonElement>(null);
-  const [, setWorkspaceSyncTick] = useState(0);
   const projects = useResource<unknown>("/api/projects?limit=100");
   const workspaces = useResource<unknown>("/api/workspaces");
   const availableWorkspaces = rows(workspaces.data);
-  const selectedWorkspaceId = activeWorkspaceId();
-  const workspace = availableWorkspaces.find(item => idOf(item) === selectedWorkspaceId) ?? availableWorkspaces[0] ?? null;
-  const workspaceId = str(workspace?.id, "");
-  const scopedProjects = workspaceId ? rows(projects.data).filter(project => !project.workspace_id || str(project.workspace_id) === workspaceId) : rows(projects.data);
+  const selectedWorkspaceId = routeWorkspaceId();
+  const workspace = availableWorkspaces.find(item => idOf(item) === selectedWorkspaceId) ?? null;
+  const workspaceId = selectedWorkspaceId;
+  useCanonicalWorkspaceLinks(workspaceId);
+  const scopedProjects = workspaceId ? rows(projects.data).filter(project => !project.workspace_id || str(project.workspace_id) === workspaceId) : [];
   const projectId = projectForRoute(section, id, params);
   const closeNavigation = () => { setMobileNavOpen(false); navOpenerRef.current?.focus(); };
   const closeInspector = () => { setMobileInspectorOpen(false); inspectorOpenerRef.current?.focus(); };
   useEffect(() => {
-    if (workspaceId && workspaceId !== selectedWorkspaceId) {
-      setActiveWorkspaceId(workspaceId);
-      setWorkspaceSyncTick(value => value + 1);
-    }
-  }, [selectedWorkspaceId, workspaceId]);
+    if (workspaceId) setActiveWorkspaceId(workspaceId);
+  }, [workspaceId]);
   useEffect(() => { setMobileNavOpen(false); setMobileInspectorOpen(false); }, [section, id]);
   useEffect(() => {
     const update = (event: Event) => {
@@ -160,11 +158,24 @@ export function WorkbenchShell({ section, id, params, children, theme: controlle
     <div className="vela-workspace">
       <Topbar section={section} id={id} projectId={projectId} workspaces={availableWorkspaces} workspaceId={workspaceId} theme={theme} onToggleTheme={toggleTheme} navOpenerRef={navOpenerRef} inspectorOpenerRef={inspectorOpenerRef} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
       <a className="vela-skip-link" href="#vela-route-heading">Skip to main content</a>
-      <div className="vela-route-stage" id="vela-route-main" role="main" tabIndex={-1}>{children}</div>
+      <div className="vela-route-stage" id="vela-route-main" role="main" tabIndex={-1}>
+        {isCreateRoute(section, params) && <div className="vela-creating-scope" role="status">Creating in: <strong>{str(workspace?.name, "Unknown workspace")}</strong></div>}
+        {children}
+      </div>
     </div>
     <ContextInspector section={section} id={id} projectId={projectId} collapsed={rightCollapsed} mobileOpen={mobileInspectorOpen} restoreFocusRef={inspectorOpenerRef} onMobileClose={closeInspector} onCollapse={() => setRightCollapsed(!rightCollapsed)} />
     {(mobileNavOpen || mobileInspectorOpen) && <button className="vela-drawer-scrim" aria-label="Close open panel" onClick={() => { closeNavigation(); closeInspector(); }} />}
   </div>;
+}
+
+function isCreateRoute(section: string, params: URLSearchParams): boolean {
+  return (
+    section === "training-new"
+    || section === "generate"
+    || section === "import"
+    || (section === "transfers" && params.get("mode") === "import")
+    || (section === "dashboard" && params.get("create") === "project")
+  );
 }
 function Topbar({ section, id, projectId, workspaces, workspaceId, theme, onToggleTheme, navOpenerRef, inspectorOpenerRef, onOpenNavigation, onOpenInspector }: { section: string; id: string; projectId: string; workspaces: Row[]; workspaceId: string; theme: ThemeMode; onToggleTheme: () => void; navOpenerRef: RefObject<HTMLButtonElement | null>; inspectorOpenerRef: RefObject<HTMLButtonElement | null>; onOpenNavigation: () => void; onOpenInspector: () => void }) {
   const [createOpen, setCreateOpen] = useState(false);
@@ -175,23 +186,32 @@ function Topbar({ section, id, projectId, workspaces, workspaceId, theme, onTogg
   const projectName = section === "project" ? str(entity.data?.title ?? entity.data?.name, "") : str(project.data?.title ?? project.data?.name, "");
   const entityName = section !== "project" ? str(entity.data?.title ?? entity.data?.name, "") : "";
   const fallback = !projectName && !entityName ? routeLabel(section) : "";
-  const s3ImportHref = `#/import${routeQuery({ source: "s3", project: projectId }, workspaceId)}`;
-  const localImportHref = `#/import${routeQuery({ source: "local", project: projectId }, workspaceId)}`;
+  useEffect(() => {
+    const parts = [entityName || projectName || fallback, workspace, "Modelfiche"].filter(Boolean);
+    document.title = parts.join(" - ");
+  }, [entityName, fallback, projectName, workspace]);
+  const s3ImportHref = workspaceHref("import", { source: "s3", project: projectId }, workspaceId);
+  const localImportHref = workspaceHref("import", { source: "local", project: projectId }, workspaceId);
   return <header className="vela-topbar">
     <button ref={navOpenerRef} className="vela-icon-button vela-responsive-nav" type="button" aria-label="Open navigation" aria-controls="vela-navigation" aria-expanded={false} onClick={onOpenNavigation}><Menu size={18} /></button>
-    <div className="vela-breadcrumbs"><div className="vela-workspace-switcher"><Dropdown aria-label="Workspace" value={workspaceId} options={workspaces.map(item => ({ value: idOf(item), label: str(item.name, "Workspace") }))} onChange={value => { if (!value || value === workspaceId) return; setActiveWorkspaceId(value); window.location.hash = `#/dashboard${routeQuery({}, value)}`; window.location.reload(); }} /></div>{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}</div>
+    <div className="vela-breadcrumbs"><span className="vela-workspace-label">Workspace:</span><div className="vela-workspace-switcher"><Dropdown aria-label="Workspace" value={workspaceId} options={workspaces.map(item => ({ value: idOf(item), label: str(item.name, "Workspace") }))} onChange={value => {
+      if (!value || value === workspaceId) return;
+      if (hasDirtyForm() && !window.confirm("Discard this form and switch workspaces?")) return;
+      setActiveWorkspaceId(value);
+      window.location.hash = workspaceHref("dashboard", {}, value);
+    }} /></div><span className="vela-entity-breadcrumb">{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}</span></div>
     <GlobalSearch />
     <div className="vela-create-wrap" onKeyDown={event => { if (event.key === "Escape") setCreateOpen(false); }}>
       <button className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} aria-hidden="true" /></button>
       {createOpen && <div className="vela-create-menu" role="menu">
-        <CreateLink href={`#/dashboard${routeQuery({ create: "project" }, workspaceId)}`} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Project</CreateLink>
-        <CreateLink href={`#/generate${routeQuery({ workflow: "image" }, workspaceId)}`} icon={<ImagePlus size={15} />} onSelect={() => setCreateOpen(false)}>Image</CreateLink>
-        <CreateLink href={`#/transfers${routeQuery({ mode: "import", type: "dataset" }, workspaceId)}`} icon={<Images size={15} />} onSelect={() => setCreateOpen(false)}>Dataset</CreateLink>
-        <CreateLink href={`#/models${routeQuery({}, workspaceId)}`} icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
-        <CreateLink href={`#/grids${routeQuery({}, workspaceId)}`} icon={<LayoutDashboard size={15} />} onSelect={() => setCreateOpen(false)}>Grid</CreateLink>
+        <CreateLink href={workspaceHref("dashboard", { create: "project" }, workspaceId)} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Project</CreateLink>
+        <CreateLink href={workspaceHref("generate", { workflow: "image" }, workspaceId)} icon={<ImagePlus size={15} />} onSelect={() => setCreateOpen(false)}>Image</CreateLink>
+        <CreateLink href={workspaceHref("transfers", { mode: "import", type: "dataset" }, workspaceId)} icon={<Images size={15} />} onSelect={() => setCreateOpen(false)}>Dataset</CreateLink>
+        <CreateLink href={workspaceHref("models", {}, workspaceId)} icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
+        <CreateLink href={workspaceHref("grids", {}, workspaceId)} icon={<LayoutDashboard size={15} />} onSelect={() => setCreateOpen(false)}>Grid</CreateLink>
         <CreateLink href={s3ImportHref} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>S3 import</CreateLink>
         <CreateLink href={localImportHref} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Local folder import</CreateLink>
-        <CreateLink href={`#/transfers${routeQuery({ mode: "import" }, workspaceId)}`} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Queue import (Transfers)</CreateLink>
+        <CreateLink href={workspaceHref("transfers", { mode: "import" }, workspaceId)} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Queue import (Transfers)</CreateLink>
       </div>}
     </div>
     <ProfileSelect compact workspaceName={workspace} />
@@ -202,6 +222,18 @@ function Topbar({ section, id, projectId, workspaces, workspaceId, theme, onTogg
 
 function CreateLink({ href, icon, onSelect, children }: { href: string; icon: ReactNode; onSelect: () => void; children: ReactNode }) {
   return <a role="menuitem" href={href} onClick={onSelect}>{icon}<span>{children}</span></a>;
+}
+
+function hasDirtyForm(): boolean {
+  return Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("form input, form textarea, form select")).some(field => {
+    if (field instanceof HTMLInputElement && (field.type === "checkbox" || field.type === "radio")) {
+      return field.checked !== field.defaultChecked;
+    }
+    if (field instanceof HTMLSelectElement) {
+      return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
+    }
+    return field.value !== field.defaultValue;
+  });
 }
 
 function GlobalSearch() {
@@ -288,10 +320,11 @@ function NavBranch({ label, href, items, itemRoute, projectId, workspaceId, sect
   return <div className="vela-tree-group"><a className="vela-nav-group" href={href} aria-current={groupActive ? "page" : undefined}>{label}</a>{items.slice(0, 5).map(item => { const itemId = idOf(item); const active = activeProjectId === projectId && section === itemRoute && activeId === itemId; return <a className="vela-nav-item" key={itemId} href={`#/${itemRoute}/${itemId}${routeQuery({ project: projectId }, workspaceId)}`} aria-current={active ? "page" : undefined}><span className="vela-nav-text">{str(item.name ?? item.title, "Untitled")}</span></a>; })}{items.length > 5 && <a className="vela-nav-item vela-nav-show-all" href={href}><span className="vela-nav-text">View all {items.length} {label.toLowerCase()}</span></a>}</div>;
 }
 function activityPreviewHref(item: Row, previewId: string, objectHref: string | null, projectId: string) {
-  const [objectPath, rawQuery = ""] = (objectHref ?? "").split("?", 2);
+  const parsedObject = parseWorkspaceHash(objectHref ?? "");
+  const [objectPath, rawQuery = ""] = parsedObject.route.split("?", 2);
   const params = new URLSearchParams(rawQuery);
   const details = item.details && typeof item.details === "object" ? item.details as Row : {};
-  const evalPathId = objectPath.startsWith("#/eval/") ? decodeURIComponent(objectPath.slice("#/eval/".length)) : "";
+  const evalPathId = objectPath.startsWith("eval/") ? decodeURIComponent(objectPath.slice("eval/".length)) : "";
   const evalRunId = evalPathId || str(item.eval_run_id ?? details.eval_run_id, params.get("eval") ?? "");
   const sourceProjectId = str(item.project_id, projectId || params.get("project") || "");
   return galleryOpenHref({
@@ -347,10 +380,8 @@ function contextualActivityHref(value: unknown, projectId: string) {
   const [path, rawQuery = ""] = href.split("?", 2);
   const params = new URLSearchParams(rawQuery);
   if (projectId && !params.has("project") && !path.startsWith("#/project/")) params.set("project", projectId);
-  const workspaceId = activeWorkspaceId();
-  if (workspaceId && !params.has("workspace")) params.set("workspace", workspaceId);
   const queryString = params.toString();
-  return `${path}${queryString ? `?${queryString}` : ""}`;
+  return canonicalWorkspaceHref(`${path}${queryString ? `?${queryString}` : ""}`, routeWorkspaceId());
 }
 function NotesPanel({ subjectType, subjectId }: { subjectType: string; subjectId: string }) {
   const resource = useResource<unknown>(`/api/notes${query({ subject_type: subjectType, subject_id: subjectId })}`);

@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
-import { activeWorkspaceId, api, ApiError, establishRemoteSession, routeQuery, setActiveWorkspaceId } from "./api";
-import { useHashRoute } from "./hooks";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { activeWorkspaceId, api, apiUnscoped, ApiError, establishRemoteSession, routeQuery, setActiveWorkspaceId } from "./api";
+import { useCanonicalWorkspaceLinks, useHashRoute } from "./hooks";
+import { canonicalWorkspaceHref, legacyEntityReference, parseWorkspaceHash } from "./workspace-routing";
 import { WorkbenchShell, useThemeController } from "./shell";
 import { Field, Form, Panel } from "./ui";
 
@@ -33,6 +34,7 @@ const TrainingLaunchScreen = lazy(() => import("./training").then(module => ({ d
 const ReadinessScreen = lazy(() => import("./readiness").then(module => ({ default: module.ReadinessScreen })));
 const DocsScreen = lazy(() => import("./docs-screen").then(module => ({ default: module.DocsScreen })));
 type AccessState = "checking" | "locked" | "ready" | "error";
+type RouteGate = "ready" | "resolving" | "error";
 
 
 function RemoteAccessPrompt({ error, onAuthenticated }: { error?: string; onAuthenticated: () => void }) {
@@ -77,18 +79,50 @@ export function App() {
     return () => { active = false; };
   }, []);
   const rawRoute = useHashRoute();
+  const parsedRoute = parseWorkspaceHash(window.location.hash);
+  const [routeGate, setRouteGate] = useState<RouteGate>(parsedRoute.legacy ? "resolving" : "ready");
+  const [routeError, setRouteError] = useState("");
+  useCanonicalWorkspaceLinks(parsedRoute.workspaceId);
+  useEffect(() => {
+    if (accessState !== "ready" || !parsedRoute.legacy) {
+      setRouteGate("ready");
+      return;
+    }
+    let active = true;
+    setRouteGate("resolving");
+    const resolveWorkspace = async () => {
+      const reference = legacyEntityReference(parsedRoute.route);
+      if (reference) {
+        const resolution = await apiUnscoped<{ workspace_id: string }>(
+          `/api/workspace-resolutions/${encodeURIComponent(reference.entityType)}/${encodeURIComponent(reference.entityId)}`,
+        );
+        return resolution.workspace_id;
+      }
+      const workspaces = await apiUnscoped<Array<{ id: string }>>("/api/workspaces");
+      const preferred = activeWorkspaceId();
+      return workspaces.find(workspace => workspace.id === preferred)?.id ?? workspaces[0]?.id ?? "";
+    };
+    void resolveWorkspace().then(workspaceId => {
+      if (!active) return;
+      if (!workspaceId) throw new Error("No workspace is available");
+      setActiveWorkspaceId(workspaceId);
+      const canonical = canonicalWorkspaceHref(`#/${parsedRoute.route}`, workspaceId);
+      history.replaceState(history.state, "", canonical);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      setRouteGate("ready");
+    }).catch(reason => {
+      if (!active) return;
+      setRouteError(reason instanceof Error ? reason.message : String(reason));
+      setRouteGate("error");
+    });
+    return () => { active = false; };
+  }, [accessState, rawRoute, parsedRoute.legacy, parsedRoute.route]);
   const [path, rawQuery = ""] = rawRoute.split("?");
   const parts = path.split("/").filter(Boolean);
   const section = parts[0] || "dashboard";
   const id = parts[1] || "";
   const params = new URLSearchParams(rawQuery);
   const routedSection = section === "evals" ? "grids" : section;
-  const routeWorkspaceId = params.get("workspace") ?? "";
-  const [resolvedRouteWorkspaceId, setResolvedRouteWorkspaceId] = useState(() => activeWorkspaceId());
-  useLayoutEffect(() => {
-    if (routeWorkspaceId && activeWorkspaceId() !== routeWorkspaceId) setActiveWorkspaceId(routeWorkspaceId);
-    setResolvedRouteWorkspaceId(routeWorkspaceId || activeWorkspaceId());
-  }, [routeWorkspaceId]);
   const { theme, toggleTheme } = useThemeController();
   if (accessState === "checking") {
     return <div className="vela-theme"><main className="vela-main" aria-busy="true">Checking access…</main></div>;
@@ -96,8 +130,11 @@ export function App() {
   if (accessState !== "ready") {
     return <RemoteAccessPrompt error={accessState === "error" ? accessError : undefined} onAuthenticated={() => setAccessState("ready")} />;
   }
-  if (routeWorkspaceId && resolvedRouteWorkspaceId !== routeWorkspaceId) {
-    return <div className="vela-theme"><main className="vela-main" aria-busy="true">Selecting workspace…</main></div>;
+  if (routeGate === "resolving") {
+    return <div className="vela-theme"><main className="vela-main" aria-busy="true">Resolving workspace…</main></div>;
+  }
+  if (routeGate === "error") {
+    return <div className="vela-theme"><main className="vela-main"><Panel title="Workspace unavailable"><div className="vela-notice vela-notice-error" role="alert">{routeError}</div></Panel></main></div>;
   }
   let content;
   if (routedSection === "image") {

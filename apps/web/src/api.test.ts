@@ -15,15 +15,16 @@ describe("api", () => {
 
     await expect(api("/api/import-sources/source-1", { method: "DELETE" })).resolves.toBeUndefined();
   });
-  it("sends the selected workspace with every request", async () => {
-    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => key === "titles.activeWorkspaceId" ? "workspace-personal" : null) });
+  it("derives request workspace from the route instead of stale storage", async () => {
+    location.hash = "#/w/workspace-route/projects";
+    vi.stubGlobal("localStorage", { getItem: vi.fn((key: string) => key === "titles.activeWorkspaceId" ? "workspace-stale" : null) });
     const fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetch);
 
     await api("/api/projects");
 
     const headers = new Headers(fetch.mock.calls[0][1].headers);
-    expect(headers.get("x-workspace-id")).toBe("workspace-personal");
+    expect(headers.get("x-workspace-id")).toBe("workspace-route");
   });
   it("exchanges remote credentials for an HTTP-only session", async () => {
     vi.stubGlobal("localStorage", { getItem: vi.fn().mockReturnValue(null) });
