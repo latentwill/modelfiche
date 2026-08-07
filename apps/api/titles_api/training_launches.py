@@ -35,13 +35,13 @@ class LaunchRequest:
     workspace_id: str
     profile_id: str | None
     dataset_version_id: str
-    credential_id: str
     source_id: str
     client_request_id: str
     name: str
     trainer: str
     base_model: str
     output_directory: str
+    training_config: dict[str, Any] | None
     checkpoint_policy: dict[str, Any]
     backup_policy: dict[str, Any]
     supported_endpoint_ids: list[str]
@@ -354,6 +354,86 @@ def launch_preflight(
     }
 
 
+def _kef_krea2_command(manifest: dict[str, Any]) -> list[str]:
+    training = manifest.get("training")
+    config = training.get("configuration") if isinstance(training, dict) else None
+    if not isinstance(config, dict):
+        raise LaunchError("kef-krea2 launch is missing its training configuration")
+    run = manifest["run"]
+    argv = [
+        "kef-krea2-train",
+        "training-dataset",
+        str(training["output_directory"]),
+        "--name",
+        str(run["name"]),
+        "--model-id",
+        str(run["base_model"]),
+        "--steps",
+        str(config["steps"]),
+        "--tokens",
+        str(config["num_tokens"]),
+        "--learning-rate",
+        str(config["learning_rate"]),
+        "--batch-size",
+        str(config["batch_size"]),
+        "--gradient-accumulation",
+        str(config["gradient_accumulation"]),
+        "--resolution",
+        str(config["resolution"]),
+        "--max-sequence-length",
+        str(config["max_sequence_length"]),
+        "--seed",
+        str(config["seed"]),
+        "--checkpoint-interval",
+        str(config["checkpoint_interval"]),
+        "--log-interval",
+        str(config["log_interval"]),
+        "--sample-steps",
+        str(config["sample_steps"]),
+        "--sample-resolution",
+        str(config["sample_resolution"]),
+        "--dtype",
+        str(config["dtype"]),
+        "--caption-extension",
+        str(config["caption_extension"]),
+        "--caption-mode",
+        str(config["caption_mode"]),
+        "--timestep-distribution",
+        str(config["timestep_distribution"]),
+        "--timestep-mu",
+        str(config["timestep_mu"]),
+        "--timestep-sigma",
+        str(config["timestep_sigma"]),
+        "--base-image-seq-len",
+        str(config["base_image_seq_len"]),
+        "--max-image-seq-len",
+        str(config["max_image_seq_len"]),
+        "--base-shift",
+        str(config["base_shift"]),
+        "--max-shift",
+        str(config["max_shift"]),
+        "--transformer-storage-dtype",
+        str(config["transformer_storage_dtype"]),
+    ]
+    if config.get("sample_interval") is not None:
+        argv.extend(["--sample-interval", str(config["sample_interval"])])
+    if config.get("model_revision"):
+        argv.extend(["--model-revision", str(config["model_revision"])])
+    if not config["gradient_checkpointing"]:
+        argv.append("--no-gradient-checkpointing")
+    if config["low_vram"]:
+        argv.append("--low-vram")
+    if not config["compile_transformer"]:
+        argv.append("--no-compile-transformer")
+    if not config["preload_cache"]:
+        argv.append("--no-preload-cache")
+    if not config["resolution_shift"]:
+        argv.append("--no-resolution-shift")
+    if config["rebuild_cache"]:
+        argv.append("--rebuild-cache")
+    return argv
+
+
 def _trainer_configuration(manifest: dict[str, Any]) -> dict[str, object]:
     telemetry = manifest["telemetry"]
     live_telemetry = bool(telemetry.get("live_enabled"))
@@ -385,6 +465,11 @@ def _trainer_configuration(manifest: dict[str, Any]) -> dict[str, object]:
     if trainer == "kef-krea2":
         return {
             "id": trainer,
+            "configuration": manifest["training"]["configuration"],
+            "command": {
+                "argv": _kef_krea2_command(manifest),
+                "working_directory": ".",
+            },
             "telemetry": {
                 "enabled": live_telemetry,
                 "provider": "modelfiche-wandb-shim",
@@ -537,13 +622,16 @@ def create_training_launch(
     if version.status != "published":
         raise LaunchError("training launches require a published dataset version")
 
-    credential = session.get(models.WandbIngestCredential, request.credential_id)
-    if credential is None or credential.workspace_id != request.workspace_id:
-        raise LaunchError("W&B credential was not found")
-    if credential.state != "active":
-        raise LaunchError("W&B credential is not active")
-    if credential.project_id is not None and credential.project_id != project.id:
-        raise LaunchError("W&B credential is not scoped to this project")
+    credential = session.scalar(
+        select(models.WandbIngestCredential)
+        .where(models.WandbIngestCredential.state == "active")
+        .order_by(
+            models.WandbIngestCredential.created_at,
+            models.WandbIngestCredential.id,
+        )
+    )
+    if credential is None:
+        raise LaunchError("W&B signing key is not authenticated")
 
     source = session.get(models.ImportSource, request.source_id)
     if source is None or source.workspace_id != request.workspace_id:
@@ -590,6 +678,7 @@ def create_training_launch(
             "output_directory": request.output_directory,
             "checkpoint_policy": request.checkpoint_policy,
             "backup_policy": request.backup_policy,
+            "training": request.training_config,
         },
         wandb_run_id=_allocate_wandb_run_id(session),
         wandb_project=_project_slug(project.title, project.id),
@@ -693,6 +782,10 @@ def create_training_launch(
             "dataset_version_id": version.id,
             "trainer": run.trainer,
             "base_model": run.base_model,
+        },
+        "training": {
+            "configuration": request.training_config,
+            "output_directory": request.output_directory,
         },
         "dataset": {
             "export_id": export_job.id,

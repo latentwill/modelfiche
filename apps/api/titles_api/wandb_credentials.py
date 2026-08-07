@@ -21,10 +21,8 @@ class CredentialError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class CredentialRegistration:
-    workspace_id: str
     alias: str
     public_key: str
-    project_id: str | None = None
 
 
 def canonical_public_key(value: str) -> tuple[str, str]:
@@ -47,29 +45,31 @@ def register_credential(session: Session, registration: CredentialRegistration) 
     alias = registration.alias.strip()
     if not _ALIAS.fullmatch(alias):
         raise CredentialError("alias must start with a letter or digit and contain only letters, digits, '.', '_', or '-'")
-    if registration.project_id is not None:
-        project = session.get(models.Project, registration.project_id)
-        if project is None or project.workspace_id != registration.workspace_id:
-            raise CredentialError("project does not belong to the credential workspace")
-    existing = session.scalar(
-        select(models.WandbIngestCredential).where(
-            models.WandbIngestCredential.workspace_id == registration.workspace_id,
-            models.WandbIngestCredential.alias == alias,
+    public_key, key_id = canonical_public_key(registration.public_key)
+    credential = session.scalar(
+        select(models.WandbIngestCredential).order_by(
+            models.WandbIngestCredential.created_at,
+            models.WandbIngestCredential.id,
         )
     )
-    if existing is not None:
-        raise CredentialError("credential alias already exists in this workspace")
-    public_key, key_id = canonical_public_key(registration.public_key)
-    credential = models.WandbIngestCredential(
-        workspace_id=registration.workspace_id,
-        project_id=registration.project_id,
-        alias=alias,
-        algorithm="ed25519",
-        key_id=key_id,
-        public_key=public_key,
-        state="active",
-    )
-    session.add(credential)
+    if credential is None:
+        credential = models.WandbIngestCredential(
+            alias=alias,
+            algorithm="ed25519",
+            key_id=key_id,
+            public_key=public_key,
+            state="active",
+        )
+        session.add(credential)
+    else:
+        key_changed = credential.public_key != public_key
+        credential.alias = alias
+        credential.public_key = public_key
+        credential.key_id = key_id
+        credential.state = "active"
+        credential.revoked_at = None
+        if key_changed:
+            credential.rotated_at = models.utcnow()
     session.flush()
     return credential
 
@@ -79,15 +79,14 @@ def rotate_credential(
     credential: models.WandbIngestCredential,
     public_key_value: str,
 ) -> models.WandbIngestCredential:
-    if credential.state == "revoked":
-        raise CredentialError("revoked credentials cannot be rotated")
     public_key, key_id = canonical_public_key(public_key_value)
-    if public_key == credential.public_key:
-        raise CredentialError("replacement public key must differ from the active key")
+    key_changed = public_key != credential.public_key
     credential.public_key = public_key
     credential.key_id = key_id
-    credential.rotated_at = models.utcnow()
     credential.state = "active"
+    credential.revoked_at = None
+    if key_changed:
+        credential.rotated_at = models.utcnow()
     session.flush()
     return credential
 
@@ -103,8 +102,7 @@ def revoke_credential(session: Session, credential: models.WandbIngestCredential
 def credential_projection(credential: models.WandbIngestCredential) -> dict[str, object]:
     return {
         "id": credential.id,
-        "workspace_id": credential.workspace_id,
-        "project_id": credential.project_id,
+        "scope": "global",
         "alias": credential.alias,
         "algorithm": credential.algorithm,
         "key_id": credential.key_id,

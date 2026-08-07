@@ -82,8 +82,6 @@ def _graph(factory: sessionmaker[Session], *, manifest_digest: str | None = None
             managed_prefix="projects/",
         )
         credential = models.WandbIngestCredential(
-            workspace_id=workspace.id,
-            project_id=project.id,
             alias="logger",
             key_id="key-id",
             public_key="a" * 64,

@@ -115,7 +115,7 @@ def test_frozen_migration_chain_creates_authoritative_storage_tables(tmp_path: P
     _upgrade_to_head(database_path)
 
     with _connection(database_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0025_workspace_slugs",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0026_global_wandb_signing_key",)
 
 
 def test_0012_backfills_training_sample_asset_project_and_category(tmp_path: Path) -> None:

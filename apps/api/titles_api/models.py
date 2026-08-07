@@ -295,12 +295,7 @@ class CaptionOperation(UUIDMixin, TimestampMixin, Base):
 
 class WandbIngestCredential(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "wandb_ingest_credentials"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "alias", name="uq_wandb_credential_workspace_alias"),
-    )
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
-    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    alias: Mapped[str] = mapped_column(String(120))
+    alias: Mapped[str] = mapped_column(String(120), unique=True)
     algorithm: Mapped[str] = mapped_column(String(32), default="ed25519")
     key_id: Mapped[str] = mapped_column(String(64), index=True)
     public_key: Mapped[str] = mapped_column(String(128))

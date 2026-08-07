@@ -55,8 +55,6 @@ def _upload(factory: sessionmaker[Session], staged: Path, payload: bytes, *, dig
             managed_prefix="projects/",
         )
         credential = models.WandbIngestCredential(
-            workspace_id=workspace.id,
-            project_id=project.id,
             alias="logger",
             key_id="key-id",
             public_key="a" * 64,
@@ -132,6 +130,69 @@ def test_reconciler_promotes_and_verifies_sample_upload(tmp_path: Path) -> None:
         event_types = set(session.scalars(select(models.RunEvent.type).where(models.RunEvent.run_id == upload.run_id)))
         assert {"run.upload.verified", "run.sample.ready"} <= event_types
 
+
+
+def test_reconciler_reuses_existing_source_location_for_sample(tmp_path: Path) -> None:
+    payload = b"sample-image"
+    staged = tmp_path / "staged"
+    staged.write_bytes(payload)
+    factory = _factory()
+    upload_id = _upload(factory, staged, payload)
+    with factory.begin() as session:
+        upload = session.get(models.RunUpload, upload_id)
+        assert upload is not None
+        launch = session.scalar(select(models.TrainingLaunch).where(models.TrainingLaunch.run_id == upload.run_id))
+        assert launch is not None
+        source = session.get(models.ImportSource, launch.source_id)
+        assert source is not None
+        imported_asset = models.Asset(
+            workspace_id=launch.workspace_id,
+            project_id=launch.project_id,
+            kind=models.AssetKind.image,
+            name="sample.png",
+            mime_type="image/png",
+            metadata_={"category": "sample"},
+        )
+        session.add(imported_asset)
+        session.flush()
+        session.add(
+            models.AssetLocation(
+                asset_id=imported_asset.id,
+                workspace_id=launch.workspace_id,
+                provider="s3",
+                uri=f"s3://{source.bucket}/{upload.object_key}",
+                bucket=source.bucket,
+                object_key=upload.object_key,
+                etag=hashlib.md5(payload).hexdigest(),  # noqa: S324
+                source_id=source.id,
+                source_revision_fingerprint="imported",
+                size=len(payload),
+                hydration_state="remote",
+            )
+        )
+        session.flush()
+        imported_asset_id = imported_asset.id
+
+    s3 = FakeS3()
+    completed = WandbUploadReconciler(factory, client_factory=lambda _source: s3).run_once()
+
+    assert completed == 1
+    with factory() as session:
+        upload = session.get(models.RunUpload, upload_id)
+        assert upload is not None
+        assert upload.asset_id == imported_asset_id
+        locations = list(
+            session.scalars(
+                select(models.AssetLocation).where(
+                    models.AssetLocation.object_key == upload.object_key
+                )
+            )
+        )
+        assert len(locations) == 1
+        assert locations[0].asset_id == imported_asset_id
+        location = session.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == imported_asset_id))
+        assert location is not None
+        assert location.verified_sha256 == hashlib.sha256(payload).hexdigest()
 
 def test_reconciler_rejects_digest_mismatch_without_creating_sample(tmp_path: Path) -> None:
     payload = b"tampered-image"

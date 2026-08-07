@@ -80,9 +80,34 @@ def _materialize_sample(
 ) -> None:
     if upload.kind != "image":
         return
-    old_asset_id = upload.asset_id
-    asset = session.get(models.Asset, old_asset_id) if old_asset_id else None
-    if asset is None or asset.sha256 != digest:
+    metadata = dict(upload.metadata_ or {})
+    location = session.scalar(
+        select(models.AssetLocation)
+        .where(
+            models.AssetLocation.provider == "s3",
+            models.AssetLocation.source_id == source.id,
+            models.AssetLocation.bucket == source.bucket,
+            models.AssetLocation.object_key == upload.object_key,
+        )
+        .order_by(models.AssetLocation.last_seen_at.desc(), models.AssetLocation.updated_at.desc())
+        .limit(1)
+    )
+    if location is None:
+        location = session.scalar(
+            select(models.AssetLocation)
+            .where(
+                models.AssetLocation.provider == "s3",
+                models.AssetLocation.bucket == source.bucket,
+                models.AssetLocation.object_key == upload.object_key,
+                models.AssetLocation.etag == upload.etag,
+            )
+            .order_by(models.AssetLocation.last_seen_at.desc(), models.AssetLocation.updated_at.desc())
+            .limit(1)
+        )
+    asset = location.asset if location is not None else None
+    if asset is None and upload.asset_id:
+        asset = session.get(models.Asset, upload.asset_id)
+    if asset is None:
         asset = models.Asset(
             workspace_id=launch.workspace_id,
             project_id=run.project_id,
@@ -99,14 +124,20 @@ def _materialize_sample(
         )
         session.add(asset)
         session.flush()
-        upload.asset_id = asset.id
-    location = session.scalar(
-        select(models.AssetLocation).where(
-            models.AssetLocation.asset_id == asset.id,
-            models.AssetLocation.source_id == source.id,
-            models.AssetLocation.object_key == upload.object_key,
-        )
-    )
+    else:
+        asset.workspace_id = launch.workspace_id
+        if asset.project_id is None:
+            asset.project_id = run.project_id
+        asset.sha256 = digest
+        if upload.mime_type:
+            asset.mime_type = upload.mime_type
+        asset.metadata_ = {
+            **dict(asset.metadata_ or {}),
+            "origin": "wandb",
+            "run_upload_id": upload.id,
+            "metric_name": upload.metric_name,
+        }
+    upload.asset_id = asset.id
     now = models.utcnow()
     if location is None:
         location = models.AssetLocation(
@@ -130,6 +161,13 @@ def _materialize_sample(
         session.add(location)
         session.flush()
     else:
+        location.asset_id = asset.id
+        location.workspace_id = launch.workspace_id
+        location.uri = f"s3://{source.bucket}/{upload.object_key}"
+        location.bucket = source.bucket
+        location.object_key = upload.object_key
+        location.source_id = source.id
+        location.source_revision_fingerprint = _fingerprint(source, upload, digest)
         location.etag = upload.etag
         location.version_id = upload.version_id
         location.size = size
@@ -138,9 +176,9 @@ def _materialize_sample(
         location.verification_state = "verified"
         location.last_verified_at = now
         location.last_seen_at = now
+        location.hydration_state = "remote"
     asset.preferred_location_id = location.id
     asset.origin_location_id = asset.origin_location_id or location.id
-    metadata = dict(upload.metadata_ or {})
     image_metadata = session.scalar(select(models.ImageMetadata).where(models.ImageMetadata.asset_id == asset.id))
     if image_metadata is None:
         image_metadata = models.ImageMetadata(

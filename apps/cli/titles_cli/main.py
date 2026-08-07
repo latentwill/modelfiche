@@ -538,58 +538,66 @@ def wandb_key_public(
     )
 
 
-wandb_credential_app = typer.Typer(no_args_is_help=True)
+wandb_credential_app = typer.Typer(
+    no_args_is_help=True, help="Manage the one global W&B signing key"
+)
 wandb_app.add_typer(wandb_credential_app, name="credential")
 wandb_app.add_typer(wandb_credential_app, name="credentials")
+
+
+def _global_wandb_credential(client: TitlesClient) -> dict[str, Any]:
+    credentials = client.get("/api/integrations/wandb/credentials")
+    if not isinstance(credentials, list) or not credentials:
+        raise ApiError(
+            "The global W&B signing key is not authenticated; run `mfiche training setup`",
+            status_code=4,
+            code="TRAINING_SIGNING_NOT_AUTHENTICATED",
+        )
+    return credentials[0]
 
 
 @wandb_credential_app.command("register")
 def wandb_credential_register(
     ctx: typer.Context,
-    alias: str = typer.Option(..., "--alias"),
     public_key: str = typer.Option(..., "--public-key"),
-    project: str | None = typer.Option(None, "--project-id", "--project"),
 ) -> None:
-    body = {"alias": alias, "public_key": public_key, "project_id": project}
+    """Register or reconcile the global W&B public key."""
+    body = {"alias": "modelfiche", "public_key": public_key}
     call(ctx, lambda client: client.post("/api/integrations/wandb/credentials", body))
 
 
 @wandb_credential_app.command("list")
-def wandb_credential_list(
-    ctx: typer.Context,
-    project: str | None = typer.Option(None, "--project-id", "--project"),
-) -> None:
-    call(
-        ctx,
-        lambda client: client.get(
-            "/api/integrations/wandb/credentials", project_id=project
-        ),
-    )
+def wandb_credential_list(ctx: typer.Context) -> None:
+    """Show the global W&B signing key."""
+    call(ctx, lambda client: client.get("/api/integrations/wandb/credentials"))
 
 
 @wandb_credential_app.command("rotate")
 def wandb_credential_rotate(
     ctx: typer.Context,
-    credential: str,
     public_key: str = typer.Option(..., "--public-key"),
 ) -> None:
-    call(
-        ctx,
-        lambda client: client.post(
-            f"/api/integrations/wandb/credentials/{credential}/rotate",
+    """Replace the global W&B public key."""
+    def rotate(client: TitlesClient) -> Any:
+        credential = _global_wandb_credential(client)
+        return client.post(
+            f"/api/integrations/wandb/credentials/{credential['id']}/rotate",
             {"public_key": public_key},
-        ),
-    )
+        )
+
+    call(ctx, rotate)
 
 
 @wandb_credential_app.command("revoke")
-def wandb_credential_revoke(ctx: typer.Context, credential: str) -> None:
-    call(
-        ctx,
-        lambda client: client.post(
-            f"/api/integrations/wandb/credentials/{credential}/revoke"
-        ),
-    )
+def wandb_credential_revoke(ctx: typer.Context) -> None:
+    """Revoke the global W&B public key."""
+    def revoke(client: TitlesClient) -> Any:
+        credential = _global_wandb_credential(client)
+        return client.post(
+            f"/api/integrations/wandb/credentials/{credential['id']}/revoke"
+        )
+
+    call(ctx, revoke)
 
 
 training_launch_app = typer.Typer(no_args_is_help=True)
@@ -601,7 +609,6 @@ def training_launch_payload(
     *,
     input_file: Path | None,
     dataset_version_id: str | None,
-    wandb_credential_id: str | None,
     source_id: str | None,
     client_request_id: str | None,
     name: str | None,
@@ -630,7 +637,6 @@ def training_launch_payload(
         )
     allowed = {
         "dataset_version_id",
-        "wandb_credential_id",
         "source_id",
         "client_request_id",
         "name",
@@ -646,7 +652,6 @@ def training_launch_payload(
 
     direct_values = {
         "dataset_version_id": dataset_version_id,
-        "wandb_credential_id": wandb_credential_id,
         "source_id": source_id,
         "client_request_id": client_request_id,
         "name": name,
@@ -689,7 +694,6 @@ def training_launch_payload(
 
     required = (
         "dataset_version_id",
-        "wandb_credential_id",
         "source_id",
         "client_request_id",
         "name",
@@ -707,7 +711,6 @@ def training_launch_create(
     ctx: typer.Context,
     input_file: Path | None = typer.Option(None, "--input", "--input-file", "--file"),
     dataset_version_id: str | None = typer.Option(None, "--dataset-version-id"),
-    wandb_credential_id: str | None = typer.Option(None, "--wandb-credential-id"),
     source_id: str | None = typer.Option(None, "--source-id"),
     client_request_id: str | None = typer.Option(None, "--client-request-id"),
     name: str | None = typer.Option(None, "--name"),
@@ -727,7 +730,6 @@ def training_launch_create(
     payload = training_launch_payload(
         input_file=input_file,
         dataset_version_id=dataset_version_id,
-        wandb_credential_id=wandb_credential_id,
         source_id=source_id,
         client_request_id=client_request_id,
         name=name,
@@ -936,13 +938,12 @@ def training_doctor(ctx: typer.Context) -> None:
 @training_app.command("setup")
 def training_setup(
     ctx: typer.Context,
-    alias: str = typer.Option("ai-toolkit", "--alias"),
     private_key_file: Path = typer.Option(
         Path.home() / ".config" / "modelfiche" / "ai-toolkit-signing.key",
         "--private-key-file",
     ),
 ) -> None:
-    """Create or reconcile the local signing identity without exposing its private key."""
+    """Create or reconcile the one global signing identity."""
     destination = private_key_file.expanduser()
     if destination.exists():
         private_key = read_private_key(destination)
@@ -957,27 +958,20 @@ def training_setup(
     client = runtime.client()
     try:
         credentials = client.get("/api/integrations/wandb/credentials")
-        matches = [item for item in credentials if item.get("alias") == alias]
-        if matches:
-            credential = matches[0]
+        if credentials:
+            credential = credentials[0]
             if credential.get("public_key") != public_key:
-                raise ApiError(
-                    f"Credential alias {alias!r} is registered to a different private key",
-                    status_code=4,
-                    code="TRAINING_SIGNING_KEY_MISMATCH",
+                credential = client.post(
+                    f"/api/integrations/wandb/credentials/{credential['id']}/rotate",
+                    {"public_key": public_key},
                 )
         else:
             credential = client.post(
                 "/api/integrations/wandb/credentials",
-                {"alias": alias, "public_key": public_key, "project_id": None},
+                {"alias": "modelfiche", "public_key": public_key},
             )
         profile_path = _save_training_profile(
-            {
-                "credential_alias": alias,
-                "credential_id": credential["id"],
-                "private_key_path": str(destination),
-                "key_id": credential["key_id"],
-            }
+            {"private_key_path": str(destination)}
         )
         readiness = client.get("/api/training-setup")
         emit(
@@ -985,7 +979,7 @@ def training_setup(
                 "configured": True,
                 "generated_private_key": generated,
                 "private_key_path": str(destination),
-                "credential_alias": alias,
+                "credential_alias": credential["alias"],
                 "credential_id": credential["id"],
                 "key_id": credential["key_id"],
                 "profile_path": str(profile_path),
@@ -1062,6 +1056,54 @@ def training_run_create(
     max_duration: int = typer.Option(
         86400, "--max-duration-seconds", min=300, max=2592000
     ),
+    steps: int = typer.Option(8000, "--steps", min=1),
+    tokens: int = typer.Option(5, "--tokens", min=1, max=128),
+    learning_rate: float = typer.Option(5e-4, "--learning-rate", "--lr", min=0),
+    batch_size: int = typer.Option(1, "--batch-size", min=1),
+    gradient_accumulation: int = typer.Option(
+        1, "--gradient-accumulation", min=1
+    ),
+    resolution: int = typer.Option(512, "--resolution", min=64, max=4096),
+    max_sequence_length: int = typer.Option(
+        512, "--max-sequence-length", min=1, max=4096
+    ),
+    seed: int = typer.Option(42, "--seed", min=0),
+    log_interval: int = typer.Option(10, "--log-interval", min=1),
+    sample_interval: int | None = typer.Option(None, "--sample-interval", min=1),
+    sample_steps: int = typer.Option(28, "--sample-steps", min=1),
+    sample_resolution: int = typer.Option(
+        512, "--sample-resolution", min=64, max=4096
+    ),
+    dtype: str = typer.Option("bf16", "--dtype"),
+    transformer_storage_dtype: str = typer.Option(
+        "fp8", "--transformer-storage-dtype"
+    ),
+    gradient_checkpointing: bool = typer.Option(
+        True, "--gradient-checkpointing/--no-gradient-checkpointing"
+    ),
+    low_vram: bool = typer.Option(False, "--low-vram/--no-low-vram"),
+    compile_transformer: bool = typer.Option(
+        True, "--compile-transformer/--no-compile-transformer"
+    ),
+    preload_cache: bool = typer.Option(
+        True, "--preload-cache/--no-preload-cache"
+    ),
+    timestep_distribution: str = typer.Option(
+        "shifted_logit_normal", "--timestep-distribution"
+    ),
+    timestep_mu: float = typer.Option(0.0, "--timestep-mu"),
+    timestep_sigma: float = typer.Option(1.0, "--timestep-sigma", min=0),
+    resolution_shift: bool = typer.Option(
+        True, "--resolution-shift/--no-resolution-shift"
+    ),
+    base_image_seq_len: int = typer.Option(256, "--base-image-seq-len", min=1),
+    max_image_seq_len: int = typer.Option(6400, "--max-image-seq-len", min=1),
+    base_shift: float = typer.Option(0.5, "--base-shift"),
+    max_shift: float = typer.Option(1.15, "--max-shift"),
+    caption_extension: str = typer.Option(".txt", "--caption-extension"),
+    caption_mode: str = typer.Option("paired", "--caption-mode"),
+    rebuild_cache: bool = typer.Option(False, "--rebuild-cache/--reuse-cache"),
+    model_revision: str | None = typer.Option(None, "--model-revision"),
 ) -> None:
     """Create a launch from human-readable inputs using verified setup defaults."""
     if trainer not in {"ai-toolkit", "kef-krea2"}:
@@ -1071,24 +1113,16 @@ def training_run_create(
     try:
         dataset_row, version_row = _resolve_dataset_version(client, dataset, version)
         setup = client.get("/api/training-setup")
-        profile = _load_training_profile()
-        credential_id = profile.get("credential_id")
-        credential = next(
-            (
-                item
-                for item in setup.get("credentials", [])
-                if item.get("id") == credential_id
-            ),
-            None,
-        )
-        if credential is None and len(setup.get("credentials", [])) == 1:
-            credential = setup["credentials"][0]
-        sources = [item for item in setup.get("sources", []) if item.get("verified")]
-        if credential is None:
+        sources = [
+            item
+            for item in setup.get("sources", [])
+            if item.get("available") or item.get("verified")
+        ]
+        if not setup.get("credentials"):
             raise ApiError(
-                "Run `mfiche training setup` first",
+                "The global W&B signing key is not authenticated; run `mfiche training setup`",
                 status_code=4,
-                code="TRAINING_SIGNING_NOT_CONFIGURED",
+                code="TRAINING_SIGNING_NOT_AUTHENTICATED",
             )
         if len(sources) != 1:
             raise ApiError(
@@ -1097,18 +1131,55 @@ def training_run_create(
                 code="TRAINING_STORAGE_NOT_RESOLVED",
                 details={"sources": sources},
             )
+        trainer_config = (
+            {
+                "steps": steps,
+                "num_tokens": tokens,
+                "learning_rate": learning_rate,
+                "batch_size": batch_size,
+                "gradient_accumulation": gradient_accumulation,
+                "resolution": resolution,
+                "max_sequence_length": max_sequence_length,
+                "seed": seed,
+                "checkpoint_interval": checkpoint_every,
+                "log_interval": log_interval,
+                "sample_interval": sample_interval,
+                "sample_steps": sample_steps,
+                "sample_resolution": sample_resolution,
+                "dtype": dtype,
+                "transformer_storage_dtype": transformer_storage_dtype,
+                "gradient_checkpointing": gradient_checkpointing,
+                "low_vram": low_vram,
+                "compile_transformer": compile_transformer,
+                "preload_cache": preload_cache,
+                "timestep_distribution": timestep_distribution,
+                "timestep_mu": timestep_mu,
+                "timestep_sigma": timestep_sigma,
+                "resolution_shift": resolution_shift,
+                "base_image_seq_len": base_image_seq_len,
+                "max_image_seq_len": max_image_seq_len,
+                "base_shift": base_shift,
+                "max_shift": max_shift,
+                "caption_extension": caption_extension,
+                "caption_mode": caption_mode,
+                "rebuild_cache": rebuild_cache,
+                "model_revision": model_revision,
+            }
+            if trainer == "kef-krea2"
+            else None
+        )
         request_id = rt(ctx).request_id or f"training-{uuid.uuid4()}"
         launch = client.post(
             "/api/training-launches",
             {
                 "dataset_version_id": version_row["id"],
-                "wandb_credential_id": credential["id"],
                 "source_id": sources[0]["id"],
                 "client_request_id": request_id,
                 "name": name,
                 "trainer": trainer,
                 "base_model": base_model,
                 "output_directory": output_directory,
+                "training_config": trainer_config,
                 "checkpoint_policy": {"every_n_steps": checkpoint_every},
                 "backup_policy": {"interval_seconds": backup_every},
                 "supported_endpoint_ids": [],
@@ -1193,18 +1264,29 @@ def training_run_prepare(
         elif trainer_id == "kef-krea2":
             trainer_files = {
                 "kef-krea2-telemetry.json": json.dumps(
-                    packet["trainer"], indent=2, sort_keys=True
+                    packet["trainer"]["telemetry"], indent=2, sort_keys=True
+                )
+                + "\n",
+                "kef-krea2-training.json": json.dumps(
+                    {
+                        "configuration": packet["trainer"]["configuration"],
+                        "command": packet["trainer"]["command"],
+                    },
+                    indent=2,
+                    sort_keys=True,
                 )
                 + "\n",
             }
             readme = (
                 "ModelFiche kef-krea2 training packet\n\n"
                 "1. Copy this directory to the trainer host over an encrypted channel.\n"
-                "2. Verify checksums.json, then extract training-dataset.zip.\n"
+                "2. Verify checksums.json, then run `mkdir training-dataset && "
+                "unzip training-dataset.zip -d training-dataset`.\n"
                 "3. Provide the S3 credentials named in manifest.json.\n"
                 "4. Source trainer.env in the kef-krea2 trainer process.\n"
-                "5. Start `python3 modelfiche-run-sync.py --manifest manifest.json` beside kef-krea2.\n"
-                "6. Start one kef-krea2 run for this launch. Telemetry uses the Modelfiche W&B shim.\n"
+                "5. Review kef-krea2-training.json; its command argv preserves every launch setting.\n"
+                "6. Start `python3 modelfiche-run-sync.py --manifest manifest.json` beside kef-krea2.\n"
+                "7. Start the command recorded in kef-krea2-training.json exactly once.\n"
             )
             next_action = (
                 "Copy the packet to the trainer, verify checksums, source trainer.env, "

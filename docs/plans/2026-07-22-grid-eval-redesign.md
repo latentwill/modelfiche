@@ -227,6 +227,36 @@ Response `202`:
 ```
 Repeated requests with the same route-scoped idempotency key return the identical response and never double-bill or enqueue duplicate children. Billing gates use the literal acknowledgement `I understand FAL may bill this run even if checkpoint fetch fails`; gates are evaluated before parent or child admission persistence.
 
+### Attach an existing provider output
+
+`POST /projects/{project_id}/grids/{grid_id}/cells/{cell_id}/attach`
+
+Attaches an existing project-owned image asset to one persisted grid cell
+without copying or deleting its storage object. The route creates or reuses
+the completed external-output run required by the relational `EvalOutput`
+link, marks the cell `succeeded`, and is idempotent:
+
+```json
+{
+  "asset_id": "asset_<opaque>",
+  "idempotency_key": "comfyui-grid-cell-0",
+  "provider": "comfyui",
+  "workflow": {
+    "name": "Krea 2 ComfyUI API workflow",
+    "url": "https://workflow.example/workflows/krea2.json"
+  },
+  "seed": 42,
+  "metadata": {"prompt": "a portrait of a woman"}
+}
+```
+
+`workflow.url` may be replaced by a project-owned `workflow.asset_id`.
+`provider`, `workflow`, `generated_by`, grid coordinates, and the supplied
+metadata are persisted in `EvalOutput.provider_metadata` and the asset's
+canonical metadata projection. Repeating the same route-scoped idempotency
+key returns the original attachment. A different asset cannot replace an
+already attached cell.
+
 ### Eval create/reference-run
 
 `POST /projects/{project_id}/evals`

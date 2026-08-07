@@ -68,7 +68,30 @@ function originDisplayLabel(originType: string, metadata: Row, asset?: Row) {
   if (originType.toUpperCase() !== "EVAL") return originType;
   return isGridOutput(metadata, asset) ? "GRID" : "IMAGE";
 }
+
+function workflowReference(metadata: Row) {
+  const candidate = metadata.workflow && typeof metadata.workflow === "object" ? metadata.workflow as Row : {};
+  const rawUrl = str(candidate.url ?? metadata.workflow_url, "");
+  const assetId = str(candidate.asset_id, "");
+  const name = str(candidate.name ?? candidate.asset_name ?? metadata.workflow_name, "");
+  if (!rawUrl && !name && !assetId) return null;
+  return {
+    name: name || "Workflow asset",
+    href: /^https?:\/\//i.test(rawUrl) ? rawUrl : "",
+  };
+}
 const errorText = (reason: unknown) => reason instanceof Error ? reason.message : String(reason);
+const TERMINAL_JOB_STATES: Record<string, true> = { succeeded: true, failed: true, canceled: true };
+async function waitForJob(jobId: string) {
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    const job = await api<Row>(`/api/jobs/${encodeURIComponent(jobId)}`);
+    const state = str(job.state, "").toLowerCase();
+    if (state === "succeeded") return;
+    if (TERMINAL_JOB_STATES[state]) throw new Error(`Run refresh ${state}: ${str(job.error, "the worker did not complete")}`);
+    await new Promise<void>(resolve => window.setTimeout(resolve, 1000));
+  }
+  throw new Error("Run refresh is still running; reload this page when it completes.");
+}
 const DEFAULT_VISIBLE_SCENE_CAPTION_PROMPT = "Caption each image in one concise sentence describing only what is visibly present in the scene: subjects, objects, actions, setting, and spatial relationships. Do not describe style, lighting, mood, quality, or camera characteristics.";
 const formatBytes = (value: unknown) => {
   const bytes = Number(value);
@@ -895,8 +918,8 @@ export function RunScreen({ id }: { id: string }) {
   const isMerge = str(runView.run_kind) === "checkpoint_merge";
   const mergeSummary = (runView.merge_summary ?? {}) as Row;
   const latestLoss = runView.latest_loss && typeof runView.latest_loss === "object" && !Array.isArray(runView.latest_loss) ? runView.latest_loss as Row : null;
-  const lossMetricName = str(latestLoss?.name, "");
-  const metrics = useResource<LossMetrics>(lossMetricName ? `/api/runs/${id}/metrics${query({ name: lossMetricName })}` : null);
+  const lossMetricName = str(latestLoss?.name, "loss");
+  const metrics = useResource<LossMetrics>(live.data ? `/api/runs/${id}/metrics${query({ name: lossMetricName })}` : null);
   const learningRateMetrics = useResource<LossMetrics>(`/api/runs/${id}/metrics?name=learning_rate`);
   const lineage = useResource<unknown>(`/api/lineage${query({ subject_type: "training_run", subject_id: id, depth: 3 })}`);
   const rawCheckpoints = rows(checkpointsResource.data);
@@ -958,8 +981,10 @@ export function RunScreen({ id }: { id: string }) {
     setBusy("refresh"); setMessage(""); setActionError("");
     try {
       const job = await api<Row>(`/api/runs/${id}/refresh`, jsonBody({}));
+      const jobId = str(job.job_id, "");
+      if (jobId) await waitForJob(jobId);
       await Promise.all([run.reload(), samples.reload(), checkpointsResource.reload(), metrics.reload(), learningRateMetrics.reload()]);
-      setMessage(`Run refresh queued${job.id ? ` as job ${job.id}` : ""}.`);
+      setMessage(`Run refresh completed${jobId ? ` as job ${jobId}` : ""}. Local image copies are ready.`);
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
 
@@ -1511,6 +1536,9 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const providerResponse = providerMetadata.response && typeof providerMetadata.response === "object" ? providerMetadata.response as Row : {};
   const imageSeed = generationParameters.seed ?? providerResponse.seed;
   const allImageMetadata = useMemo(() => metadataWithoutImageFilenames({ asset: asset.data, image: context.data?.image, metadata, storage: context.data?.storage }), [asset.data, context.data?.image, metadata, context.data?.storage]);
+  const workflow = workflowReference(metadata);
+  const providerName = str(metadata.provider, relationName("provider"));
+  const providerLabel = providerName.toLowerCase() === "comfyui" ? "ComfyUI" : providerName;
   return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby="image-review-title"><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a ref={closeButton} className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
     <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></nav><div className="image-review-visual"><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={promptPresentation.alt} /></div>{prompt && (promptPresentation.format === "json" ? <pre className="image-review-prompt caption-json">{promptPresentation.rendered}</pre> : <p className="image-review-prompt">{prompt}</p>)}<div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div></div>
       <aside {...metadataSelection} id="storage_details" className="image-review-inspector vela-copyable-metadata">
@@ -1521,7 +1549,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
         <Notice error={asset.error || context.error || galleryContext.error} loading={asset.loading || context.loading || galleryContext.loading} />
         <section className="image-review-meta-block" aria-labelledby="image-primary-metadata-heading">
           <div className="image-review-section-heading"><h3 id="image-primary-metadata-heading">Metadata</h3><span>{hasTrainingMetadata ? "Generation" : "Source"}</span></div>
-          <dl className="details image-primary-metadata">{hasTrainingMetadata ? <><dt>Model</dt><dd>{relationName("model")}</dd><dt>Model version</dt><dd>{relationName("model_version", str(metadata.model_version_name, "Unknown"))}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Step</dt><dd>{str(metadata.checkpoint_step, "Not recorded")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>LoRA scale</dt><dd>{loraScaleFromMetadata(metadata) ?? "Not recorded"}</dd><dt>Seed</dt><dd>{str(imageSeed, "Not recorded")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></> : <><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{relationName("provider")}</dd></>}</dl>
+          <dl className="details image-primary-metadata">{hasTrainingMetadata ? <><dt>Model</dt><dd>{relationName("model")}</dd><dt>Model version</dt><dd>{relationName("model_version", str(metadata.model_version_name, "Unknown"))}</dd><dt>Checkpoint</dt><dd>{relationName("checkpoint")}</dd><dt>Step</dt><dd>{str(metadata.checkpoint_step, "Not recorded")}</dd><dt>Base model</dt><dd>{relationName("base_model")}</dd><dt>Training run</dt><dd>{relationName("training_run")}</dd><dt>LoRA scale</dt><dd>{loraScaleFromMetadata(metadata) ?? "Not recorded"}</dd><dt>Seed</dt><dd>{str(imageSeed, "Not recorded")}</dd><dt>Provider</dt><dd>{providerLabel}</dd><dt>Workflow</dt><dd>{workflow?.href ? <a href={workflow.href} target="_blank" rel="noreferrer">{workflow.name}</a> : workflow?.name ?? "Not recorded"}</dd></> : <><dt>Dimensions</dt><dd>{str(metadata.width ?? (context.data?.image as Row | undefined)?.width)} × {str(metadata.height ?? (context.data?.image as Row | undefined)?.height)}</dd><dt>Dataset</dt><dd>{relationName("dataset")}</dd><dt>Provider</dt><dd>{providerLabel}</dd></>}</dl>
         </section>
         {isMerge && <section className="image-review-meta-block image-review-provenance" aria-labelledby="image-provenance-heading">
           <div className="image-review-section-heading"><h3 id="image-provenance-heading">Provenance</h3><span>Merge</span></div>

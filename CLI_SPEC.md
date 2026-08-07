@@ -235,15 +235,18 @@ Scopes use explicit filters rather than UI selection state:
 
 Batch mutation without an explicit scope is rejected.
 
-### W&B credentials and training launches
+### Global W&B signing key and training launches
 
 ```text
+mfiche training setup [--private-key-file <path>]
+mfiche training doctor
+
 mfiche wandb key generate --private-key-output <path>
 mfiche wandb key public --private-key-file <path>
-mfiche wandb credential register --alias <alias> --public-key <key> [--project <id>]
-mfiche wandb credential list [--project <id>]
-mfiche wandb credential rotate <credential> --public-key <key>
-mfiche wandb credential revoke <credential>
+mfiche wandb credential register --public-key <key>
+mfiche wandb credential list
+mfiche wandb credential rotate --public-key <key>
+mfiche wandb credential revoke
 
 mfiche training-launch create --input <launch.json>
 mfiche training-launch show <launch>
@@ -253,6 +256,11 @@ mfiche training-launch agent-environment <launch> --private-key-file <path> [--o
 mfiche training-launch inspect <launch>
 mfiche training-launch wait <launch> [--timeout <seconds>] [--poll-interval <seconds>]
 ```
+
+Modelfiche has one W&B signing key for all workspaces and projects.
+`training setup` creates or reads the local private key, then registers or
+rotates the one global public key. Launch creation selects that key
+automatically; launch input has no credential ID or scope.
 
 Private key generation is local. `credential register` sends only the public
 key to the API. `agent-environment` signs the exact launch claims locally; with

@@ -119,6 +119,70 @@ def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
     monkeypatch.setattr(main.Runtime, "client", lambda self: fake)
     return fake
 
+def test_kef_krea2_launch_preserves_editable_training_settings(
+    fake_client: FakeClient,
+) -> None:
+    fake_client.responses.extend(
+        [
+            [{"id": "dataset-1", "name": "Lotus Rocks", "current_version_id": "version-1"}],
+            [{"id": "version-1", "name": "v1", "version_number": 1}],
+            {
+                "credentials": [{"id": "credential-1"}],
+                "sources": [{"id": "source-1", "verified": True}],
+            },
+            {"id": "launch-1"},
+        ]
+    )
+
+    result = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "training",
+            "run",
+            "create",
+            "--dataset",
+            "Lotus Rocks",
+            "--name",
+            "lotus-kef-v2",
+            "--trainer",
+            "kef-krea2",
+            "--base-model",
+            "krea/Krea-2-Raw",
+            "--steps",
+            "2400",
+            "--tokens",
+            "9",
+            "--gradient-accumulation",
+            "3",
+            "--resolution",
+            "768",
+            "--no-compile-transformer",
+            "--sample-interval",
+            "250",
+            "--sample-steps",
+            "16",
+            "--caption-mode",
+            "random",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    request = next(
+        body
+        for method, path, _, body in fake_client.calls
+        if method == "POST" and path == "/api/training-launches"
+    )
+    assert request["training_config"]["steps"] == 2400
+    assert request["training_config"]["num_tokens"] == 9
+    assert request["training_config"]["gradient_accumulation"] == 3
+    assert request["training_config"]["resolution"] == 768
+    assert request["training_config"]["compile_transformer"] is False
+    assert request["training_config"]["sample_interval"] == 250
+    assert request["training_config"]["sample_steps"] == 16
+    assert request["training_config"]["caption_mode"] == "random"
+
+
 
 @pytest.mark.parametrize(
     ("arguments", "expected_path", "expected_params"),
@@ -360,68 +424,80 @@ def test_unsupported_filter_flags_are_not_silently_sent(
     assert fake_client.calls == []
 
 
-def test_wandb_credentials_use_public_key_contract(fake_client: FakeClient) -> None:
-    commands = [
+def test_wandb_credentials_use_one_global_public_key_contract(
+    fake_client: FakeClient,
+) -> None:
+    registered = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "wandb",
+            "credential",
+            "register",
+            "--public-key",
+            "ed25519-public-key",
+        ],
+    )
+    assert registered.exit_code == 0, registered.output
+    assert fake_client.calls[-1] == (
+        "POST",
+        "/api/integrations/wandb/credentials",
+        {},
+        {"alias": "modelfiche", "public_key": "ed25519-public-key"},
+    )
+
+    listed = runner.invoke(
+        main.app, ["--json", "wandb", "credential", "list"]
+    )
+    assert listed.exit_code == 0, listed.output
+    assert fake_client.calls[-1] == (
+        "GET",
+        "/api/integrations/wandb/credentials",
+        {},
+        None,
+    )
+
+    fake_client.responses.extend(
+        [[{"id": "credential-1"}], {"id": "credential-1", "state": "active"}]
+    )
+    rotated = runner.invoke(
+        main.app,
+        [
+            "--json",
+            "wandb",
+            "credential",
+            "rotate",
+            "--public-key",
+            "rotated-public-key",
+        ],
+    )
+    assert rotated.exit_code == 0, rotated.output
+    assert fake_client.calls[-2:] == [
+        ("GET", "/api/integrations/wandb/credentials", {}, None),
         (
-            [
-                "wandb",
-                "credential",
-                "register",
-                "--alias",
-                "agent",
-                "--public-key",
-                "ed25519-public-key",
-            ],
-            (
-                "POST",
-                "/api/integrations/wandb/credentials",
-                {},
-                {
-                    "alias": "agent",
-                    "public_key": "ed25519-public-key",
-                    "project_id": None,
-                },
-            ),
-        ),
-        (
-            ["wandb", "credential", "list", "--project-id", "project-1"],
-            (
-                "GET",
-                "/api/integrations/wandb/credentials",
-                {"project_id": "project-1"},
-                None,
-            ),
-        ),
-        (
-            [
-                "wandb",
-                "credential",
-                "rotate",
-                "credential-1",
-                "--public-key",
-                "rotated-public-key",
-            ],
-            (
-                "POST",
-                "/api/integrations/wandb/credentials/credential-1/rotate",
-                {},
-                {"public_key": "rotated-public-key"},
-            ),
-        ),
-        (
-            ["wandb", "credential", "revoke", "credential-1"],
-            (
-                "POST",
-                "/api/integrations/wandb/credentials/credential-1/revoke",
-                {},
-                None,
-            ),
+            "POST",
+            "/api/integrations/wandb/credentials/credential-1/rotate",
+            {},
+            {"public_key": "rotated-public-key"},
         ),
     ]
-    for arguments, expected in commands:
-        result = runner.invoke(main.app, ["--json", *arguments])
-        assert result.exit_code == 0, result.output
-        assert fake_client.calls[-1] == expected
+
+    fake_client.responses.extend(
+        [[{"id": "credential-1"}], {"id": "credential-1", "state": "revoked"}]
+    )
+    revoked = runner.invoke(
+        main.app, ["--json", "wandb", "credential", "revoke"]
+    )
+    assert revoked.exit_code == 0, revoked.output
+    assert fake_client.calls[-2:] == [
+        ("GET", "/api/integrations/wandb/credentials", {}, None),
+        (
+            "POST",
+            "/api/integrations/wandb/credentials/credential-1/revoke",
+            {},
+            None,
+        ),
+    ]
 
 
 def test_training_launch_input_rejects_secret_fields(
@@ -441,11 +517,19 @@ def test_training_launch_input_rejects_secret_fields(
     assert fake_client.calls == []
 
 
-def test_wandb_credential_cli_never_exposes_private_key_option() -> None:
-    result = runner.invoke(main.app, ["wandb", "credential", "register", "--help"])
-    assert result.exit_code == 0, result.output
-    assert "--private-key" not in result.output
-    assert "--password-manager" not in result.output
+def test_wandb_credential_cli_exposes_only_global_public_key_controls() -> None:
+    register = runner.invoke(
+        main.app, ["wandb", "credential", "register", "--help"]
+    )
+    rotate = runner.invoke(main.app, ["wandb", "credential", "rotate", "--help"])
+    revoke = runner.invoke(main.app, ["wandb", "credential", "revoke", "--help"])
+
+    assert register.exit_code == rotate.exit_code == revoke.exit_code == 0
+    assert "--private-key" not in register.output
+    assert "--password-manager" not in register.output
+    assert "--alias" not in register.output
+    assert "CREDENTIAL" not in rotate.output
+    assert "CREDENTIAL" not in revoke.output
 
 
 def test_training_launch_flags_send_json_friendly_payload(
@@ -459,8 +543,6 @@ def test_training_launch_flags_send_json_friendly_payload(
             "create",
             "--dataset-version-id",
             "version-1",
-            "--wandb-credential-id",
-            "credential-1",
             "--source-id",
             "source-1",
             "--client-request-id",
@@ -489,7 +571,6 @@ def test_training_launch_flags_send_json_friendly_payload(
             {},
             {
                 "dataset_version_id": "version-1",
-                "wandb_credential_id": "credential-1",
                 "source_id": "source-1",
                 "client_request_id": "request-1",
                 "name": "run-1",
@@ -511,7 +592,6 @@ def test_training_launch_input_json_and_status_use_api_contract(
 ) -> None:
     request = {
         "dataset_version_id": "version-1",
-        "wandb_credential_id": "credential-1",
         "source_id": "source-1",
         "client_request_id": "request-1",
         "name": "run-1",
@@ -844,7 +924,7 @@ def test_training_launch_wait_returns_exit_7_for_unsuccessful_terminal_state(
     ("trainer_id", "trainer_config_file"),
     [
         ("ai-toolkit", "ai-toolkit-logging.yaml"),
-        ("kef-krea2", "kef-krea2-telemetry.json"),
+        ("kef-krea2", "kef-krea2-training.json"),
     ],
 )
 def test_training_prepare_bundles_self_contained_checkpoint_sync(
@@ -861,6 +941,17 @@ def test_training_prepare_bundles_self_contained_checkpoint_sync(
         "trainer": {
             "id": trainer_id,
             "telemetry": {"enabled": trainer_id == "kef-krea2"},
+            "configuration": {"steps": 2400, "num_tokens": 7},
+            "command": {
+                "argv": [
+                    "kef-krea2-train",
+                    "training-dataset",
+                    "/workspace/output",
+                    "--steps",
+                    "2400",
+                ],
+                "working_directory": ".",
+            },
         },
         "ai_toolkit": {"logging": {"use_wandb": False}},
     }
@@ -907,6 +998,13 @@ def test_training_prepare_bundles_self_contained_checkpoint_sync(
     ).read_text(encoding="utf-8")
     assert (output / "training-dataset.zip").read_bytes() == b"dataset-zip"
     assert (output / trainer_config_file).is_file()
+    if trainer_id == "kef-krea2":
+        assert (output / "kef-krea2-telemetry.json").is_file()
+        training = json.loads(
+            (output / "kef-krea2-training.json").read_text(encoding="utf-8")
+        )
+        assert training["configuration"]["num_tokens"] == 7
+        assert training["command"]["argv"][-1] == "2400"
     checksums = json.loads((output / "checksums.json").read_text(encoding="utf-8"))[
         "files"
     ]

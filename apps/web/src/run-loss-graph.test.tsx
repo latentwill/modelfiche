@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RunScreen } from "./screens-assets";
@@ -17,7 +17,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mockRunApi(metrics: unknown, samples: unknown[] = []) {
+function mockRunApi(metrics: unknown, samples: unknown[] = [], latestLossName: string | null = "train/objective", refreshStates: string[] = []) {
+  let refreshPollCount = 0;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
     const path = String(input);
     const metricRecord = metrics && typeof metrics === "object" ? metrics as Record<string, unknown> : {};
@@ -25,14 +26,18 @@ function mockRunApi(metrics: unknown, samples: unknown[] = []) {
     if (path === "/api/runs/run-1") {
       body = { id: "run-1", name: "Portrait training", base_model: "Flux", trainer: "AI Toolkit", status: "completed", project_id: "", final_loss: 9.99 };
     } else if (path === "/api/runs/run-1/live") {
-      body = { run_id: "run-1", status: "completed", current_step: 120, latest_loss: { name: "train/objective", step: 120, value: metricRecord.final_value }, learning_rate: { name: "learning_rate", step: 120, value: 0.0001 }, elapsed_seconds: 75, last_event_at: "2026-07-13T10:00:00Z", uploads: { uploaded: 2, pending: 1 }, sample_count: samples.length };
+      body = { run_id: "run-1", status: "completed", current_step: 120, latest_loss: latestLossName ? { name: latestLossName, step: 120, value: metricRecord.final_value } : null, learning_rate: { name: "learning_rate", step: 120, value: 0.0001 }, elapsed_seconds: 75, last_event_at: "2026-07-13T10:00:00Z", uploads: { uploaded: 2, pending: 1 }, sample_count: samples.length };
+    } else if (path === "/api/runs/run-1/refresh") {
+      body = { run_id: "run-1", job_id: "job-1", state: "queued" };
+    } else if (path === "/api/jobs/job-1") {
+      body = { id: "job-1", state: refreshStates[Math.min(refreshPollCount++, Math.max(refreshStates.length - 1, 0))] ?? "succeeded" };
     } else if (path === "/api/runs/run-1/samples") {
       body = samples;
     } else if (path === "/api/runs/run-1/checkpoints" || path.startsWith("/api/lineage")) {
       body = [];
     } else if (path === "/api/runs/run-1/config") {
       body = { normalized: {}, raw: {} };
-    } else if (path === "/api/runs/run-1/metrics?name=train%2Fobjective") {
+    } else if (path === `/api/runs/run-1/metrics?name=${encodeURIComponent(latestLossName ?? "loss")}`) {
       body = metrics;
     } else if (path === "/api/runs/run-1/metrics?name=learning_rate") {
       body = { run_id: "run-1", metric_name: "learning_rate", points: [], final_value: null };
@@ -89,6 +94,20 @@ describe("RunScreen loss metrics", () => {
     expect(within(metricsPanel as HTMLElement).getAllByText("train/objective").find(element => element.tagName === "SPAN")?.nextElementSibling).toHaveTextContent("Unavailable");
   });
 
+  it("uses the canonical loss track when the live projection has no latest loss", async () => {
+    const fetchMock = mockRunApi(
+      { run_id: "run-1", metric_name: "loss", points: [{ step: 120, value: 0.25 }], final_value: 0.25 },
+      [],
+      null,
+    );
+
+    render(<RunScreen id="run-1" />);
+
+    expect(await screen.findByRole("img", { name: "Loss over training step" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/metrics?name=loss", expect.any(Object));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/runs/run-1/metrics?name=train%2Fobjective", expect.any(Object));
+  });
+
   it("shows live projection fields and latest sample caption, step, and upload state accessibly", async () => {
     mockRunApi(
       { run_id: "run-1", metric_name: "train/objective", points: [{ step: 120, value: 0.25 }], final_value: 0.25 },
@@ -107,5 +126,20 @@ describe("RunScreen loss metrics", () => {
     expect(within(samples).getByText("A studio portrait")).toBeInTheDocument();
     expect(within(samples).getByText("Step 120 · Upload uploaded")).toBeInTheDocument();
     expect(within(samples).getByTestId("sample-revision-1")).toHaveAccessibleName("A studio portrait");
+  });
+  it("waits for the refresh job before reloading imported samples", async () => {
+    const fetchMock = mockRunApi(
+      { run_id: "run-1", metric_name: "train/objective", points: [], final_value: null },
+      [],
+      "train/objective",
+      ["queued", "succeeded"],
+    );
+
+    render(<RunScreen id="run-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh import" }));
+    await waitFor(() => expect(screen.getByText(/Local image copies are ready/)).toBeInTheDocument(), { timeout: 3000 });
+    expect(fetchMock).toHaveBeenCalledWith("/api/jobs/job-1", expect.any(Object));
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/runs/run-1/samples")).toHaveLength(2);
   });
 });

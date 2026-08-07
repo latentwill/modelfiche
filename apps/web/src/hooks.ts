@@ -106,6 +106,7 @@ export type LiveConnectionState = "connecting" | "connected" | "reconnecting" | 
 
 const TERMINAL_RUN_STATUSES: Record<string, true> = {
   completed: true,
+  succeeded: true,
   failed: true,
   interrupted: true,
   canceled: true,

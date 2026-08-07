@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from copy import deepcopy
 from typing import Annotated, Any
 from uuid import uuid4
@@ -124,6 +125,184 @@ def _preflight(body: schemas.PlanPayload, project_id: str, db: Session) -> dict[
         "request_count": resolved["request_count"],
         "estimated_cost": resolved["estimated_cost"],
     }
+def _attachment_job_key(project_id: str, grid_id: str, cell_id: str, idempotency_key: str) -> str:
+    digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    return f"grid-attach:{project_id}:{grid_id}:{cell_id}:{digest}"
+
+
+def _attachment_workflow(
+    db: Session,
+    project_id: str,
+    output_asset_id: str,
+    body: schemas.GridCellAttachRequest,
+) -> dict[str, Any] | None:
+    if body.workflow is None:
+        return None
+    reference = body.workflow.model_dump(mode="json", exclude_none=True)
+    workflow_asset_id = reference.get("asset_id")
+    if workflow_asset_id:
+        workflow_asset = db.scalar(
+            select(models.Asset).where(
+                models.Asset.id == workflow_asset_id,
+                models.Asset.workspace_id == current_workspace(db).id,
+            )
+        )
+        if workflow_asset is None or workflow_asset.project_id not in {None, project_id}:
+            raise HTTPException(status_code=404, detail="workflow asset not found")
+        if workflow_asset.id == output_asset_id:
+            raise HTTPException(status_code=422, detail="workflow asset must differ from output asset")
+        reference["asset_name"] = workflow_asset.name
+    return reference
+
+
+def _attachment_marker(grid: models.GridDefinition, provider: str) -> dict[str, str]:
+    return {
+        "source": "existing_asset_attachment",
+        "grid_definition_id": str(grid.id),
+        "provider": provider,
+    }
+
+
+def _attachment_run(
+    db: Session,
+    project: models.Project,
+    grid: models.GridDefinition,
+    provider: str,
+    workflow: dict[str, Any] | None,
+) -> models.EvalRun:
+    marker = _attachment_marker(grid, provider)
+    definition = db.get(models.EvalDefinition, grid.eval_definition_id) if grid.eval_definition_id else None
+    if definition is not None and dict(definition.parameters or {}).get("_grid_attachment") != marker:
+        definition = None
+    if definition is None:
+        definitions = db.scalars(
+            select(models.EvalDefinition)
+            .where(
+                models.EvalDefinition.project_id == project.id,
+                models.EvalDefinition.endpoint == provider,
+            )
+        ).all()
+        definition = next(
+            (
+                candidate
+                for candidate in definitions
+                if dict(candidate.parameters or {}).get("_grid_attachment") == marker
+            ),
+            None,
+        )
+    if definition is None:
+        definition = models.EvalDefinition(
+            project_id=project.id,
+            name=f"{grid.name} · {provider} imported outputs",
+            endpoint=provider,
+            inline_prompts=list((grid.plan_snapshot or {}).get("cases") or []),
+            parameters={
+                "_grid_attachment": marker,
+                "provider": provider,
+                "workflow": workflow or {},
+            },
+            plan_id=grid.plan_id,
+            plan_version=grid.plan_version,
+            plan_digest=grid.plan_digest,
+        )
+        db.add(definition)
+        db.flush()
+        grid.eval_definition_id = definition.id
+    runs = db.scalars(
+        select(models.EvalRun)
+        .where(
+            models.EvalRun.definition_id == definition.id,
+            models.EvalRun.status == "succeeded",
+        )
+        .order_by(models.EvalRun.created_at.desc())
+    ).all()
+    run = next(
+        (
+            candidate
+            for candidate in runs
+            if dict(candidate.parameters_snapshot or {}).get("_grid_attachment") == marker
+        ),
+        None,
+    )
+    if run is None:
+        run = models.EvalRun(
+            definition_id=definition.id,
+            plan_id=grid.plan_id,
+            plan_version=grid.plan_version,
+            plan_digest=grid.plan_digest,
+            status="succeeded",
+            parameters_snapshot={
+                "_grid_attachment": marker,
+                "provider": provider,
+                "workflow": workflow or {},
+            },
+        )
+        db.add(run)
+        db.flush()
+    return run
+
+
+def _attachment_provider_metadata(
+    grid: models.GridDefinition,
+    cell: models.GridCell,
+    body: schemas.GridCellAttachRequest,
+    provider: str,
+    workflow: dict[str, Any] | None,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = {**(existing or {}), **dict(body.metadata or {})}
+    grid_metadata = dict(metadata.get("grid_metadata") or {})
+    grid_metadata.update(
+        {
+            "grid_definition_id": grid.id,
+            "grid_cell_id": cell.id,
+            "ordinal": cell.ordinal,
+            "coordinate": dict(cell.coordinate or {}),
+        }
+    )
+    model_version_id = (cell.target_snapshot or {}).get("model_version_id")
+    if model_version_id:
+        grid_metadata["model_version_id"] = model_version_id
+    metadata.update(
+        {
+            "provider": provider,
+            "generated_by": provider,
+            "source": "existing_asset",
+            "grid_metadata": grid_metadata,
+            "attachment": {
+                "kind": "existing_asset",
+                "idempotency_key": body.idempotency_key,
+            },
+        }
+    )
+    if workflow is not None:
+        metadata["workflow"] = workflow
+    return metadata
+
+
+def _attachment_response(
+    grid: models.GridDefinition,
+    cell: models.GridCell,
+    output: models.EvalOutput,
+    asset: models.Asset,
+) -> dict[str, Any]:
+    provider_metadata = dict(output.provider_metadata or {})
+    return {
+        "grid_id": grid.id,
+        "grid_status": grid.status,
+        "cell_id": cell.id,
+        "ordinal": cell.ordinal,
+        "status": cell.status,
+        "eval_output_id": output.id,
+        "asset_id": asset.id,
+        "asset_revision_id": asset.id,
+        "asset_name": asset.name,
+        "provider": provider_metadata.get("provider"),
+        "workflow": provider_metadata.get("workflow"),
+        "generated_at": output.generated_at,
+        "provider_metadata": provider_metadata,
+    }
+
 def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
     cells = db.scalars(select(models.GridCell).where(models.GridCell.grid_definition_id == grid.id).order_by(models.GridCell.ordinal)).all()
     output_ids = [cell.eval_output_id for cell in cells if cell.eval_output_id]
@@ -162,6 +341,8 @@ def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
             "asset_id": output.asset_id if output else None,
             "asset_revision_id": output.asset_id if output else None,
             "seed": output.seed if output else None,
+            "provider": (output.provider_metadata or {}).get("provider") if output else None,
+            "workflow": (output.provider_metadata or {}).get("workflow") if output else None,
             "checkpoint_step": checkpoint.step if checkpoint else None,
             "model_version_name": version.name if version else None,
             "model_version_source_kind": checkpoint_run.run_kind if checkpoint_run else None,
@@ -182,6 +363,175 @@ def _grid_response(db: Session, grid: models.GridDefinition) -> dict[str, Any]:
         "request_count": grid.request_count,
         "estimated_cost": grid.estimated_cost,
     }
+
+
+@router.post("/projects/{project_id}/grids/{grid_id}/cells/{cell_id}/attach", status_code=status.HTTP_201_CREATED)
+def attach_existing_asset(
+    project_id: str,
+    grid_id: str,
+    cell_id: str,
+    body: schemas.GridCellAttachRequest,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    project = _project(db, project_id)
+    grid = get_or_404(db, models.GridDefinition, grid_id)
+    if grid.project_id != project.id:
+        raise HTTPException(status_code=404, detail="grid not found")
+    cell = get_or_404(db, models.GridCell, cell_id)
+    if cell.grid_definition_id != grid.id:
+        raise HTTPException(status_code=404, detail="grid cell not found")
+
+    request_snapshot = body.model_dump(mode="json", exclude_none=True)
+    job_key = _attachment_job_key(project.id, grid.id, cell.id, body.idempotency_key)
+    existing_job = db.scalar(select(models.Job).where(models.Job.idempotency_key == job_key))
+    if existing_job is not None:
+        if dict(existing_job.payload or {}).get("request") != request_snapshot:
+            raise HTTPException(status_code=409, detail="attachment idempotency key was already used for another request")
+        return dict(existing_job.result or {})
+
+    asset = db.scalar(
+        select(models.Asset).where(
+            models.Asset.id == body.asset_id,
+            models.Asset.workspace_id == current_workspace(db).id,
+        )
+    )
+    if asset is None or asset.project_id != project.id:
+        raise HTTPException(status_code=404, detail="asset not found in project")
+    if asset.kind != models.AssetKind.image:
+        raise HTTPException(status_code=422, detail="grid cells can only attach image assets")
+
+    provider = body.provider.strip().lower()
+    if not provider:
+        raise HTTPException(status_code=422, detail="provider cannot be blank")
+    workflow = _attachment_workflow(db, project.id, asset.id, body)
+    existing_output = db.get(models.EvalOutput, cell.eval_output_id) if cell.eval_output_id else None
+    if existing_output is not None and existing_output.asset_id != asset.id:
+        raise HTTPException(status_code=409, detail="grid cell already has another asset attached")
+    if existing_output is None:
+        run = _attachment_run(db, project, grid, provider, workflow)
+        output = models.EvalOutput(
+            eval_run_id=run.id,
+            asset_id=asset.id,
+            seed=body.seed,
+            provider_metadata={},
+            generated_at=body.generated_at or models.utcnow(),
+        )
+        db.add(output)
+        db.flush()
+    else:
+        output = existing_output
+        if body.seed is not None:
+            output.seed = body.seed
+        if body.generated_at is not None:
+            output.generated_at = body.generated_at
+        if output.generated_at is None:
+            output.generated_at = models.utcnow()
+
+    output.provider_metadata = _attachment_provider_metadata(
+        grid,
+        cell,
+        body,
+        provider,
+        workflow,
+        existing=dict(output.provider_metadata or {}),
+    )
+    effective_workflow = workflow if workflow is not None else dict(output.provider_metadata or {}).get("workflow")
+    asset_metadata = {**dict(asset.metadata_ or {}), **dict(body.metadata or {})}
+    asset_metadata.update(
+        {
+            "category": "eval_output",
+            "origin_type": "EVAL",
+            "provider": provider,
+            "generated_by": provider,
+        }
+    )
+    if workflow is not None:
+        asset_metadata["workflow"] = workflow
+    asset.metadata_ = asset_metadata
+    cell.eval_output_id = output.id
+    cell.status = "succeeded"
+    generated_at = output.generated_at.isoformat() if output.generated_at else None
+    cell.output_snapshot = {
+        "asset_id": asset.id,
+        "asset_revision_id": asset.id,
+        "workflow": effective_workflow,
+        "provider": provider,
+        "generated_at": generated_at,
+        "source": "existing_asset",
+    }
+    all_cells = db.scalars(
+        select(models.GridCell)
+        .where(models.GridCell.grid_definition_id == grid.id)
+        .order_by(models.GridCell.ordinal)
+    ).all()
+    if all_cells and all(item.status == "succeeded" and item.eval_output_id for item in all_cells):
+        grid.status = "succeeded"
+    elif grid.status == "succeeded":
+        grid.status = "draft"
+
+    if workflow and workflow.get("asset_id"):
+        workflow_asset_id = str(workflow["asset_id"])
+        edge = db.scalar(
+            select(models.LineageEdge).where(
+                models.LineageEdge.workspace_id == current_workspace(db).id,
+                models.LineageEdge.source_type == "asset",
+                models.LineageEdge.source_id == workflow_asset_id,
+                models.LineageEdge.target_type == "asset",
+                models.LineageEdge.target_id == asset.id,
+                models.LineageEdge.relationship == "generated_by_workflow",
+            )
+        )
+        if edge is None:
+            db.add(
+                models.LineageEdge(
+                    workspace_id=current_workspace(db).id,
+                    source_type="asset",
+                    source_id=workflow_asset_id,
+                    target_type="asset",
+                    target_id=asset.id,
+                    relationship="generated_by_workflow",
+                    metadata_={"provider": provider, "workflow": workflow},
+                )
+            )
+
+    actor = active_profile(db, x_profile_id)
+    db.flush()
+    result = _attachment_response(grid, cell, output, asset)
+    result["generated_at"] = generated_at
+    db.add(
+        models.Job(
+            workspace_id=current_workspace(db).id,
+            kind="grid.attach_existing_asset",
+            state=models.JobState.succeeded,
+            profile_id=actor.id,
+            idempotency_key=job_key,
+            payload={
+                "request": request_snapshot,
+                "grid_definition_id": grid.id,
+                "cell_id": cell.id,
+                "eval_output_id": output.id,
+            },
+            progress=1.0,
+            result=result,
+        )
+    )
+    record_activity(
+        db,
+        action="grid.cell_attached",
+        subject_type="grid_cell",
+        subject_id=cell.id,
+        profile_id=actor.id,
+        project_id=project.id,
+        details={
+            "grid_id": grid.id,
+            "asset_id": asset.id,
+            "eval_output_id": output.id,
+            "provider": provider,
+        },
+    )
+    db.commit()
+    return result
 
 
 @router.post("/projects/{project_id}/experiment-plans/preflight")

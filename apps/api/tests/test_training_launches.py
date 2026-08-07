@@ -3,8 +3,6 @@ from __future__ import annotations
 import base64
 import json
 
-import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from titles_api import app as app_module
@@ -17,29 +15,57 @@ def _public_key(seed: int) -> str:
     raw = bytes((seed + offset) % 256 for offset in range(32))
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
+def test_wandb_signing_key_is_one_global_reconcilable_credential(
+    client: TestClient,
+) -> None:
+    profile = client.get("/api/profiles").json()[0]
+    headers = {"X-Profile-ID": profile["id"]}
+    first = client.post(
+        "/api/integrations/wandb/credentials",
+        headers=headers,
+        json={"alias": "first-project", "public_key": _public_key(1)},
+    )
+    second = client.post(
+        "/api/integrations/wandb/credentials",
+        headers=headers,
+        json={"alias": "modelfiche", "public_key": _public_key(2)},
+    )
 
-def test_live_telemetry_prefers_configured_ingress_without_becoming_required() -> None:
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["scope"] == "global"
+    assert second.json()["public_key"] == _public_key(2)
+    other_workspace = client.post("/api/workspaces", json={"name": "Other"}).json()
+    listed = client.get(
+        "/api/integrations/wandb/credentials",
+        headers={"X-Workspace-ID": other_workspace["slug"]},
+    )
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [first.json()["id"]]
+
+
+
+def test_live_telemetry_uses_request_base_url_when_no_ingress_is_configured() -> None:
     assert _resolve_live_telemetry(None, None) is False
     assert _resolve_live_telemetry(None, "https://telemetry.example.test") is True
     assert _resolve_live_telemetry(False, "https://telemetry.example.test") is False
-    with pytest.raises(HTTPException) as error:
-        _resolve_live_telemetry(True, None)
-    assert error.value.status_code == 409
+    assert _resolve_live_telemetry(True, None) is True
 
 
-def test_reusable_credential_creates_one_stable_idempotent_training_launch(
+def test_global_credential_creates_one_stable_idempotent_training_launch(
     client: TestClient,
 ) -> None:
     profile = client.get("/api/profiles").json()[0]
     project = client.post(
         "/api/projects",
         headers={"X-Profile-ID": profile["id"]},
-        json={"title": "Portrait LoRA"},
+        json={"title": "Airbrush"},
     ).json()
     dataset = client.post(
         "/api/datasets",
         headers={"X-Profile-ID": profile["id"]},
-        json={"project_id": project["id"], "name": "Published portraits", "items": []},
+        json={"project_id": project["id"], "name": "Airbrush training", "items": []},
     ).json()
     source = client.post(
         "/api/import-sources",
@@ -55,7 +81,6 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(
         "/api/integrations/wandb/credentials",
         headers={"X-Profile-ID": profile["id"]},
         json={
-            "project_id": project["id"],
             "alias": "portrait-wandb",
             "public_key": _public_key(1),
         },
@@ -67,13 +92,23 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(
 
     body = {
         "dataset_version_id": dataset["current_version_id"],
-        "wandb_credential_id": credential["id"],
         "source_id": source["id"],
         "client_request_id": "launch-request-1",
-        "name": "portrait-lora-v4",
+        "name": "portrait-kef-v4",
         "trainer": "kef-krea2",
-        "base_model": "FLUX.1-dev",
+        "base_model": "krea/Krea-2-Raw",
         "output_directory": "/workspace/output",
+        "training_config": {
+            "steps": 1234,
+            "num_tokens": 7,
+            "learning_rate": 0.0002,
+            "gradient_accumulation": 4,
+            "resolution": 768,
+            "sample_interval": 250,
+            "sample_steps": 16,
+            "sample_resolution": 512,
+            "caption_mode": "none",
+        },
         "checkpoint_policy": {"every_steps": 1000},
         "backup_policy": {"interval_seconds": 60},
         "supported_endpoint_ids": ["ideogram/v4/lora"],
@@ -101,6 +136,23 @@ def test_reusable_credential_creates_one_stable_idempotent_training_launch(
         trainer["telemetry"]["metric_mapping"]["token_residual_rms"]
         == "embedding/token_residual_rms"
     )
+    assert trainer["configuration"]["num_tokens"] == 7
+    assert trainer["configuration"]["gradient_accumulation"] == 4
+    assert trainer["configuration"]["caption_mode"] == "none"
+    argv = trainer["command"]["argv"]
+    assert argv[:3] == [
+        "kef-krea2-train",
+        "training-dataset",
+        "/workspace/output",
+    ]
+    assert argv[argv.index("--steps") + 1] == "1234"
+    assert argv[argv.index("--tokens") + 1] == "7"
+    assert argv[argv.index("--gradient-accumulation") + 1] == "4"
+    assert argv[argv.index("--resolution") + 1] == "768"
+    assert argv[argv.index("--sample-interval") + 1] == "250"
+    assert argv[argv.index("--sample-steps") + 1] == "16"
+    assert argv[argv.index("--sample-resolution") + 1] == "512"
+    assert argv[argv.index("--caption-mode") + 1] == "none"
     assert manifest["telemetry"]["credential_alias"] == "portrait-wandb"
     assert manifest["backup"]["schema_version"] == "modelfiche.run-backup.v1"
     assert (

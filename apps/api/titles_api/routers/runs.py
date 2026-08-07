@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime
+from urllib.parse import urlsplit
 import re
 from typing import Annotated, Any
 
@@ -14,8 +15,11 @@ from .. import models, schemas
 from ..checkpoint_revisions import establish_checkpoint_revision
 from ..database import get_db
 from ..integrations.fal.adapters import get_adapter
+from ..training_launches import _source_allows_prefix
+from ..integrations.s3.browser import PrefixAccessError, normalize_prefix
 from ..merge_operations import merge_projection
 from ..services import active_profile, current_workspace, get_or_404, record_activity
+from ..training_metrics import MetricBatchConflict, MetricInput, MetricValidationError, ingest_metric_batch
 
 router = APIRouter()
 DB = Annotated[Session, Depends(get_db)]
@@ -23,6 +27,18 @@ DB = Annotated[Session, Depends(get_db)]
 
 def dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
+
+def _refresh_prefix(value: str, bucket: str) -> str:
+    raw = value.strip()
+    if raw.lower().startswith("s3://"):
+        parsed = urlsplit(raw)
+        if parsed.scheme.lower() != "s3" or parsed.netloc != bucket:
+            raise PrefixAccessError("run source prefix does not match its import source")
+        raw = parsed.path
+    prefix = normalize_prefix(raw)
+    if not prefix:
+        raise PrefixAccessError("run source prefix is empty")
+    return prefix
 
 def _live_projection(db: Session, run: models.TrainingRun) -> dict[str, Any]:
     summaries = db.scalars(
@@ -676,6 +692,93 @@ def run_metrics(run_id: str, db: DB, name: str = Query("loss", min_length=1, max
     }
 
 
+@router.post("/runs/{run_id}/metrics", summary="Ingest a manual metric batch")
+def ingest_run_metrics(
+    run_id: str,
+    body: schemas.ManualMetricBatch,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    actor = active_profile(db, x_profile_id)
+    points = [
+        MetricInput(
+            step=point.step,
+            name=point.name,
+            value=point.value,
+            wall_time=point.wall_time,
+            source_key=point.source_key or body.source_key,
+        )
+        for point in body.points
+    ]
+    try:
+        result = ingest_metric_batch(
+            db,
+            run.id,
+            points,
+            batch_key=body.batch_key,
+            committed_step=body.committed_step,
+            occurred_at=body.occurred_at,
+        )
+    except MetricBatchConflict as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "metric_batch_conflict", "message": str(exc)},
+        ) from exc
+    except MetricValidationError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "invalid_metric_batch", "message": str(exc)},
+        ) from exc
+    metric_names = sorted({point.name for point in points})
+    summaries = db.scalars(
+        select(models.RunMetricSummary)
+        .where(
+            models.RunMetricSummary.run_id == run.id,
+            models.RunMetricSummary.name.in_(metric_names),
+        )
+        .order_by(models.RunMetricSummary.name)
+    ).all()
+    if not result.duplicate_batch:
+        record_activity(
+            db,
+            action="run.metrics.imported",
+            subject_type="training_run",
+            subject_id=run.id,
+            profile_id=actor.id,
+            project_id=run.project_id,
+            details={
+                "batch_key": body.batch_key,
+                "inserted": result.inserted,
+                "corrected": result.corrected,
+                "unchanged": result.unchanged,
+                "metric_names": metric_names,
+            },
+        )
+    db.commit()
+    return {
+        "run_id": run.id,
+        "batch_key": body.batch_key,
+        "inserted": result.inserted,
+        "corrected": result.corrected,
+        "unchanged": result.unchanged,
+        "duplicate_batch": result.duplicate_batch,
+        "event_sequence": result.event_sequence,
+        "current_step": run.current_step,
+        "latest": {
+            summary.name: {
+                "step": summary.last_step,
+                "value": summary.last_value,
+                "value_text": summary.last_value_text,
+                "value_type": summary.value_type,
+            }
+            for summary in summaries
+        },
+    }
+
+
 @router.get("/runs/{run_id}/config")
 def run_config(run_id: str, db: DB, raw: bool = False):
     run = get_or_404(db, models.TrainingRun, run_id)
@@ -692,6 +795,7 @@ def run_config(run_id: str, db: DB, raw: bool = False):
 @router.post("/runs/{run_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
 def refresh_run(run_id: str, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
     run = get_or_404(db, models.TrainingRun, run_id)
+    project = get_or_404(db, models.Project, run.project_id)
     if not run.source_prefix:
         raise HTTPException(status_code=409, detail="run has no remote source prefix")
     source = None
@@ -699,18 +803,54 @@ def refresh_run(run_id: str, db: DB, x_profile_id: Annotated[str | None, Header(
         source = db.scalar(
             select(models.ImportSource).where(
                 models.ImportSource.id == run.origin_source_id,
+                models.ImportSource.workspace_id == project.workspace_id,
                 models.ImportSource.is_active.is_(True),
             )
         )
     if source is None:
-        source = db.scalar(select(models.ImportSource).where(models.ImportSource.is_active.is_(True)).order_by(models.ImportSource.created_at))
+        candidates = db.scalars(
+            select(models.ImportSource)
+            .where(
+                models.ImportSource.workspace_id == project.workspace_id,
+                models.ImportSource.is_active.is_(True),
+            )
+            .order_by(models.ImportSource.created_at)
+        ).all()
+        source_bucket = None
+        match_value = run.source_prefix
+        if run.source_prefix.lower().startswith("s3://"):
+            parsed = urlsplit(run.source_prefix)
+            source_bucket = parsed.netloc
+            match_value = parsed.path
+        try:
+            match_prefix = normalize_prefix(match_value)
+        except PrefixAccessError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        matches = [
+            candidate
+            for candidate in candidates
+            if (source_bucket is None or candidate.bucket == source_bucket)
+            and _source_allows_prefix(candidate, match_prefix)
+        ]
+        if len(matches) == 1:
+            source = matches[0]
+        elif len(matches) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="run source prefix matches multiple active import sources",
+            )
     if source is None:
         raise HTTPException(status_code=409, detail="no active import source is available")
+    try:
+        prefix = _refresh_prefix(run.source_prefix, source.bucket)
+    except PrefixAccessError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    run.source_prefix = prefix
     actor = active_profile(db, x_profile_id)
-    job = models.Job(workspace_id=get_or_404(db, models.Project, run.project_id).workspace_id, kind="s3.import", profile_id=actor.id, payload={"source_id": source.id, "project_id": run.project_id, "prefix": run.source_prefix, "profile_id": actor.id, "hydrate_dataset_images": False})
+    job = models.Job(workspace_id=project.workspace_id, kind="s3.import", profile_id=actor.id, payload={"source_id": source.id, "project_id": run.project_id, "prefix": prefix, "profile_id": actor.id, "hydrate_dataset_images": True})
     db.add(job)
     db.flush()
-    import_job = models.ImportJob(source_id=source.id, project_id=run.project_id, job_id=job.id, prefix=run.source_prefix, detected_type="run", state="queued")
+    import_job = models.ImportJob(source_id=source.id, project_id=run.project_id, job_id=job.id, prefix=prefix, detected_type="run", state="queued")
     db.add(import_job)
     record_activity(db, action="run.refresh_queued", subject_type="run", subject_id=run.id, profile_id=actor.id, project_id=run.project_id, details={"job_id": job.id, "import_job_id": import_job.id})
     db.commit()

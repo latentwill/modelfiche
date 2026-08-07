@@ -143,3 +143,77 @@ def test_endpoint_only_mixed_plan_api_smoke(client):
         assert session.query(models.GenerationQueueChild).filter_by(queue_item_id=queued.json()["admission_id"]).count() == 4
     assessment = client.post(f"/api/projects/{project_id}/evals", json={"name": "Review", "idempotency_key": "eval", "run_id": queued.json()["run_id"], "assessment": {"kind": "human_review"}})
     assert assessment.status_code == 201, assessment.text
+
+
+
+def test_attach_existing_asset_persists_grid_and_comfyui_metadata_idempotently(client):
+    project = client.post("/api/projects", json={"title": "ComfyUI attachment"}).json()
+    asset = client.post(
+        "/api/assets",
+        json={
+            "project_id": project["id"],
+            "kind": "image",
+            "name": "comfyui-output.png",
+            "mime_type": "image/png",
+            "metadata": {"prompt": "a portrait of a woman"},
+        },
+    ).json()
+    grid = client.post(
+        f"/api/projects/{project['id']}/grids",
+        json={"name": "Imported output", "idempotency_key": "grid-create", "plan": plan()},
+    ).json()
+    body = {
+        "asset_id": asset["id"],
+        "idempotency_key": "comfyui-cell-0",
+        "provider": "comfyui",
+        "workflow": {
+            "name": "Krea 2 ComfyUI API workflow",
+            "url": "https://workflow.example/krea2.json",
+        },
+        "seed": 42,
+        "metadata": {"sampler": "euler"},
+    }
+
+    attached = client.post(
+        f"/api/projects/{project['id']}/grids/{grid['id']}/cells/{grid['cells'][0]['id']}/attach",
+        json=body,
+    )
+    assert attached.status_code == 201, attached.text
+    payload = attached.json()
+    assert payload["asset_id"] == asset["id"]
+    assert payload["provider"] == "comfyui"
+    assert payload["workflow"]["name"] == "Krea 2 ComfyUI API workflow"
+    assert payload["status"] == "succeeded"
+
+    retry = client.post(
+        f"/api/projects/{project['id']}/grids/{grid['id']}/cells/{grid['cells'][0]['id']}/attach",
+        json=body,
+    )
+    assert retry.status_code == 201
+    assert retry.json() == payload
+
+    conflict = client.post(
+        f"/api/projects/{project['id']}/grids/{grid['id']}/cells/{grid['cells'][0]['id']}/attach",
+        json={**body, "seed": 43},
+    )
+    assert conflict.status_code == 409
+
+    with app_module.SessionLocal() as session:
+        stored_asset = session.get(models.Asset, asset["id"])
+        stored_cell = session.get(models.GridCell, grid["cells"][0]["id"])
+        stored_output = session.get(models.EvalOutput, payload["eval_output_id"])
+        assert stored_asset.metadata_["provider"] == "comfyui"
+        assert stored_asset.metadata_["generated_by"] == "comfyui"
+        assert stored_asset.metadata_["workflow"]["url"] == "https://workflow.example/krea2.json"
+        assert stored_asset.metadata_["sampler"] == "euler"
+        assert stored_cell.status == "succeeded"
+        assert stored_cell.eval_output_id == stored_output.id
+        assert stored_output.provider_metadata["source"] == "existing_asset"
+        assert stored_output.provider_metadata["grid_metadata"]["ordinal"] == 0
+        assert session.query(models.Job).filter_by(kind="grid.attach_existing_asset").count() == 1
+
+    gallery = client.get("/api/gallery", params={"project_id": project["id"], "category": "eval_output"})
+    assert gallery.status_code == 200
+    gallery_items = gallery.json()
+    gallery_asset = next(item for item in gallery_items if item["id"] == asset["id"])
+    assert gallery_asset["metadata"]["workflow"]["url"] == "https://workflow.example/krea2.json"

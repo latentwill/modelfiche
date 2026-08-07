@@ -122,7 +122,6 @@ def test_expired_signed_token_remains_valid_only_while_run_is_active(
         "/api/integrations/wandb/credentials",
         headers={"X-Profile-ID": profile["id"]},
         json={
-            "project_id": project["id"],
             "alias": "long-run-key",
             "public_key": base64.urlsafe_b64encode(public_bytes)
             .decode("ascii")
@@ -134,7 +133,6 @@ def test_expired_signed_token_remains_valid_only_while_run_is_active(
         headers={"X-Profile-ID": profile["id"]},
         json={
             "dataset_version_id": dataset["current_version_id"],
-            "wandb_credential_id": credential["id"],
             "source_id": source["id"],
             "client_request_id": "long-ingress-launch",
             "name": "long-ingress-run",
@@ -231,7 +229,6 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
         "/api/integrations/wandb/credentials",
         headers={"X-Profile-ID": profile["id"]},
         json={
-            "project_id": project["id"],
             "alias": "ingress-key",
             "public_key": public_key,
         },
@@ -241,7 +238,6 @@ def test_pinned_graphql_filestream_resume_upload_and_finish_contract(
         headers={"X-Profile-ID": profile["id"]},
         json={
             "dataset_version_id": dataset["current_version_id"],
-            "wandb_credential_id": credential["id"],
             "source_id": source["id"],
             "client_request_id": "ingress-launch-1",
             "name": "ingress-run",

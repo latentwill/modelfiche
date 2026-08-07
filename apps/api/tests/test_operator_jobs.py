@@ -96,6 +96,34 @@ def test_run_samples_include_immutable_asset_revision_id(client: TestClient):
     assert sample["training_step"] == 250
     assert sample["sample_track"] is None
 
+def test_run_refresh_normalizes_s3_uri_prefix_before_queueing_import(client: TestClient):
+    profile, project = _project(client)
+    source = client.post(
+        "/api/import-sources",
+        json={"name": "Training S3", "bucket": "training", "allowed_prefixes": ["runs/"]},
+    ).json()
+    run = client.post(
+        "/api/runs",
+        headers={"X-Profile-ID": profile["id"]},
+        json={"project_id": project["id"], "name": "Run"},
+    ).json()
+    with app_module.SessionLocal.begin() as session:
+        row = session.get(models.TrainingRun, run["id"])
+        row.source_prefix = "s3://training/runs/faces/"
+
+    response = client.post(
+        f"/api/runs/{run['id']}/refresh",
+        headers={"X-Profile-ID": profile["id"]},
+    )
+
+    assert response.status_code == 202
+    with app_module.SessionLocal() as session:
+        job = session.get(models.Job, response.json()["job_id"])
+        assert job.payload["prefix"] == "runs/faces/"
+        assert job.payload["hydrate_dataset_images"] is True
+        assert session.get(models.TrainingRun, run["id"]).source_prefix == "runs/faces/"
+
+
 def test_s3_run_import_infers_project_from_an_unambiguous_trigger(client: TestClient):
     profile = client.get("/api/profiles").json()[0]
     modern_times = client.post(
@@ -143,7 +171,7 @@ def test_s3_import_hydrates_visual_assets_for_content_and_thumbnails(client: Tes
         f"{prefix}run_state.json": b'{"status":"manual_backup_monitoring"}',
         f"{prefix}checkpoints/step-100.safetensors": b"checkpoint",
         f"{prefix}backup_monitoring/status.json": b'{}',
-        f"{prefix}samples/step-100.png": image_body,
+        f"{prefix}evaluation-samples/step-100.png": image_body,
     })
     source = client.post("/api/import-sources", json={
         "name": "Training S3", "bucket": "training", "allowed_prefixes": [prefix.split("/", 1)[0] + "/"],

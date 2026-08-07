@@ -58,9 +58,28 @@ class SQLAlchemyImportSink:
                 models.AssetLocation.provider == "s3",
                 models.AssetLocation.bucket == source.bucket,
                 models.AssetLocation.object_key == item.key,
+                models.AssetLocation.etag == item.etag,
             )
         )
-        if location:
+        if location is None:
+            location = self.session.scalar(
+                select(models.AssetLocation).where(
+                    models.AssetLocation.provider == "s3",
+                    models.AssetLocation.bucket == source.bucket,
+                    models.AssetLocation.object_key == item.key,
+                    models.AssetLocation.source_id == source.id,
+                )
+            )
+        if location is None:
+            location = self.session.scalar(
+                select(models.AssetLocation).where(
+                    models.AssetLocation.provider == "s3",
+                    models.AssetLocation.bucket == source.bucket,
+                    models.AssetLocation.object_key == item.key,
+                    models.AssetLocation.source_id.is_(None),
+                )
+            )
+        if location is not None:
             changed = location.etag != item.etag or location.size != item.size
             location.workspace_id = source.workspace_id
             location.source_id = source.id
@@ -812,7 +831,7 @@ def _stage_name(prefix: str, key: str) -> str | None:
     if len(parts) < 2:
         return None
     first = parts[0]
-    if first.lower() in {"checkpoints", "checkpoint", "samples", "sample", "logs", "config", "configs", "output", "outputs"} or _is_internal_stage(first):
+    if first.lower() in {"checkpoints", "checkpoint", "samples", "sample", "eval-sample", "eval-samples", "eval_sample", "eval_samples", "evaluation-sample", "evaluation-samples", "evaluation_sample", "evaluation_samples", "logs", "config", "configs", "output", "outputs"} or _is_internal_stage(first):
         return None
     return first
 
@@ -862,7 +881,7 @@ def _normalize_config(manifest: dict[str, Any], state: dict[str, Any]) -> dict[s
 
 def _is_metric_source(key: str) -> bool:
     name = PurePosixPath(key).name.lower()
-    return name in {"aitk_db.db", "loss_log.db", "log.txt", "train.log", "training.log"} or name.startswith("events.out.tfevents.")
+    return name in {"aitk_db.db", "loss_log.db", "log.txt", "metrics.jsonl", "train.log", "training.log"} or name.startswith("events.out.tfevents.")
 
 
 

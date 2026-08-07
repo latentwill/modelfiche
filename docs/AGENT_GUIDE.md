@@ -174,9 +174,12 @@ Do not infer success solely from object counts in progress output.
 
 ## Training recipe
 
-The default trainer transport is outbound object storage:
+The default trainer transport is outbound object storage. Modelfiche uses one
+W&B signing key for every workspace and project. Do not create or select a
+project-specific signing credential.
 
 ```bash
+mfiche --json training setup
 mfiche --json training doctor
 mfiche --json training run preflight "$LAUNCH_ID"
 mfiche --json training run prepare "$LAUNCH_ID" \

@@ -10,6 +10,47 @@ from titles_api.routers import datasets
 from titles_api.settings import get_settings
 
 
+def test_s3_asset_registration_binds_unique_source_and_verifies_digest(client: TestClient):
+    project = client.post("/api/projects", json={"title": "Remote grid"}).json()
+    source = client.post(
+        "/api/import-sources",
+        json={"name": "Grid S3", "bucket": "mediatest", "allowed_prefixes": ["grids/"]},
+    ).json()
+    digest = "a" * 64
+
+    response = client.post(
+        "/api/assets",
+        json={
+            "project_id": project["id"],
+            "kind": "image",
+            "name": "grid.png",
+            "mime_type": "image/png",
+            "sha256": digest,
+            "location": {
+                "provider": "s3",
+                "uri": "s3://mediatest/grids/grid.png",
+                "bucket": "mediatest",
+                "object_key": "grids/grid.png",
+                "size": 12,
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    asset = response.json()
+    with app_module.SessionLocal() as session:
+        row = session.get(models.Asset, asset["id"])
+        assert row is not None
+        location = row.locations[0]
+        assert location.workspace_id == row.workspace_id
+        assert location.source_id == source["id"]
+        assert location.object_key == "grids/grid.png"
+        assert location.verification_state == "available"
+        assert location.verified_size == 12
+        assert location.verified_sha256 == digest
+        assert row.content_blob_id is not None
+
+
 def test_run_metrics_endpoint_returns_sorted_loss_points(client: TestClient):
     profile = client.get("/api/profiles").json()[0]
     project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Metrics"}).json()
@@ -35,6 +76,107 @@ def test_run_metrics_endpoint_returns_sorted_loss_points(client: TestClient):
         "final_value": 0.5,
         "source_key": None,
     }
+
+
+def test_manual_run_metrics_endpoint_is_idempotent_and_updates_loss_summary(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    headers = {"X-Profile-ID": profile["id"]}
+    project = client.post("/api/projects", headers=headers, json={"title": "Manual metrics"}).json()
+    run = client.post(
+        "/api/runs",
+        headers=headers,
+        json={"project_id": project["id"], "name": "manual-metrics-run"},
+    ).json()
+    payload = {
+        "batch_key": "metrics-jsonl-sha256-abc123",
+        "committed_step": 200,
+        "occurred_at": "2026-08-04T06:18:44Z",
+        "source_key": "s3://training/run/telemetry/metrics.jsonl",
+        "points": [
+            {"step": 100, "value": 0.75, "wall_time": 10.0},
+            {"step": 200, "value": 0.25, "wall_time": 20.0},
+            {"step": 200, "name": "learning_rate", "value": 0.0001, "wall_time": 20.0},
+        ],
+    }
+
+    created = client.post(f"/api/runs/{run['id']}/metrics", headers=headers, json=payload)
+
+    assert created.status_code == 200
+    assert created.json() == {
+        "run_id": run["id"],
+        "batch_key": "metrics-jsonl-sha256-abc123",
+        "inserted": 3,
+        "corrected": 0,
+        "unchanged": 0,
+        "duplicate_batch": False,
+        "event_sequence": 1,
+        "current_step": 200,
+        "latest": {
+            "learning_rate": {
+                "step": 200,
+                "value": 0.0001,
+                "value_text": None,
+                "value_type": "number",
+            },
+            "loss": {
+                "step": 200,
+                "value": 0.25,
+                "value_text": None,
+                "value_type": "number",
+            },
+        },
+    }
+    loss = client.get(f"/api/runs/{run['id']}/metrics", params={"name": "loss"}).json()
+    assert loss["points"] == [
+        {"step": 100, "value": 0.75, "wall_time": 10.0},
+        {"step": 200, "value": 0.25, "wall_time": 20.0},
+    ]
+    assert loss["source_key"] == "s3://training/run/telemetry/metrics.jsonl"
+    live = client.get(f"/api/runs/{run['id']}/live").json()
+    assert live["latest_loss"]["name"] == "loss"
+    assert live["latest_loss"]["step"] == 200
+    assert live["latest_loss"]["value"] == 0.25
+    assert live["latest_loss"]["value_text"] is None
+    assert live["latest_loss"]["value_type"] == "number"
+    assert live["latest_loss"]["minimum"] == 0.25
+    assert live["latest_loss"]["maximum"] == 0.75
+    assert live["latest_loss"]["updated_at"]
+
+    replay = client.post(f"/api/runs/{run['id']}/metrics", headers=headers, json=payload)
+    assert replay.status_code == 200
+    assert replay.json()["duplicate_batch"] is True
+    assert replay.json()["inserted"] == 0
+    assert replay.json()["corrected"] == 0
+    assert replay.json()["unchanged"] == 3
+
+    extended = client.post(
+        f"/api/runs/{run['id']}/metrics",
+        headers=headers,
+        json={
+            **payload,
+            "batch_key": "metrics-jsonl-sha256-def456",
+            "committed_step": 300,
+            "points": [
+                {"step": 100, "value": 0.75, "wall_time": 10.0},
+                {"step": 200, "value": 0.25, "wall_time": 20.0},
+                {"step": 300, "value": 0.125, "wall_time": 30.0},
+            ],
+        },
+    )
+    assert extended.status_code == 200
+    assert extended.json()["inserted"] == 1
+    assert extended.json()["unchanged"] == 2
+    assert extended.json()["current_step"] == 300
+    assert extended.json()["latest"]["loss"]["step"] == 300
+    assert extended.json()["latest"]["loss"]["value"] == 0.125
+
+    conflict = client.post(
+        f"/api/runs/{run['id']}/metrics",
+        headers=headers,
+        json={**payload, "points": [{"step": 200, "value": 0.2}]},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "metric_batch_conflict"
 
 
 def test_checkpoint_and_model_version_establish_revision_for_fal_admission(client: TestClient):

@@ -41,11 +41,11 @@ def training_setup(db: DB):
     workspace = current_workspace(db)
     credentials = db.scalars(
         select(models.WandbIngestCredential)
-        .where(
-            models.WandbIngestCredential.workspace_id == workspace.id,
-            models.WandbIngestCredential.state == "active",
+        .where(models.WandbIngestCredential.state == "active")
+        .order_by(
+            models.WandbIngestCredential.created_at,
+            models.WandbIngestCredential.id,
         )
-        .order_by(models.WandbIngestCredential.alias)
     ).all()
     sources = db.scalars(
         select(models.ImportSource)
@@ -61,7 +61,7 @@ def training_setup(db: DB):
         {
             "code": "SIGNING_CREDENTIAL",
             "status": "pass" if credentials else "blocked",
-            "message": f"{len(credentials)} active signing credential(s)." if credentials else "No active training signing credential.",
+            "message": "The global W&B signing key is active." if credentials else "The global W&B signing key is not authenticated.",
             "fix": None if credentials else "Run `mfiche training setup`.",
         },
         {
@@ -81,7 +81,7 @@ def training_setup(db: DB):
         "ready": all(item["status"] == "pass" for item in checks),
         "checks": checks,
         "credentials": [
-            {"id": item.id, "alias": item.alias, "project_id": item.project_id, "key_id": item.key_id}
+            {"id": item.id, "alias": item.alias, "scope": "global", "key_id": item.key_id}
             for item in credentials
         ],
         "sources": [
@@ -98,10 +98,7 @@ def training_setup(db: DB):
 
 
 def _resolve_live_telemetry(requested: bool | None, configured_ingress: str | None) -> bool:
-    ingress_ready = bool(configured_ingress and configured_ingress.startswith("https://"))
-    if requested is True and not ingress_ready:
-        raise HTTPException(status_code=409, detail="live telemetry requires a configured HTTPS W&B ingress")
-    return ingress_ready if requested is None else requested
+    return bool(configured_ingress) if requested is None else requested
 
 
 @router.post("/training-launches", status_code=status.HTTP_201_CREATED)
@@ -114,7 +111,6 @@ def create_launch(
 ):
     workspace = current_workspace(db)
     get_or_404(db, models.DatasetVersion, body.dataset_version_id)
-    get_or_404(db, models.WandbIngestCredential, body.wandb_credential_id)
     if body.source_id:
         get_or_404(db, models.ImportSource, body.source_id)
     actor = active_profile(db, x_profile_id)
@@ -128,13 +124,17 @@ def create_launch(
                 workspace_id=workspace.id,
                 profile_id=actor.id,
                 dataset_version_id=body.dataset_version_id,
-                credential_id=body.wandb_credential_id,
                 source_id=body.source_id,
                 client_request_id=body.client_request_id,
                 name=body.name,
                 trainer=body.trainer,
                 base_model=body.base_model,
                 output_directory=body.output_directory,
+                training_config=(
+                    body.training_config.model_dump()
+                    if body.training_config is not None
+                    else None
+                ),
                 checkpoint_policy=body.checkpoint_policy,
                 backup_policy=body.backup_policy,
                 supported_endpoint_ids=body.supported_endpoint_ids,

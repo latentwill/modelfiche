@@ -197,7 +197,7 @@ describe("gallery navigation contracts", () => {
       const body = path.includes("/api/gallery/context")
         ? { items: [asset], current: asset, previous: null, next: null }
         : path.includes("/api/assets/sample-1/context")
-          ? { metadata: { origin_type: "SAMPLE", lora: { scale: 0.65 }, relationships: { model: { name: "Fine tune" }, checkpoint: { name: "step 1200" }, base_model: { name: "Flux" }, training_run: { name: "run-1" } } }, image: { width: 640, height: 480 }, storage: [] }
+          ? { metadata: { origin_type: "SAMPLE", provider: "comfyui", workflow: { name: "Krea 2 ComfyUI API workflow", url: "https://workflow.example/krea2.json" }, lora: { scale: 0.65 }, relationships: { model: { name: "Fine tune" }, checkpoint: { name: "step 1200" }, base_model: { name: "Flux" }, training_run: { name: "run-1" } } }, image: { width: 640, height: 480 }, storage: [] }
           : path.includes("/api/assets/sample-1")
             ? asset
             : [];
@@ -208,7 +208,8 @@ describe("gallery navigation contracts", () => {
 
     const dialog = await screen.findByRole("dialog", { name: /^Image review/ });
     const metadataFields = Array.from(dialog.querySelectorAll("dt"), field => field.textContent);
-    expect(metadataFields).toEqual(expect.arrayContaining(["Model", "Model version", "Checkpoint", "Step", "Base model", "Training run", "LoRA scale", "Provider"]));
+    expect(metadataFields).toEqual(expect.arrayContaining(["Model", "Model version", "Checkpoint", "Step", "Base model", "Training run", "LoRA scale", "Provider", "Workflow"]));
+    expect(screen.getByRole("link", { name: "Krea 2 ComfyUI API workflow" })).toHaveAttribute("href", "https://workflow.example/krea2.json");
     expect(metadataFields).not.toContain("File");
   });
   it("routes activity image links through the canonical gallery reviewer", async () => {

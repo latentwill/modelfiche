@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from titles_api import models
 from titles_api.database import Base
 from titles_api.integrations.s3.detection import DetectionResult, PrefixKind
-from titles_api.integrations.s3.importer import ImportContext, ImportResult
+from titles_api.integrations.s3.importer import ImportContext, ImportResult, _should_read_small, classify_object
 from titles_api.integrations.s3.models import ObjectInfo
 from titles_api.integrations.s3.sqlalchemy_sink import SQLAlchemyImportSink
 
@@ -37,7 +37,7 @@ def test_import_persists_loss_metrics_and_verifies_checksum_backed_remote_locati
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     prefix = "projects/title/runs/track-c/"
-    image_key = prefix + "samples/step-2.png"
+    image_key = prefix + "evaluation-samples/step-2.png"
     checksum = "a" * 64
     with Session(engine) as session:
         workspace = models.Workspace(name="test")
@@ -65,9 +65,10 @@ def test_import_persists_loss_metrics_and_verifies_checksum_backed_remote_locati
             f"{checksum}  {image_key}\n".encode(),
         )
         sink.save_source_snapshot(source.id, prefix + "loss_log.db", _loss_log_bytes())
+        sink.save_source_snapshot(source.id, prefix + "metrics.jsonl", b'{"step": 4, "loss": 0.125}\n')
         sink.save_source_snapshot(source.id, prefix + "train.log", b'{"step": 3, "loss": 0.25}\n')
         detection = DetectionResult(PrefixKind.TRAINING_RUN, 1.0, (), (), {"manifest": {}})
-        sink.finalize_import(ImportContext(source.id, project.id, prefix), ImportResult(detection, 1, 1, 0, 0, 2, ()))
+        sink.finalize_import(ImportContext(source.id, project.id, prefix), ImportResult(detection, 1, 1, 0, 0, 3, ()))
 
         asset = session.get(models.Asset, asset_id)
         location = session.scalar(select(models.AssetLocation).where(models.AssetLocation.asset_id == asset_id))
@@ -80,7 +81,106 @@ def test_import_persists_loss_metrics_and_verifies_checksum_backed_remote_locati
         assert location.source_id == source.id
         assert location.verification_state == "available"
         assert location.verified_sha256 == checksum
-        assert [(metric.name, metric.step, metric.value) for metric in metrics] == [("loss", 1, 1.5), ("loss", 2, 0.75), ("loss", 3, 0.25)]
+        assert [(metric.name, metric.step, metric.value) for metric in metrics] == [
+            ("loss", 1, 1.5),
+            ("loss", 2, 0.75),
+            ("loss", 3, 0.25),
+            ("loss", 4, 0.125),
+        ]
+        assert session.scalar(
+            select(models.TrainingStage).where(
+                models.TrainingStage.run_id == session.scalar(select(models.TrainingRun.id)),
+                models.TrainingStage.name == "evaluation-samples",
+            )
+        ) is None
+
+
+def test_evaluation_sample_path_is_classified_as_a_training_sample():
+    assert classify_object(
+        ObjectInfo(key="projects/title/runs/track-c/evaluation-samples/step-500.png", size=256, etag="etag"),
+        PrefixKind.TRAINING_RUN,
+    ) == "sample"
+
+
+
+def test_import_prefers_matching_location_over_legacy_duplicate():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    key = "projects/title/runs/track-c/evaluation-samples/step-500.png"
+    with Session(engine) as session:
+        workspace = models.Workspace(name="test")
+        project = models.Project(workspace_id=workspace.id, title="title")
+        source = models.ImportSource(
+            workspace_id=workspace.id,
+            name="training",
+            provider="s3",
+            bucket="bucket",
+            allowed_prefixes=["projects/"],
+            addressing_style="auto",
+            credential_env_prefix="S3",
+        )
+        legacy_asset = models.Asset(
+            workspace_id=workspace.id,
+            kind=models.AssetKind.image,
+            name="step-500.png",
+            metadata_={"category": "dataset_image"},
+        )
+        current_asset = models.Asset(
+            workspace_id=workspace.id,
+            kind=models.AssetKind.image,
+            name="step-500.png",
+            metadata_={"category": "sample"},
+        )
+        session.add_all([workspace, project, source, legacy_asset, current_asset])
+        session.flush()
+        session.add_all([
+            models.AssetLocation(
+                asset_id=legacy_asset.id,
+                workspace_id=workspace.id,
+                provider="s3",
+                uri=f"s3://bucket/{key}",
+                bucket="bucket",
+                object_key=key,
+                etag=None,
+                hydration_state="remote",
+            ),
+            models.AssetLocation(
+                asset_id=current_asset.id,
+                workspace_id=workspace.id,
+                provider="s3",
+                uri=f"s3://{source.id}/{key}",
+                bucket="bucket",
+                object_key=key,
+                etag="etag",
+                source_id=source.id,
+                size=256,
+                hydration_state="remote",
+            ),
+        ])
+        session.flush()
+
+        sink = SQLAlchemyImportSink(session)
+        selected = sink.upsert_remote_object(
+            source.id,
+            ObjectInfo(key=key, size=256, etag="etag"),
+            category="sample",
+        )
+        session.flush()
+
+        locations = list(session.scalars(select(models.AssetLocation).where(models.AssetLocation.object_key == key)))
+        assert selected == current_asset.id
+        assert any(
+            location.asset_id == legacy_asset.id
+            and location.source_id is None
+            and location.etag is None
+            for location in locations
+        )
+
+def test_metrics_jsonl_is_read_as_a_small_training_run_source():
+    assert _should_read_small(
+        ObjectInfo(key="projects/title/runs/track-c/telemetry/metrics.jsonl", size=256, etag="etag"),
+        PrefixKind.TRAINING_RUN,
+    )
 def test_overlapping_checkpoint_steps_are_preserved_per_stage():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

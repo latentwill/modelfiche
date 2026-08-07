@@ -103,10 +103,10 @@ class AssetLocationCreate(BaseModel):
     object_key: str | None = None
     etag: str | None = None
     size: int | None = Field(default=None, ge=0)
+    source_id: str | None = None
     hydration_state: Literal["remote", "cached", "hydrated", "remote_missing"] = (
         "remote"
     )
-
 
 class AssetLocationOut(ORMModel):
     id: str
@@ -292,16 +292,56 @@ class DatasetSubsetAssignment(BaseModel):
 class WandbCredentialCreate(BaseModel):
     alias: str = Field(min_length=1, max_length=120)
     public_key: str = Field(min_length=40, max_length=128)
-    project_id: str | None = None
 
 
 class WandbCredentialRotate(BaseModel):
     public_key: str = Field(min_length=40, max_length=128)
 
 
+class KefKrea2TrainingConfig(BaseModel):
+    steps: int = Field(default=8000, ge=1, le=10_000_000)
+    num_tokens: int = Field(default=5, ge=1, le=128)
+    learning_rate: float = Field(default=5e-4, gt=0, le=1)
+    batch_size: int = Field(default=1, ge=1, le=64)
+    gradient_accumulation: int = Field(default=1, ge=1, le=1024)
+    resolution: int = Field(default=512, ge=64, le=4096, multiple_of=16)
+    max_sequence_length: int = Field(default=512, ge=1, le=4096)
+    seed: int = Field(default=42, ge=0, le=2**63 - 1)
+    checkpoint_interval: int = Field(default=500, ge=1)
+    log_interval: int = Field(default=10, ge=1)
+    sample_interval: int | None = Field(default=None, ge=1)
+    sample_steps: int = Field(default=28, ge=1)
+    sample_resolution: int = Field(default=512, ge=64, le=4096, multiple_of=16)
+    dtype: Literal["bf16", "fp16", "fp32"] = "bf16"
+    caption_mode: Literal["paired", "random", "none"] = "paired"
+    transformer_storage_dtype: Literal["fp8", "native"] = "fp8"
+    gradient_checkpointing: bool = True
+    low_vram: bool = False
+    compile_transformer: bool = True
+    preload_cache: bool = True
+    timestep_distribution: Literal["shifted_logit_normal", "uniform"] = (
+        "shifted_logit_normal"
+    )
+    model_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    timestep_mu: float = 0.0
+    timestep_sigma: float = Field(default=1.0, gt=0)
+    resolution_shift: bool = True
+    base_image_seq_len: int = Field(default=256, ge=1)
+    max_image_seq_len: int = Field(default=6400, ge=1)
+    base_shift: float = 0.5
+    max_shift: float = 1.15
+    caption_extension: str = Field(default=".txt", pattern=r"^\.[A-Za-z0-9]+$")
+    rebuild_cache: bool = False
+
+    @model_validator(mode="after")
+    def validate_memory_profile(self):
+        if self.low_vram and self.transformer_storage_dtype != "fp8":
+            raise ValueError("low_vram requires FP8 transformer storage")
+        return self
+
+
 class TrainingLaunchCreate(BaseModel):
     dataset_version_id: str
-    wandb_credential_id: str
     source_id: str
     client_request_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=240)
@@ -313,6 +353,15 @@ class TrainingLaunchCreate(BaseModel):
     supported_endpoint_ids: list[str] = Field(default_factory=list)
     expected_duration_seconds: int = Field(default=604800, ge=300, le=2592000)
     live_telemetry: bool | None = None
+    training_config: KefKrea2TrainingConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_trainer_config(self):
+        if self.trainer == "kef-krea2" and self.training_config is None:
+            self.training_config = KefKrea2TrainingConfig()
+        if self.trainer != "kef-krea2" and self.training_config is not None:
+            raise ValueError("training_config is only supported by kef-krea2")
+        return self
 
 
 class RunCreate(BaseModel):
@@ -720,6 +769,22 @@ class SampleCreate(BaseModel):
     generation_metadata: dict[str, Any] = {}
 
 
+class ManualMetricPoint(BaseModel):
+    step: int = Field(ge=0, le=2_147_483_647)
+    name: str = Field(default="loss", min_length=1, max_length=120)
+    value: float | int | str | bool | None
+    wall_time: float | None = None
+    source_key: str | None = Field(default=None, max_length=1024)
+
+
+class ManualMetricBatch(BaseModel):
+    batch_key: str = Field(min_length=1, max_length=128)
+    points: list[ManualMetricPoint] = Field(min_length=1, max_length=10_000)
+    committed_step: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    occurred_at: datetime | None = None
+    source_key: str | None = Field(default=None, max_length=1024)
+
+
 class ModelCreate(BaseModel):
     project_id: str
     name: str
@@ -852,6 +917,30 @@ class GridQueueRequest(BaseModel):
     plan_version: int = Field(ge=1)
     plan_digest: str = Field(min_length=8, max_length=80)
     cell_ordinals: list[int] | None = None
+
+
+class GridWorkflowLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=240)
+    url: AnyHttpUrl | None = None
+    asset_id: str | None = Field(default=None, min_length=1, max_length=36)
+
+    @model_validator(mode="after")
+    def require_reference(self):
+        if self.url is None and self.asset_id is None:
+            raise ValueError("workflow must include a URL or workflow asset_id")
+        return self
+
+
+class GridCellAttachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=36)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    provider: str = Field(default="comfyui", min_length=1, max_length=64)
+    workflow: GridWorkflowLink | None = None
+    seed: int | None = None
+    generated_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvalCreateRequest(BaseModel):

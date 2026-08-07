@@ -63,61 +63,67 @@ The public reverse proxy must route W&B SDK paths to the ingress service:
 ```
 
 `TITLES_WANDB_INGRESS_BASE_URL` is optional. When it contains an externally
-reachable HTTPS origin, new training launches enable live W&B-compatible
-telemetry automatically; callers can still set `live_telemetry: false` for an
-individual launch. Explicitly requiring live telemetry without a configured
-HTTPS ingress is rejected before launch creation. Without an ingress URL, the
-default trainer packet remains outbound-only object storage and does not
-require a public tunnel. Multi-process live-ingress deployments should use
-Postgres; SQLite remains appropriate for the default local object-storage
-workflow.
+reachable origin, new training launches enable live W&B-compatible telemetry
+automatically; callers can still set `live_telemetry: false` for an individual
+launch. A caller can set `live_telemetry: true` without this setting; the
+launch then uses the operator API request origin. Multi-process live-ingress
+deployments should use Postgres; SQLite remains appropriate for the default
+local object-storage workflow.
 
 The examples below use the installed `mfiche` command. In a checkout without
 that entry point on `PATH`, use the equivalent `uv run mfiche ...` command.
 
-## One-time signing credential setup
+## One-time global signing-key setup
 
-The DAM stores only an Ed25519 public key. Generate the private key locally:
+Modelfiche uses one Ed25519 signing key for all workspaces and projects. Run
+the guided setup once:
+
+```bash
+mfiche --json training setup
+```
+
+The command creates
+`$HOME/.config/modelfiche/ai-toolkit-signing.key` with mode `0600` and registers
+only its public key. If a different global public key is already registered,
+the command rotates it to the local key instead of requiring a project- or
+workspace-specific credential.
+
+To manage the key manually, generate a private key and register its public
+key:
 
 ```bash
 mfiche --json wandb key generate \
   --private-key-output "$HOME/.config/modelfiche/ai-toolkit-signing.key"
+mfiche --json wandb credential register --public-key <public-key>
 ```
 
-The command:
-
-- writes an unpadded URL-safe base64 private key with mode `0600`;
-- refuses to overwrite an existing private-key file;
-- prints the corresponding public key, never the private key.
-
-Register the returned `public_key`:
-
-```bash
-mfiche --json wandb credential register \
-  --alias ai-toolkit-production \
-  --project-id <project-id> \
-  --public-key <public-key>
-```
-
-Recover the public key from an existing private key without contacting the DAM:
+Recover the public key from an existing private key without contacting
+Modelfiche:
 
 ```bash
 mfiche --json wandb key public \
   --private-key-file "$HOME/.config/modelfiche/ai-toolkit-signing.key"
 ```
 
-Store the private-key file in the operator's secret manager or encrypted trainer provisioning system. Never include it in launch JSON, environment logs, repository files, container images, or API requests. Rotation installs a new public key and invalidates tokens signed by the previous key.
+Store the private-key file in the operator's secret manager or encrypted
+trainer provisioning system. Never include it in launch JSON, environment
+logs, repository files, container images, or API requests. Rotation installs
+a new global public key and invalidates tokens signed by the previous key.
 
 ## Create a training launch
 
-A launch binds one dataset version, one W&B credential, one writable S3 source, one trainer (`ai-toolkit` or `kef-krea2`), and one expected DAM run. Use a caller-generated `client_request_id`; retrying the same request is idempotent. Create one Modelfiche launch per kef-krea2 grid member so each DAM run has one monotonic step sequence.
+A launch automatically uses the one global W&B signing key. It binds one
+dataset version, one writable S3 source, one trainer (`ai-toolkit` or
+`kef-krea2`), and one expected Modelfiche run. Use a caller-generated
+`client_request_id`; retrying the same request is idempotent. Create one
+Modelfiche launch per kef-krea2 grid member so each Modelfiche run has one
+monotonic step sequence.
 
 Create `launch.json`:
 
 ```json
 {
   "dataset_version_id": "<dataset-version-id>",
-  "wandb_credential_id": "<credential-id>",
   "source_id": "<writable-s3-source-id>",
   "client_request_id": "agent-job-2026-07-13-001",
   "name": "portrait-lora-v4",
@@ -206,22 +212,37 @@ set +a
 python run.py <ai-toolkit-config.yaml>
 ```
 
-For Krea 2 embeddings, create the launch with `"trainer": "kef-krea2"` (or
-`mfiche training run create --trainer kef-krea2`), install the pinned
-`wandb==0.28.0` training extra, and source the same generated environment:
+For Krea 2 embeddings, create the launch with `"trainer": "kef-krea2"` or use
+the editable CLI settings:
 
 ```bash
-set -a
-. /run/secrets/modelfiche-training.env
-set +a
-kef-krea2-train <finalized-image-dir> <launch-output-directory> \
+mfiche training run create \
+  --dataset <dataset-id-or-name> \
   --name <launch-name> \
+  --trainer kef-krea2 \
+  --base-model krea/Krea-2-Raw \
+  --steps 8000 \
+  --tokens 5 \
+  --gradient-accumulation 4 \
+  --sample-interval 250 \
+  --caption-mode random \
   --model-revision <RAW_MODEL_COMMIT>
 ```
 
+Use `--caption-mode none` when the Krea run must ignore captions. This changes
+only Krea conditioning; the W&B telemetry contract is unchanged.
+
+The generated `kef-krea2-training.json` records the validated launch
+configuration and exact `kef-krea2-train` argument vector. Install the pinned
+`wandb==0.28.0` training extra, extract the packet dataset into
+`training-dataset`, source `trainer.env`, then start that recorded command.
+
 Calling `agent-environment` without `--output` writes the secret-bearing shell environment to stdout. This is intentional for process substitution, but agents should prefer a `0600` file to avoid accidental transcript capture.
 
-The token is scoped to the credential, workspace, project, launch, DAM run, and W&B run ID. It also has issued-at and expiry claims. A mismatched, expired, rotated, or revoked token is rejected.
+The global key signs a token that identifies its workspace, project, launch,
+Modelfiche run, and W&B run ID. It also has issued-at and expiry claims. An
+invalid signature, expired token, rotated key, or revoked key is rejected as
+unauthenticated.
 
 ## Agent-oriented observation commands
 

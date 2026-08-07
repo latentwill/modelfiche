@@ -183,6 +183,10 @@ mfiche --json training run prepare <launch-id> \
   --output ./modelfiche-training-packet
 ```
 
+`training setup` creates or reconciles the single W&B signing key used by all
+Modelfiche workspaces and projects. Training launches select it automatically;
+do not register a separate key for each project.
+
 See [docs/CLI.md](docs/CLI.md) for complete workflow examples and
 [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) for the non-interactive contract.
 

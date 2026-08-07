@@ -115,7 +115,7 @@ describe("useRunLive", () => {
     expect(source.closed).toBe(true);
   });
 
-  it.each(["interrupted", "canceled", "cancelled"])("does not open an event stream for an already-terminal %s snapshot", async status => {
+  it.each(["succeeded", "failed", "interrupted", "canceled", "cancelled"])("does not open an event stream for an already-terminal %s snapshot", async status => {
     vi.stubGlobal("fetch", vi.fn(async () => response({ run_id: "run-1", status, current_step: 3 })));
 
     render(<Harness />);

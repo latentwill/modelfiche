@@ -72,6 +72,7 @@ _SMALL_SOURCE_NAMES = {
     "checksums.sha256",
     "loss_log.db",
     "log.txt",
+    "metrics.jsonl",
     "run_manifest.json",
     "run_state.json",
     "train.yaml",
@@ -80,6 +81,19 @@ _SMALL_SOURCE_NAMES = {
     "training.log",
     "training_args.json",
 }
+
+_SAMPLE_DIRECTORY_NAMES = frozenset({
+    "eval-sample",
+    "eval-samples",
+    "eval_sample",
+    "eval_samples",
+    "evaluation-sample",
+    "evaluation-samples",
+    "evaluation_sample",
+    "evaluation_samples",
+    "sample",
+    "samples",
+})
 
 
 class S3Importer:
@@ -148,7 +162,7 @@ def classify_object(item: ObjectInfo, kind: PrefixKind) -> str:
     if ext == ".safetensors":
         return "checkpoint"
     if ext in {".jpg", ".jpeg", ".png", ".webp", ".avif", ".tif", ".tiff"}:
-        return "sample" if kind == PrefixKind.TRAINING_RUN and "samples" in parts else "dataset_image"
+        return "sample" if kind == PrefixKind.TRAINING_RUN and parts & _SAMPLE_DIRECTORY_NAMES else "dataset_image"
     if name in {"run_manifest.json", "run_state.json"}:
         return "run_metadata"
     if name in _SMALL_SOURCE_NAMES or name.startswith("events.out.tfevents."):

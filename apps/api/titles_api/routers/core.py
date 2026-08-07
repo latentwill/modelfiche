@@ -2,6 +2,7 @@ from typing import Annotated, Any
 
 from pathlib import Path
 import re
+from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse, JSONResponse
@@ -16,6 +17,8 @@ from ..image_provenance import normalize_fal_image_metadata
 from ..asset_cache import AssetCache
 from ..integrations.config import CacheSettings
 from ..settings import get_settings
+from ..integrations.s3.browser import PrefixAccessError, normalize_prefix
+from ..storage.repository import StorageRepository
 
 router = APIRouter()
 DB = Annotated[Session, Depends(get_db)]
@@ -23,6 +26,66 @@ DB = Annotated[Session, Depends(get_db)]
 
 def profile_for(db: Session, profile_id: str | None) -> models.UserProfile:
     return active_profile(db, profile_id)
+
+def _s3_object_key(location: schemas.AssetLocationCreate) -> str | None:
+    if location.object_key:
+        return normalize_prefix(location.object_key).rstrip("/")
+    parsed = urlparse(location.uri)
+    if parsed.scheme == "s3":
+        return normalize_prefix(unquote(parsed.path.lstrip("/"))).rstrip("/")
+    return None
+
+
+def _source_allows_key(source: models.ImportSource, key: str) -> bool:
+    roots = tuple(normalize_prefix(value).rstrip("/") for value in (source.allowed_prefixes or ()))
+    return not roots or any(key == root or key.startswith(f"{root}/") for root in roots)
+
+
+def _resolve_s3_source(
+    db: Session,
+    workspace_id: str,
+    location: schemas.AssetLocationCreate,
+) -> tuple[models.ImportSource | None, str | None]:
+    if location.provider != "s3":
+        return None, None
+    try:
+        key = _s3_object_key(location)
+    except PrefixAccessError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    candidates = list(
+        db.scalars(
+            select(models.ImportSource).where(
+                models.ImportSource.workspace_id == workspace_id,
+                models.ImportSource.provider == "s3",
+                models.ImportSource.is_active.is_(True),
+                models.ImportSource.bucket == location.bucket,
+            )
+        )
+    ) if location.bucket else []
+    if location.source_id:
+        source = db.scalar(
+            select(models.ImportSource).where(
+                models.ImportSource.id == location.source_id,
+                models.ImportSource.workspace_id == workspace_id,
+                models.ImportSource.provider == "s3",
+                models.ImportSource.is_active.is_(True),
+            )
+        )
+        if source is None:
+            raise HTTPException(status_code=422, detail="active S3 source is unavailable")
+        if location.bucket and location.bucket != source.bucket:
+            raise HTTPException(status_code=422, detail="S3 location bucket does not match its source")
+        if key is None or not _source_allows_key(source, key):
+            raise HTTPException(status_code=422, detail="S3 object is outside the source's allowed prefixes")
+        return source, key
+    if key is None:
+        return None, None
+    allowed = [source for source in candidates if _source_allows_key(source, key)]
+    if len(allowed) == 1:
+        return allowed[0], key
+    if len(candidates) == 1:
+        raise HTTPException(status_code=422, detail="S3 object is outside the source's allowed prefixes")
+    return None, key
 
 
 def available_workspace_slug(db: Session, name: str) -> str:
@@ -588,8 +651,14 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
         assign("checkpoint_id", checkpoint.id if checkpoint else None, "eval-sample")
         assign("checkpoint_name", f"step {checkpoint.step}" if checkpoint else None, "eval-sample")
         assign("checkpoint_revision_id", version.checkpoint_revision_id if version else None, "eval-sample")
-        assign("provider", output.provider_metadata.get("provider") if isinstance(output.provider_metadata, dict) else None, "eval-sample")
+        provider = output.provider_metadata.get("provider") if isinstance(output.provider_metadata, dict) else None
+        workflow = output.provider_metadata.get("workflow") if isinstance(output.provider_metadata, dict) else None
+        assign("provider", provider, "eval-sample")
         metadata.update({key: value for key, value in {
+            "generated_by": provider,
+            "workflow": workflow,
+            "workflow_url": workflow.get("url") if isinstance(workflow, dict) else None,
+            "workflow_asset_id": workflow.get("asset_id") if isinstance(workflow, dict) else None,
             "generated_at": output.generated_at, "eval_name": definition.name if definition else None,
             "endpoint": definition.endpoint if definition else None,
             "prompt": prompt.text if prompt else None, "seed": output.seed,
@@ -641,12 +710,37 @@ def _gallery_asset_metadata(db: Session, asset: models.Asset) -> dict:
 
 @router.post("/assets", response_model=schemas.AssetOut, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def create_asset(body: schemas.AssetCreate, db: DB, x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None):
+    workspace = current_workspace(db)
     data = body.model_dump(exclude={"location", "metadata"})
-    asset = models.Asset(workspace_id=current_workspace(db).id, metadata_=body.metadata, **data)
+    asset = models.Asset(workspace_id=workspace.id, metadata_=body.metadata, **data)
     db.add(asset)
     db.flush()
     if body.location:
-        db.add(models.AssetLocation(asset_id=asset.id, **body.location.model_dump()))
+        location_data = body.location.model_dump()
+        source, key = _resolve_s3_source(db, workspace.id, body.location)
+        if source is not None:
+            location_data.update(
+                workspace_id=workspace.id,
+                source_id=source.id,
+                source_revision_fingerprint=source.identity_fingerprint,
+                bucket=source.bucket,
+            )
+            if key is not None:
+                location_data["object_key"] = key
+            if body.sha256 is not None and location_data.get("size") is not None:
+                StorageRepository(db, workspace.id).attach_verified_remote_location(
+                    asset_id=asset.id,
+                    source_id=source.id,
+                    object_key=key or str(location_data["object_key"]),
+                    etag=location_data.get("etag"),
+                    size=int(location_data["size"]),
+                    sha256=body.sha256,
+                    mime_type=asset.mime_type or "application/octet-stream",
+                )
+            else:
+                db.add(models.AssetLocation(asset_id=asset.id, **location_data))
+        else:
+            db.add(models.AssetLocation(asset_id=asset.id, **location_data))
     record_activity(db, action="asset.created", subject_type="asset", subject_id=asset.id, profile_id=profile_for(db, x_profile_id).id, project_id=asset.project_id)
     db.commit()
     return db.scalar(select(models.Asset).options(selectinload(models.Asset.locations)).where(models.Asset.id == asset.id))

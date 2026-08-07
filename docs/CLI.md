@@ -274,6 +274,9 @@ mfiche --json gallery list --project <project-id> --limit 50
 The default path uses outbound object storage and does not require an inbound
 trainer tunnel.
 
+`training setup` creates or reconciles the one W&B signing key shared by every
+Modelfiche workspace and project. Launch creation selects it automatically.
+
 ```bash
 mfiche --json training setup
 mfiche --json training doctor
@@ -291,9 +294,32 @@ The packet includes `training-dataset.zip`, `manifest.json`, `trainer.env`,
 trainer-specific logging metadata, `modelfiche-run-sync.py`, and
 `checksums.json`. Copy it over an encrypted channel, verify checksums, supply
 the S3 credentials named by the manifest, and run the sync helper beside the
-selected trainer. For Krea 2 embeddings, pass `--trainer kef-krea2`; its packet
-contains `kef-krea2-telemetry.json`, and the trainer reads the sourced
-`trainer.env` automatically.
+selected trainer. For Krea 2 embeddings, pass `--trainer kef-krea2`; optimization,
+embedding, memory, and flow-matching settings are explicit launch options:
+
+```bash
+mfiche --json training run create \
+  --dataset <dataset-id-or-name> \
+  --name lotus-rocks-kef-v002 \
+  --trainer kef-krea2 \
+  --base-model krea/Krea-2-Raw \
+  --steps 8000 \
+  --tokens 5 \
+  --learning-rate 5e-4 \
+  --batch-size 1 \
+  --gradient-accumulation 4 \
+  --resolution 512 \
+  --sample-interval 250 \
+  --caption-mode random \
+  --model-revision <RAW_MODEL_COMMIT>
+```
+
+`--caption-mode none` starts Krea training with empty text conditioning. The
+launch still exports the dataset and emits the same DAM and W&B telemetry.
+
+The Krea packet contains `kef-krea2-telemetry.json` and
+`kef-krea2-training.json`. The latter preserves the validated configuration
+and exact trainer argument vector; source `trainer.env` before starting it.
 
 Observe the run:
 
