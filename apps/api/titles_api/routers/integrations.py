@@ -18,7 +18,41 @@ from ..integrations.fal.adapters import LoraInput, ValidationError, get_adapter,
 from ..integrations.fal.credentials import fal_secret_store, resolve_fal_credential
 from ..integrations.s3.browser import PrefixAccessError, S3Browser, normalize_prefix
 from ..integrations.s3.detection import detect_prefix
+from ..storage.identity import SourceIdentityError, normalize_source_identity
 from ..review_tokens import issue_review_token, verify_review_token
+
+
+def _persist_source_identity(source: models.ImportSource) -> None:
+    """Store a canonical source revision whenever configuration is usable for training."""
+    if not source.allowed_prefixes:
+        source.identity_fingerprint = None
+        return
+    managed_prefix = source.managed_prefix or source.allowed_prefixes[0]
+    try:
+        identity = normalize_source_identity(
+            endpoint_url=source.endpoint_url,
+            bucket=source.bucket,
+            region=source.region,
+            addressing_style=source.addressing_style,
+            credential_env_prefix=source.credential_env_prefix,
+            allowed_prefixes=source.allowed_prefixes,
+            managed_prefix=managed_prefix,
+        )
+    except SourceIdentityError:
+        # Legacy sources used a global default managed prefix that was often
+        # outside their restricted allowlist. Their first allowlisted prefix is
+        # the narrowest safe managed scope until an operator configures one.
+        identity = normalize_source_identity(
+            endpoint_url=source.endpoint_url,
+            bucket=source.bucket,
+            region=source.region,
+            addressing_style=source.addressing_style,
+            credential_env_prefix=source.credential_env_prefix,
+            allowed_prefixes=source.allowed_prefixes,
+            managed_prefix=source.allowed_prefixes[0],
+        )
+    source.managed_prefix = identity.managed_prefix
+    source.identity_fingerprint = identity.fingerprint
 
 def _detection_scope(source_id: str, prefix: str, result: Any) -> dict[str, Any]:
     return {
@@ -153,6 +187,7 @@ def create_import_source(request: ImportSourceCreate, db: Session = Depends(get_
         bucket=request.bucket,
         allowed_prefixes=normalized,
     )
+    _persist_source_identity(source)
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -176,6 +211,7 @@ def update_import_source(source_id: str, request: ImportSourceUpdate, db: Sessio
         values["credential_env_prefix"] = values["credential_env_prefix"].upper()
     for key, value in values.items():
         setattr(source, key, value)
+    _persist_source_identity(source)
     db.commit()
     return {"id": source.id, "name": source.name, "bucket": source.bucket, "allowed_prefixes": source.allowed_prefixes}
 
@@ -203,6 +239,11 @@ def test_import_source(source_id: str, db: Session = Depends(get_db)) -> dict[st
         browser.browse(first_root, page_size=1)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"S3 connection failed: {exc}") from exc
+    source = _source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="import source not found")
+    _persist_source_identity(source)
+    db.commit()
     return {"ok": True, "bucket": browser.settings.bucket, "allowed_prefixes": browser.settings.allowed_prefixes}
 
 

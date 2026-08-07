@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from titles_api import app as app_module, models
-from titles_api.routers import local_imports
+from titles_api.routers import integrations, local_imports
 from titles_api.settings import get_settings
 
 
@@ -107,6 +107,39 @@ def test_mega_connection_never_falls_through_to_an_s3_source(client: TestClient)
     response = client.post("/api/connections/mega/test")
     assert response.status_code == 409
     assert response.json()["detail"] == "no active MEGA import source is configured"
+
+
+def test_source_connection_test_persists_canonical_identity_fingerprint(client: TestClient, monkeypatch):
+    source = client.post(
+        "/api/import-sources",
+        json={
+            "name": "Verified training source",
+            "bucket": "training",
+            "allowed_prefixes": ["titles-dam/managed/"],
+            "credential_env_prefix": "TRAINING_S3",
+        },
+    ).json()
+
+    class Browser:
+        class settings:
+            bucket = "training"
+            allowed_prefixes = ["titles-dam/managed/"]
+
+        def browse(self, prefix, page_size):
+            assert prefix == "titles-dam/managed/"
+            assert page_size == 1
+
+    monkeypatch.setattr(integrations, "_browser", lambda _db, _source_id: Browser())
+    with app_module.SessionLocal.begin() as db:
+        db.get(models.ImportSource, source["id"]).identity_fingerprint = None
+
+    response = client.post(f"/api/import-sources/{source['id']}/test")
+
+    assert response.status_code == 200
+    with app_module.SessionLocal() as db:
+        persisted = db.get(models.ImportSource, source["id"])
+        assert persisted.identity_fingerprint is not None
+        assert persisted.identity_fingerprint.startswith("source-v1:")
 
 
 def test_gallery_uses_canonical_origin_timestamps_and_no_filename_model_inference(client: TestClient):
