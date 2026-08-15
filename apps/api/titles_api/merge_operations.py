@@ -126,27 +126,38 @@ def merge_projection(
     operation: models.MergeOperation,
     *,
     output_directory: str | None = None,
+    cache: Any | None = None,
 ) -> dict[str, Any]:
-    inputs = db.scalars(
-        select(models.MergeInput)
-        .where(models.MergeInput.merge_operation_id == operation.id)
-        .order_by(models.MergeInput.position)
-    ).all()
+    if cache is not None:
+        inputs = cache.merge_inputs.get(operation.id, [])
+    else:
+        inputs = db.scalars(
+            select(models.MergeInput)
+            .where(models.MergeInput.merge_operation_id == operation.id)
+            .order_by(models.MergeInput.position)
+        ).all()
     input_rows = []
     for merge_input in inputs:
-        weights = db.scalars(
-            select(models.MergeInputWeight)
-            .where(models.MergeInputWeight.merge_input_id == merge_input.id)
-            .order_by(models.MergeInputWeight.scope)
-        ).all()
-        revision = db.get(models.CheckpointRevision, merge_input.checkpoint_revision_id)
-        checkpoint = (
-            db.get(models.Checkpoint, revision.checkpoint_id) if revision else None
-        )
-        asset = db.get(models.Asset, revision.asset_id) if revision else None
+        if cache is not None:
+            weights = cache.merge_input_weights.get(merge_input.id, [])
+            revision = cache.revisions.get(merge_input.checkpoint_revision_id)
+            checkpoint = cache.checkpoints.get(revision.checkpoint_id) if revision else None
+            asset = cache.assets.get(revision.asset_id) if revision else None
+        else:
+            weights = db.scalars(
+                select(models.MergeInputWeight)
+                .where(models.MergeInputWeight.merge_input_id == merge_input.id)
+                .order_by(models.MergeInputWeight.scope)
+            ).all()
+            revision = db.get(models.CheckpointRevision, merge_input.checkpoint_revision_id)
+            checkpoint = db.get(models.Checkpoint, revision.checkpoint_id) if revision else None
+            asset = db.get(models.Asset, revision.asset_id) if revision else None
         location = None
         if revision and revision.source_location_id:
-            location = db.get(models.AssetLocation, revision.source_location_id)
+            if cache is not None:
+                location = cache.locations_by_id.get(revision.source_location_id)
+            else:
+                location = db.get(models.AssetLocation, revision.source_location_id)
         input_rows.append(
             {
                 "id": merge_input.id,
@@ -169,29 +180,51 @@ def merge_projection(
                 "weights": {weight.scope: weight.weight for weight in weights},
             }
         )
-    output_revision = (
-        db.get(models.CheckpointRevision, operation.output_checkpoint_revision_id)
-        if operation.output_checkpoint_revision_id
-        else None
-    )
-    output_checkpoint = (
-        db.get(models.Checkpoint, output_revision.checkpoint_id)
-        if output_revision
-        else None
-    )
-    output_asset = (
-        db.get(models.Asset, output_revision.asset_id) if output_revision else None
-    )
-    model_version = (
-        db.scalar(
-            select(models.ModelVersion).where(
-                models.ModelVersion.checkpoint_revision_id
-                == operation.output_checkpoint_revision_id
-            )
+    if cache is not None:
+        output_revision = (
+            cache.revisions.get(operation.output_checkpoint_revision_id)
+            if operation.output_checkpoint_revision_id
+            else None
         )
-        if operation.output_checkpoint_revision_id
-        else None
-    )
+        output_checkpoint = (
+            cache.checkpoints.get(output_revision.checkpoint_id)
+            if output_revision
+            else None
+        )
+        output_asset = (
+            cache.assets.get(output_revision.asset_id) if output_revision else None
+        )
+    else:
+        output_revision = (
+            db.get(models.CheckpointRevision, operation.output_checkpoint_revision_id)
+            if operation.output_checkpoint_revision_id
+            else None
+        )
+        output_checkpoint = (
+            db.get(models.Checkpoint, output_revision.checkpoint_id)
+            if output_revision
+            else None
+        )
+        output_asset = (
+            db.get(models.Asset, output_revision.asset_id) if output_revision else None
+        )
+    if cache is not None:
+        model_version = (
+            cache.revision_version.get(operation.output_checkpoint_revision_id)
+            if operation.output_checkpoint_revision_id
+            else None
+        )
+    else:
+        model_version = (
+            db.scalar(
+                select(models.ModelVersion).where(
+                    models.ModelVersion.checkpoint_revision_id
+                    == operation.output_checkpoint_revision_id
+                )
+            )
+            if operation.output_checkpoint_revision_id
+            else None
+        )
     result = {
         "id": operation.id,
         "workspace_id": operation.workspace_id,

@@ -1,9 +1,11 @@
 import asyncio
 import json
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.parse import urlsplit
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, Iterable
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -28,6 +30,376 @@ DB = Annotated[Session, Depends(get_db)]
 def dump(row) -> dict[str, Any]:
     return {column.name: getattr(row, column.key) for column in row.__table__.columns}
 
+@dataclass
+class ProjectionCache:
+    """Bulk-loaded adjacency maps for the run/model/version projections.
+
+    The batch endpoints collect the ids they already hold (runs, checkpoints,
+    models, versions) and hand them to :meth:`build`, which resolves every
+    transitive lookup the projection helpers perform in a bounded number of
+    queries. Helpers accept ``cache=None`` and fall back to the original
+    per-object query path for single-object callers.
+    """
+
+    checkpoints: dict[str, Any] = field(default_factory=dict)
+    checkpoints_by_run: dict[str, list[Any]] = field(default_factory=dict)
+    runs: dict[str, Any] = field(default_factory=dict)
+    assets: dict[str, Any] = field(default_factory=dict)
+    locations_by_asset: dict[str, list[Any]] = field(default_factory=dict)
+    locations_by_id: dict[str, Any] = field(default_factory=dict)
+    revisions: dict[str, Any] = field(default_factory=dict)
+    models: dict[str, Any] = field(default_factory=dict)
+    projects: dict[str, Any] = field(default_factory=dict)
+    versions_by_model: dict[str, list[Any]] = field(default_factory=dict)
+    checkpoint_version: dict[str, Any] = field(default_factory=dict)
+    revision_version: dict[str, Any] = field(default_factory=dict)
+    hydration_jobs: dict[str, Any] = field(default_factory=dict)
+    dataset_inputs: dict[str, list[Any]] = field(default_factory=dict)
+    dataset_versions: dict[str, Any] = field(default_factory=dict)
+    datasets: dict[str, Any] = field(default_factory=dict)
+    subsets: dict[str, Any] = field(default_factory=dict)
+    merge_operations: dict[str, Any] = field(default_factory=dict)
+    merge_inputs: dict[str, list[Any]] = field(default_factory=dict)
+    merge_input_weights: dict[str, list[Any]] = field(default_factory=dict)
+    checkpoint_counts: dict[str, int] = field(default_factory=dict)
+    sample_counts: dict[str, int] = field(default_factory=dict)
+    metric_counts: dict[str, int] = field(default_factory=dict)
+    metric_summaries: dict[str, list[Any]] = field(default_factory=dict)
+    upload_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+
+    @classmethod
+    def build(
+        cls,
+        db: Session,
+        *,
+        checkpoint_ids: Iterable[str] = (),
+        run_ids: Iterable[str] = (),
+        model_ids: Iterable[str] = (),
+    ) -> "ProjectionCache":
+        checkpoint_ids = {cid for cid in checkpoint_ids if cid}
+        run_ids = {rid for rid in run_ids if rid}
+        model_ids = {mid for mid in model_ids if mid}
+        cache = cls()
+
+        if checkpoint_ids:
+            cache.checkpoints = {
+                c.id: c
+                for c in db.scalars(
+                    select(models.Checkpoint).where(models.Checkpoint.id.in_(checkpoint_ids))
+                )
+            }
+            run_ids.update(c.run_id for c in cache.checkpoints.values() if c.run_id)
+
+        if run_ids:
+            cache.runs = {
+                r.id: r
+                for r in db.scalars(
+                    select(models.TrainingRun).where(models.TrainingRun.id.in_(run_ids))
+                )
+            }
+            cache.checkpoints_by_run = defaultdict(list)
+            for c in db.scalars(
+                select(models.Checkpoint)
+                .where(models.Checkpoint.run_id.in_(run_ids))
+                .order_by(models.Checkpoint.step)
+            ):
+                cache.checkpoints_by_run[c.run_id].append(c)
+                cache.checkpoints.setdefault(c.id, c)
+                checkpoint_ids.add(c.id)
+
+        if model_ids:
+            cache.models = {
+                m.id: m
+                for m in db.scalars(
+                    select(models.Model).where(models.Model.id.in_(model_ids))
+                )
+            }
+            cache.versions_by_model = defaultdict(list)
+            for v in db.scalars(
+                select(models.ModelVersion)
+                .where(models.ModelVersion.model_id.in_(model_ids))
+            ):
+                cache.versions_by_model[v.model_id].append(v)
+                checkpoint_ids.add(v.checkpoint_id)
+
+        missing_checkpoint_ids = checkpoint_ids - cache.checkpoints.keys()
+        if missing_checkpoint_ids:
+            for c in db.scalars(
+                select(models.Checkpoint).where(
+                    models.Checkpoint.id.in_(missing_checkpoint_ids)
+                )
+            ):
+                cache.checkpoints[c.id] = c
+                if c.run_id:
+                    run_ids.add(c.run_id)
+
+        missing_run_ids = run_ids - cache.runs.keys()
+        if missing_run_ids:
+            for r in db.scalars(
+                select(models.TrainingRun).where(
+                    models.TrainingRun.id.in_(missing_run_ids)
+                )
+            ):
+                cache.runs[r.id] = r
+
+        asset_ids = {c.asset_id for c in cache.checkpoints.values() if c.asset_id}
+        revision_ids = {
+            c.current_revision_id
+            for c in cache.checkpoints.values()
+            if c.current_revision_id
+        }
+
+        if checkpoint_ids:
+            cache.checkpoint_version = {}
+            for v in db.scalars(
+                select(models.ModelVersion)
+                .where(models.ModelVersion.checkpoint_id.in_(checkpoint_ids))
+                .order_by(models.ModelVersion.created_at.desc())
+            ):
+                cache.checkpoint_version.setdefault(v.checkpoint_id, v)
+
+        if revision_ids:
+            cache.revisions = {
+                r.id: r
+                for r in db.scalars(
+                    select(models.CheckpointRevision).where(
+                        models.CheckpointRevision.id.in_(revision_ids)
+                    )
+                )
+            }
+            cache.revision_version = {}
+            for v in db.scalars(
+                select(models.ModelVersion)
+                .where(models.ModelVersion.checkpoint_revision_id.in_(revision_ids))
+            ):
+                cache.revision_version.setdefault(v.checkpoint_revision_id, v)
+
+        if asset_ids:
+            cache.assets = {
+                a.id: a
+                for a in db.scalars(
+                    select(models.Asset).where(models.Asset.id.in_(asset_ids))
+                )
+            }
+            cache.locations_by_asset = defaultdict(list)
+            cache.locations_by_id = {}
+            for location in db.scalars(
+                select(models.AssetLocation)
+                .where(models.AssetLocation.asset_id.in_(asset_ids))
+                .order_by(models.AssetLocation.created_at.desc())
+            ):
+                cache.locations_by_asset[location.asset_id].append(location)
+                cache.locations_by_id[location.id] = location
+
+        # Hydration jobs keyed by checkpoint id; newest queued/running job wins.
+        for job in db.scalars(
+            select(models.Job)
+            .where(
+                models.Job.kind == "checkpoint.hydrate",
+                models.Job.state.in_([models.JobState.queued, models.JobState.running]),
+            )
+            .order_by(models.Job.created_at.desc())
+        ):
+            checkpoint_id = (job.payload or {}).get("checkpoint_id")
+            if checkpoint_id:
+                cache.hydration_jobs.setdefault(checkpoint_id, job)
+
+        if run_ids:
+            cache.dataset_inputs = defaultdict(list)
+            for item in db.scalars(
+                select(models.TrainingRunDatasetInput)
+                .where(models.TrainingRunDatasetInput.run_id.in_(run_ids))
+                .order_by(
+                    models.TrainingRunDatasetInput.run_id,
+                    models.TrainingRunDatasetInput.position,
+                    models.TrainingRunDatasetInput.id,
+                )
+            ):
+                cache.dataset_inputs[item.run_id].append(item)
+
+            dataset_version_ids = {
+                item.dataset_version_id
+                for items in cache.dataset_inputs.values()
+                for item in items
+                if item.dataset_version_id
+            } | {
+                run.dataset_version_id
+                for run in cache.runs.values()
+                if run.dataset_version_id
+            }
+            if dataset_version_ids:
+                cache.dataset_versions = {
+                    v.id: v
+                    for v in db.scalars(
+                        select(models.DatasetVersion).where(
+                            models.DatasetVersion.id.in_(dataset_version_ids)
+                        )
+                    )
+                }
+                dataset_ids = {
+                    v.dataset_id
+                    for v in cache.dataset_versions.values()
+                    if v.dataset_id
+                }
+                if dataset_ids:
+                    cache.datasets = {
+                        d.id: d
+                        for d in db.scalars(
+                            select(models.Dataset).where(models.Dataset.id.in_(dataset_ids))
+                        )
+                    }
+            subset_ids = {
+                item.subset_id
+                for items in cache.dataset_inputs.values()
+                for item in items
+                if item.subset_id
+            }
+            if subset_ids:
+                cache.subsets = {
+                    s.id: s
+                    for s in db.scalars(
+                        select(models.DatasetVersionSubset).where(
+                            models.DatasetVersionSubset.id.in_(subset_ids)
+                        )
+                    )
+                }
+
+            cache.checkpoint_counts = dict(
+                db.execute(
+                    select(models.Checkpoint.run_id, func.count())
+                    .where(models.Checkpoint.run_id.in_(run_ids))
+                    .group_by(models.Checkpoint.run_id)
+                ).all()
+            )
+            cache.sample_counts = dict(
+                db.execute(
+                    select(models.Sample.run_id, func.count())
+                    .where(models.Sample.run_id.in_(run_ids))
+                    .group_by(models.Sample.run_id)
+                ).all()
+            )
+            cache.metric_counts = dict(
+                db.execute(
+                    select(models.TrainingMetric.run_id, func.count())
+                    .where(models.TrainingMetric.run_id.in_(run_ids))
+                    .group_by(models.TrainingMetric.run_id)
+                ).all()
+            )
+
+            cache.metric_summaries = defaultdict(list)
+            for summary in db.scalars(
+                select(models.RunMetricSummary)
+                .where(models.RunMetricSummary.run_id.in_(run_ids))
+                .order_by(models.RunMetricSummary.name)
+            ):
+                cache.metric_summaries[summary.run_id].append(summary)
+
+            cache.upload_counts = defaultdict(dict)
+            for run_id, state, count in db.execute(
+                select(models.RunUpload.run_id, models.RunUpload.state, func.count())
+                .where(models.RunUpload.run_id.in_(run_ids))
+                .group_by(models.RunUpload.run_id, models.RunUpload.state)
+            ):
+                cache.upload_counts[run_id][state] = count
+
+            _load_merge_context(db, cache, run_ids)
+
+        return cache
+
+
+def _load_merge_context(db: Session, cache: "ProjectionCache", run_ids: set[str]) -> None:
+    """Populate merge-operation adjacency maps into an existing cache."""
+    operations = db.scalars(
+        select(models.MergeOperation).where(models.MergeOperation.run_id.in_(run_ids))
+    ).all()
+    if not operations:
+        return
+    cache.merge_operations = {op.run_id: op for op in operations}
+
+    inputs = db.scalars(
+        select(models.MergeInput)
+        .where(models.MergeInput.merge_operation_id.in_([op.id for op in operations]))
+        .order_by(models.MergeInput.merge_operation_id, models.MergeInput.position)
+    ).all()
+    cache.merge_inputs = defaultdict(list)
+    for merge_input in inputs:
+        cache.merge_inputs[merge_input.merge_operation_id].append(merge_input)
+
+    weights = db.scalars(
+        select(models.MergeInputWeight)
+        .where(models.MergeInputWeight.merge_input_id.in_([i.id for i in inputs]))
+        .order_by(models.MergeInputWeight.merge_input_id, models.MergeInputWeight.scope)
+    ).all()
+    cache.merge_input_weights = defaultdict(list)
+    for weight in weights:
+        cache.merge_input_weights[weight.merge_input_id].append(weight)
+
+    merge_revision_ids = {
+        merge_input.checkpoint_revision_id
+        for merge_input in inputs
+        if merge_input.checkpoint_revision_id
+    } | {
+        op.output_checkpoint_revision_id
+        for op in operations
+        if op.output_checkpoint_revision_id
+    }
+    missing_revisions = merge_revision_ids - cache.revisions.keys()
+    if missing_revisions:
+        for revision in db.scalars(
+            select(models.CheckpointRevision).where(
+                models.CheckpointRevision.id.in_(missing_revisions)
+            )
+        ):
+            cache.revisions[revision.id] = revision
+
+    merge_checkpoint_ids = {
+        revision.checkpoint_id
+        for revision in cache.revisions.values()
+        if revision.checkpoint_id
+    }
+    missing_checkpoints = merge_checkpoint_ids - cache.checkpoints.keys()
+    if missing_checkpoints:
+        for checkpoint in db.scalars(
+            select(models.Checkpoint).where(
+                models.Checkpoint.id.in_(missing_checkpoints)
+            )
+        ):
+            cache.checkpoints[checkpoint.id] = checkpoint
+
+    merge_asset_ids = {
+        revision.asset_id
+        for revision in cache.revisions.values()
+        if revision.asset_id
+    }
+    missing_assets = merge_asset_ids - cache.assets.keys()
+    if missing_assets:
+        for asset in db.scalars(
+            select(models.Asset).where(models.Asset.id.in_(missing_assets))
+        ):
+            cache.assets[asset.id] = asset
+
+    location_ids = {
+        revision.source_location_id
+        for revision in cache.revisions.values()
+        if revision.source_location_id
+    }
+    missing_locations = location_ids - cache.locations_by_id.keys()
+    if missing_locations:
+        for location in db.scalars(
+            select(models.AssetLocation).where(
+                models.AssetLocation.id.in_(missing_locations)
+            )
+        ):
+            cache.locations_by_id[location.id] = location
+
+    missing_revision_versions = merge_revision_ids - cache.revision_version.keys()
+    if missing_revision_versions:
+        for version in db.scalars(
+            select(models.ModelVersion)
+            .where(models.ModelVersion.checkpoint_revision_id.in_(missing_revision_versions))
+        ):
+            cache.revision_version.setdefault(version.checkpoint_revision_id, version)
+
 def _refresh_prefix(value: str, bucket: str) -> str:
     raw = value.strip()
     if raw.lower().startswith("s3://"):
@@ -40,12 +412,37 @@ def _refresh_prefix(value: str, bucket: str) -> str:
         raise PrefixAccessError("run source prefix is empty")
     return prefix
 
-def _live_projection(db: Session, run: models.TrainingRun) -> dict[str, Any]:
-    summaries = db.scalars(
-        select(models.RunMetricSummary)
-        .where(models.RunMetricSummary.run_id == run.id)
-        .order_by(models.RunMetricSummary.name)
-    ).all()
+def _live_projection(
+    db: Session,
+    run: models.TrainingRun,
+    cache: ProjectionCache | None = None,
+) -> dict[str, Any]:
+    if cache is not None:
+        summaries = cache.metric_summaries.get(run.id, [])
+        upload_counts = dict(cache.upload_counts.get(run.id, {}))
+        sample_count = cache.sample_counts.get(run.id, 0)
+    else:
+        summaries = db.scalars(
+            select(models.RunMetricSummary)
+            .where(models.RunMetricSummary.run_id == run.id)
+            .order_by(models.RunMetricSummary.name)
+        ).all()
+        upload_counts = {
+            state: count
+            for state, count in db.execute(
+                select(models.RunUpload.state, func.count())
+                .where(models.RunUpload.run_id == run.id)
+                .group_by(models.RunUpload.state)
+            )
+        }
+        sample_count = int(
+            db.scalar(
+                select(func.count())
+                .select_from(models.Sample)
+                .where(models.Sample.run_id == run.id)
+            )
+            or 0
+        )
     summary_rows = {
         row.name: {
             "name": row.name,
@@ -67,14 +464,6 @@ def _live_projection(db: Session, run: models.TrainingRun) -> dict[str, Any]:
         (summary_rows[name] for name in ("learning_rate", "lr") if name in summary_rows),
         next((value for name, value in summary_rows.items() if "learning" in name.casefold() and "rate" in name.casefold()), None),
     )
-    upload_counts = {
-        state: count
-        for state, count in db.execute(
-            select(models.RunUpload.state, func.count())
-            .where(models.RunUpload.run_id == run.id)
-            .group_by(models.RunUpload.state)
-        )
-    }
     finish = run.finished_at or models.utcnow()
     elapsed_seconds = max(0.0, (finish - run.started_at).total_seconds()) if run.started_at else None
     return {
@@ -89,9 +478,7 @@ def _live_projection(db: Session, run: models.TrainingRun) -> dict[str, Any]:
         "last_event_at": run.last_event_at,
         "summaries": list(summary_rows.values()),
         "uploads": upload_counts,
-        "sample_count": int(
-            db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0
-        ),
+        "sample_count": sample_count,
     }
 
 def sample_provenance(db: Session, sample: models.Sample, asset: models.Asset | None) -> tuple[int | None, str | None]:
@@ -109,9 +496,17 @@ def sample_provenance(db: Session, sample: models.Sample, asset: models.Asset | 
     return training_step, track
 
 
-def model_version_chronology(db: Session, version: models.ModelVersion) -> tuple[float, int, float]:
-    checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
-    run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+def model_version_chronology(
+    db: Session,
+    version: models.ModelVersion,
+    cache: ProjectionCache | None = None,
+) -> tuple[float, int, float]:
+    if cache is not None:
+        checkpoint = cache.checkpoints.get(version.checkpoint_id)
+        run = cache.runs.get(checkpoint.run_id) if checkpoint else None
+    else:
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+        run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
     source_time = ((run.raw_manifest or {}).get("created_at") or (run.raw_state or {}).get("updated_at")) if run else None
     try:
         parsed = datetime.fromisoformat(str(source_time).replace("Z", "+00:00")).timestamp() if source_time else run.created_at.timestamp() if run else 0.0
@@ -120,17 +515,30 @@ def model_version_chronology(db: Session, version: models.ModelVersion) -> tuple
     return parsed, checkpoint.step if checkpoint else -1, version.created_at.timestamp()
 
 
-def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> dict[str, Any] | None:
+def checkpoint_artifact(
+    db: Session,
+    checkpoint: models.Checkpoint | None,
+    cache: ProjectionCache | None = None,
+) -> dict[str, Any] | None:
     """Stable, explicit checkpoint artifact projection; never substitutes dataset identity."""
     if checkpoint is None:
         return None
-    asset = db.get(models.Asset, checkpoint.asset_id)
-    locations = db.scalars(
-        select(models.AssetLocation)
-        .where(models.AssetLocation.asset_id == checkpoint.asset_id)
-        .order_by(models.AssetLocation.created_at.desc())
-    ).all()
-    revision = db.get(models.CheckpointRevision, checkpoint.current_revision_id) if checkpoint.current_revision_id else None
+    if cache is not None:
+        asset = cache.assets.get(checkpoint.asset_id)
+        locations = cache.locations_by_asset.get(checkpoint.asset_id, [])
+        revision = (
+            cache.revisions.get(checkpoint.current_revision_id)
+            if checkpoint.current_revision_id
+            else None
+        )
+    else:
+        asset = db.get(models.Asset, checkpoint.asset_id)
+        locations = db.scalars(
+            select(models.AssetLocation)
+            .where(models.AssetLocation.asset_id == checkpoint.asset_id)
+            .order_by(models.AssetLocation.created_at.desc())
+        ).all()
+        revision = db.get(models.CheckpointRevision, checkpoint.current_revision_id) if checkpoint.current_revision_id else None
     return {
         "checkpoint_id": checkpoint.id,
         "checkpoint_revision_id": revision.id if revision else None,
@@ -159,19 +567,31 @@ def checkpoint_artifact(db: Session, checkpoint: models.Checkpoint | None) -> di
     }
 
 
-def run_dataset_inputs(db: Session, run: models.TrainingRun | None) -> list[dict[str, Any]]:
+def run_dataset_inputs(
+    db: Session,
+    run: models.TrainingRun | None,
+    cache: ProjectionCache | None = None,
+) -> list[dict[str, Any]]:
     if run is None:
         return []
-    inputs = db.scalars(
-        select(models.TrainingRunDatasetInput)
-        .where(models.TrainingRunDatasetInput.run_id == run.id)
-        .order_by(models.TrainingRunDatasetInput.position, models.TrainingRunDatasetInput.id)
-    ).all()
+    if cache is not None:
+        inputs = cache.dataset_inputs.get(run.id, [])
+    else:
+        inputs = db.scalars(
+            select(models.TrainingRunDatasetInput)
+            .where(models.TrainingRunDatasetInput.run_id == run.id)
+            .order_by(models.TrainingRunDatasetInput.position, models.TrainingRunDatasetInput.id)
+        ).all()
     rows = []
     for item in inputs:
-        version = db.get(models.DatasetVersion, item.dataset_version_id)
-        dataset = db.get(models.Dataset, version.dataset_id) if version else None
-        subset = db.get(models.DatasetVersionSubset, item.subset_id) if item.subset_id else None
+        if cache is not None:
+            version = cache.dataset_versions.get(item.dataset_version_id)
+            dataset = cache.datasets.get(version.dataset_id) if version else None
+            subset = cache.subsets.get(item.subset_id) if item.subset_id else None
+        else:
+            version = db.get(models.DatasetVersion, item.dataset_version_id)
+            dataset = db.get(models.Dataset, version.dataset_id) if version else None
+            subset = db.get(models.DatasetVersionSubset, item.subset_id) if item.subset_id else None
         rows.append({
             **dump(item),
             "dataset_id": dataset.id if dataset else None,
@@ -185,10 +605,14 @@ def run_dataset_inputs(db: Session, run: models.TrainingRun | None) -> list[dict
     return rows
 
 
-def run_dataset_link(db: Session, run: models.TrainingRun | None) -> dict[str, Any] | None:
+def run_dataset_link(
+    db: Session,
+    run: models.TrainingRun | None,
+    cache: ProjectionCache | None = None,
+) -> dict[str, Any] | None:
     if run is None:
         return None
-    inputs = run_dataset_inputs(db, run)
+    inputs = run_dataset_inputs(db, run, cache)
     if inputs:
         first = inputs[0]
         return {
@@ -201,8 +625,12 @@ def run_dataset_link(db: Session, run: models.TrainingRun | None) -> dict[str, A
         }
     if not run.dataset_version_id:
         return None
-    version = db.get(models.DatasetVersion, run.dataset_version_id)
-    dataset = db.get(models.Dataset, version.dataset_id) if version else None
+    if cache is not None:
+        version = cache.dataset_versions.get(run.dataset_version_id)
+        dataset = cache.datasets.get(version.dataset_id) if version else None
+    else:
+        version = db.get(models.DatasetVersion, run.dataset_version_id)
+        dataset = db.get(models.Dataset, version.dataset_id) if version else None
     return {
         "dataset_id": dataset.id if dataset else None,
         "dataset_name": dataset.name if dataset else None,
@@ -213,17 +641,27 @@ def run_dataset_link(db: Session, run: models.TrainingRun | None) -> dict[str, A
     }
 
 
-def run_merge_summary(db: Session, run: models.TrainingRun) -> dict[str, Any] | None:
-    operation = db.scalar(select(models.MergeOperation).where(models.MergeOperation.run_id == run.id))
-    return merge_projection(db, operation) if operation else None
+def run_merge_summary(
+    db: Session,
+    run: models.TrainingRun,
+    cache: ProjectionCache | None = None,
+) -> dict[str, Any] | None:
+    if cache is not None:
+        operation = cache.merge_operations.get(run.id)
+    else:
+        operation = db.scalar(select(models.MergeOperation).where(models.MergeOperation.run_id == run.id))
+    return merge_projection(db, operation, cache=cache) if operation else None
+
+
 
 
 def checkpoint_readiness(
     db: Session,
     checkpoint: models.Checkpoint,
     version: models.ModelVersion | None = None,
+    cache: ProjectionCache | None = None,
 ) -> dict[str, Any]:
-    artifact = checkpoint_artifact(db, checkpoint) or {}
+    artifact = checkpoint_artifact(db, checkpoint, cache) or {}
     storage = artifact.get("storage") if isinstance(artifact.get("storage"), list) else []
     local = next(
         (
@@ -243,15 +681,18 @@ def checkpoint_readiness(
         ),
         None,
     )
-    hydration_job = db.scalar(
-        select(models.Job)
-        .where(
-            models.Job.kind == "checkpoint.hydrate",
-            models.Job.payload["checkpoint_id"].as_string() == checkpoint.id,
-            models.Job.state.in_([models.JobState.queued, models.JobState.running]),
+    if cache is not None:
+        hydration_job = cache.hydration_jobs.get(checkpoint.id)
+    else:
+        hydration_job = db.scalar(
+            select(models.Job)
+            .where(
+                models.Job.kind == "checkpoint.hydrate",
+                models.Job.payload["checkpoint_id"].as_string() == checkpoint.id,
+                models.Job.state.in_([models.JobState.queued, models.JobState.running]),
+            )
+            .order_by(models.Job.created_at.desc())
         )
-        .order_by(models.Job.created_at.desc())
-    )
     checkpoint_state = str(checkpoint.state or "").lower()
     hydrated = bool(local) or checkpoint_state == "hydrated"
     local_status = "hydrated" if hydrated else "hydrating" if hydration_job else "failed" if checkpoint_state == "failed" else "remote" if remote else "missing"
@@ -296,15 +737,24 @@ def checkpoint_readiness(
     }
 
 
-def checkpoint_projection(db: Session, checkpoint: models.Checkpoint) -> dict[str, Any]:
-    artifact = checkpoint_artifact(db, checkpoint)
-    version = db.scalar(
-        select(models.ModelVersion)
-        .where(models.ModelVersion.checkpoint_id == checkpoint.id)
-        .order_by(models.ModelVersion.created_at.desc())
-    )
-    model = db.get(models.Model, version.model_id) if version else None
-    run = db.get(models.TrainingRun, checkpoint.run_id)
+def checkpoint_projection(
+    db: Session,
+    checkpoint: models.Checkpoint,
+    cache: ProjectionCache | None = None,
+) -> dict[str, Any]:
+    artifact = checkpoint_artifact(db, checkpoint, cache)
+    if cache is not None:
+        version = cache.checkpoint_version.get(checkpoint.id)
+        model = cache.models.get(version.model_id) if version else None
+        run = cache.runs.get(checkpoint.run_id)
+    else:
+        version = db.scalar(
+            select(models.ModelVersion)
+            .where(models.ModelVersion.checkpoint_id == checkpoint.id)
+            .order_by(models.ModelVersion.created_at.desc())
+        )
+        model = db.get(models.Model, version.model_id) if version else None
+        run = db.get(models.TrainingRun, checkpoint.run_id)
     registered_version = None if version is None else {
         "id": version.id,
         "name": version.name,
@@ -322,8 +772,8 @@ def checkpoint_projection(db: Session, checkpoint: models.Checkpoint) -> dict[st
         "registered_version": registered_version,
         "model_version_id": version.id if version else None,
         "model_version_name": version.name if version else None,
-        "readiness_summary": checkpoint_readiness(db, checkpoint, version),
-        "dataset": run_dataset_link(db, run),
+        "readiness_summary": checkpoint_readiness(db, checkpoint, version, cache),
+        "dataset": run_dataset_link(db, run, cache),
     }
 
 
@@ -367,7 +817,6 @@ def _run_preview_asset_ids(db: Session, run_ids: set[str]) -> dict[str, str]:
         previews.setdefault(run_id, asset_id)
     return previews
 
-
 @router.get("/runs")
 def runs(
     db: DB,
@@ -390,20 +839,37 @@ def runs(
     if not include_archived:
         query = query.where(models.TrainingRun.archived_at.is_(None))
     run_rows = db.scalars(query).all()
-    previews = _run_preview_asset_ids(db, {row.id for row in run_rows})
+    run_ids = {row.id for row in run_rows}
+    cache = ProjectionCache.build(db, run_ids=run_ids)
+    previews = _run_preview_asset_ids(db, run_ids)
+    projects = {
+        p.id: p
+        for p in db.scalars(
+            select(models.Project).where(
+                models.Project.id.in_({row.project_id for row in run_rows})
+            )
+        )
+    }
+    result_by_run: dict[str, tuple[Any, Any]] = {}
+    for run_id, model, version in db.execute(
+        select(models.Checkpoint.run_id, models.Model, models.ModelVersion)
+        .join(models.ModelVersion, models.ModelVersion.checkpoint_id == models.Checkpoint.id)
+        .join(models.Model, models.Model.id == models.ModelVersion.model_id)
+        .where(models.Checkpoint.run_id.in_(run_ids))
+        .order_by(
+            models.Checkpoint.run_id,
+            models.Checkpoint.step.desc(),
+            models.ModelVersion.created_at.desc(),
+            models.ModelVersion.id.desc(),
+        )
+    ):
+        result_by_run.setdefault(run_id, (model, version))
     rows = []
     for row in run_rows:
-        live = _live_projection(db, row)
-        project = db.get(models.Project, row.project_id)
-        result = db.execute(
-            select(models.Model, models.ModelVersion)
-            .join(models.ModelVersion, models.ModelVersion.model_id == models.Model.id)
-            .join(models.Checkpoint, models.Checkpoint.id == models.ModelVersion.checkpoint_id)
-            .where(models.Checkpoint.run_id == row.id)
-            .order_by(models.Checkpoint.step.desc(), models.ModelVersion.created_at.desc(), models.ModelVersion.id.desc())
-        ).first()
-        result_model, result_version = result if result else (None, None)
-        dataset = run_dataset_link(db, row)
+        live = _live_projection(db, row, cache)
+        project = projects.get(row.project_id)
+        result_model, result_version = result_by_run.get(row.id, (None, None))
+        dataset = run_dataset_link(db, row, cache)
         rows.append({
             **dump(row),
             "project_name": project.title if project else None,
@@ -411,10 +877,10 @@ def runs(
             "dataset_name": dataset["dataset_name"] if dataset else None,
             "dataset_version_name": dataset["dataset_version_name"] if dataset else None,
             "dataset_linkage": dataset,
-            "dataset_inputs": run_dataset_inputs(db, row),
-            "merge_summary": run_merge_summary(db, row),
-            "checkpoint_count": int(db.scalar(select(func.count()).select_from(models.Checkpoint).where(models.Checkpoint.run_id == row.id)) or 0),
-            "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == row.id)) or 0),
+            "dataset_inputs": run_dataset_inputs(db, row, cache),
+            "merge_summary": run_merge_summary(db, row, cache),
+            "checkpoint_count": cache.checkpoint_counts.get(row.id, 0),
+            "sample_count": cache.sample_counts.get(row.id, 0),
             "result_model_id": result_model.id if result_model else None,
             "result_model_name": result_model.name if result_model else None,
             "result_model_version_id": result_version.id if result_version else None,
@@ -554,6 +1020,51 @@ def archive_run(
     return dump(run)
 
 
+@router.patch("/runs/{run_id}/status")
+def set_terminal_run_status(
+    run_id: str,
+    body: schemas.RunTerminalStatusUpdate,
+    db: DB,
+    x_profile_id: Annotated[str | None, Header(alias="X-Profile-ID")] = None,
+):
+    run = get_or_404(db, models.TrainingRun, run_id)
+    if run.run_kind == "checkpoint_merge":
+        raise HTTPException(status_code=409, detail="checkpoint merge runs use the merge lifecycle")
+    if run.archived_at is not None:
+        raise HTTPException(status_code=409, detail="restore the training run before changing its status")
+    terminal_statuses = {"completed", "failed", "interrupted", "canceled"}
+    previous_status = run.status.lower()
+    if previous_status in terminal_statuses:
+        if previous_status == body.status:
+            return dump(run)
+        raise HTTPException(status_code=409, detail="terminal training run status cannot be changed")
+    if previous_status not in {"unknown", "pending", "preparing", "running"}:
+        raise HTTPException(status_code=409, detail=f"training run status {run.status!r} cannot be terminalized")
+
+    finished_at = models.utcnow()
+    run.status = body.status
+    run.finished_at = finished_at
+    if body.status == "completed":
+        run.exit_code = 0
+    run.raw_state = {
+        **dict(run.raw_state or {}),
+        "status": body.status,
+        "terminalized_by": "operator",
+        "terminalized_at": finished_at.isoformat(),
+    }
+    record_activity(
+        db,
+        action="run.terminalized",
+        subject_type="run",
+        subject_id=run.id,
+        profile_id=active_profile(db, x_profile_id).id,
+        project_id=run.project_id,
+        details={"previous_status": previous_status, "status": body.status},
+    )
+    db.commit()
+    return dump(run)
+
+
 @router.post("/runs/{run_id}/restore")
 def restore_run(
     run_id: str,
@@ -578,7 +1089,12 @@ def restore_run(
 def run(run_id: str, db: DB):
     run = get_or_404(db, models.TrainingRun, run_id)
     checkpoints = db.scalars(select(models.Checkpoint).where(models.Checkpoint.run_id == run.id).order_by(models.Checkpoint.step)).all()
-    dataset = run_dataset_link(db, run)
+    cache = ProjectionCache.build(
+        db,
+        run_ids=[run.id],
+        checkpoint_ids=[c.id for c in checkpoints],
+    )
+    dataset = run_dataset_link(db, run, cache)
     stages = db.scalars(
         select(models.TrainingStage)
         .where(models.TrainingStage.run_id == run.id)
@@ -591,12 +1107,12 @@ def run(run_id: str, db: DB):
         "dataset_name": dataset["dataset_name"] if dataset else None,
         "dataset_version_name": dataset["dataset_version_name"] if dataset else None,
         "dataset_linkage": dataset,
-        "dataset_inputs": run_dataset_inputs(db, run),
-        "merge_summary": run_merge_summary(db, run),
+        "dataset_inputs": run_dataset_inputs(db, run, cache),
+        "merge_summary": run_merge_summary(db, run, cache),
         "stages": [dump(stage) for stage in stages],
-        "checkpoints": [checkpoint_projection(db, checkpoint) for checkpoint in checkpoints],
-        "sample_count": int(db.scalar(select(func.count()).select_from(models.Sample).where(models.Sample.run_id == run.id)) or 0),
-        "metric_count": int(db.scalar(select(func.count()).select_from(models.TrainingMetric).where(models.TrainingMetric.run_id == run.id)) or 0),
+        "checkpoints": [checkpoint_projection(db, checkpoint, cache) for checkpoint in checkpoints],
+        "sample_count": cache.sample_counts.get(run.id, 0),
+        "metric_count": cache.metric_counts.get(run.id, 0),
     }
 
 @router.get("/runs/{run_id}/live")
@@ -630,7 +1146,7 @@ async def run_events(
                 if current is None:
                     break
                 projection = _live_projection(session, current)
-                terminal = current.status in {"completed", "failed", "interrupted"}
+                terminal = current.status in {"completed", "failed", "interrupted", "canceled"}
                 if not sent_snapshot:
                     latest_sequence = session.scalar(
                         select(func.max(models.RunEvent.sequence)).where(models.RunEvent.run_id == run_id)
@@ -1025,18 +1541,28 @@ def models_list(db: DB, project_id: str | None = None):
     ).order_by(models.Model.updated_at.desc())
     if project_id:
         query = query.where(models.Model.project_id == project_id)
+    model_rows = db.scalars(query).all()
+    cache = ProjectionCache.build(db, model_ids=[m.id for m in model_rows])
+    projects = {
+        p.id: p
+        for p in db.scalars(
+            select(models.Project).where(
+                models.Project.id.in_({m.project_id for m in model_rows})
+            )
+        )
+    }
     rows = []
-    for model in db.scalars(query).all():
-        project = db.get(models.Project, model.project_id)
-        versions = db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id)).all()
-        latest = max(versions, key=lambda version: model_version_chronology(db, version), default=None)
+    for model in model_rows:
+        project = projects.get(model.project_id)
+        versions = cache.versions_by_model.get(model.id, [])
+        latest = max(versions, key=lambda version: model_version_chronology(db, version, cache), default=None)
         rows.append({
             **dump(model),
             "project_name": project.title if project else None,
             "latest_version": latest.name if latest else None,
             "lifecycle_state": latest.lifecycle_state if latest else None,
             "base_model": latest.base_model if latest else None,
-            "version_count": int(db.scalar(select(func.count()).select_from(models.ModelVersion).where(models.ModelVersion.model_id == model.id)) or 0),
+            "version_count": len(versions),
         })
     return rows
 
@@ -1044,12 +1570,14 @@ def models_list(db: DB, project_id: str | None = None):
 @router.get("/models/{model_id}")
 def model_detail(model_id: str, db: DB):
     model = get_or_404(db, models.Model, model_id)
+    versions = db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id)).all()
+    cache = ProjectionCache.build(db, model_ids=[model.id])
     versions = sorted(
-        db.scalars(select(models.ModelVersion).where(models.ModelVersion.model_id == model.id)).all(),
-        key=lambda version: model_version_chronology(db, version),
+        versions,
+        key=lambda version: model_version_chronology(db, version, cache),
         reverse=True,
     )
-    version_rows = [model_version_projection(db, version) for version in versions]
+    version_rows = [model_version_projection(db, version, cache) for version in versions]
     return {**dump(model), "versions": version_rows}
 
 
@@ -1064,11 +1592,20 @@ def create_model(body: schemas.ModelCreate, db: DB, x_profile_id: Annotated[str 
     return dump(model)
 
 
-def model_version_projection(db: Session, version: models.ModelVersion) -> dict[str, Any]:
-    model = db.get(models.Model, version.model_id)
-    checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
-    run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
-    artifact = checkpoint_artifact(db, checkpoint)
+def model_version_projection(
+    db: Session,
+    version: models.ModelVersion,
+    cache: ProjectionCache | None = None,
+) -> dict[str, Any]:
+    if cache is not None:
+        model = cache.models.get(version.model_id)
+        checkpoint = cache.checkpoints.get(version.checkpoint_id)
+        run = cache.runs.get(checkpoint.run_id) if checkpoint else None
+    else:
+        model = db.get(models.Model, version.model_id)
+        checkpoint = db.get(models.Checkpoint, version.checkpoint_id)
+        run = db.get(models.TrainingRun, checkpoint.run_id) if checkpoint else None
+    artifact = checkpoint_artifact(db, checkpoint, cache)
     return {
         **dump(version),
         "model_name": model.name if model else None,
@@ -1082,8 +1619,8 @@ def model_version_projection(db: Session, version: models.ModelVersion) -> dict[
         "storage": artifact["storage"] if artifact else [],
         "fal_status": version.readiness.get("fal_status") if version.readiness else None,
         "fal_url": version.readiness.get("fal_url") if version.readiness else None,
-        "readiness_summary": checkpoint_readiness(db, checkpoint, version) if checkpoint else None,
-        "dataset": run_dataset_link(db, run),
+        "readiness_summary": checkpoint_readiness(db, checkpoint, version, cache) if checkpoint else None,
+        "dataset": run_dataset_link(db, run, cache),
     }
 
 
@@ -1117,7 +1654,13 @@ def model_versions(db: DB, model_id: str | None = None, project_id: str | None =
         query = query.where(models.ModelVersion.lifecycle_state == lifecycle_state)
     if project_id:
         query = query.where(models.Model.project_id == project_id)
-    return [model_version_projection(db, version) for version in db.scalars(query).all()]
+    version_rows = db.scalars(query).all()
+    cache = ProjectionCache.build(
+        db,
+        model_ids=[v.model_id for v in version_rows],
+        checkpoint_ids=[v.checkpoint_id for v in version_rows],
+    )
+    return [model_version_projection(db, version, cache) for version in version_rows]
 
 
 @router.get("/model-versions/{version_id}")
