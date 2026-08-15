@@ -38,6 +38,18 @@ import { DitherStackedBar, type DitherBarSegment } from "./dither-stacked-bar";
 import type { DitherColor } from "./components/dither-kit/palette";
 
 type Row = Record<string, unknown>;
+const TERMINAL_RUN_STATUS_OPTIONS = [
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Failed" },
+  { value: "interrupted", label: "Interrupted" },
+  { value: "canceled", label: "Canceled" },
+];
+const TERMINAL_RUN_STATUSES: Record<string, true> = {
+  completed: true,
+  failed: true,
+  interrupted: true,
+  canceled: true,
+};
 const rows = (value: unknown) => listOf<Row>(value);
 function primarySubdataset(item: Row): Row | undefined {
   const subsets = rows(item.subdatasets);
@@ -935,6 +947,7 @@ export function RunScreen({ id }: { id: string }) {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [terminalStatus, setTerminalStatus] = useState("completed");
   const sampleRows = rows(samples.data);
   const sampleSteps = [...new Set(sampleRows.map(sample => str(sample.training_step, "unassigned")))];
   const datasetVersionId = str(runView.dataset_version_id, "");
@@ -943,6 +956,7 @@ export function RunScreen({ id }: { id: string }) {
   const uploadSummary = summarizeLiveUploads(runView.uploads, runView.upload_status);
   const lossRevision = `${lossMetricName}:${str(latestLoss?.step, "")}:${str(latestLoss?.value ?? latestLoss?.value_text, "")}`;
   const sampleRevision = `${str(runView.sample_count, "")}:${rows(runView.uploads).map(upload => str(upload.status ?? upload.state ?? upload.upload_status)).join(",")}`;
+  const isTerminal = Boolean(TERMINAL_RUN_STATUSES[str(runView.status).toLowerCase()]);
   const observedLossRevision = useRef("");
   const observedSampleRevision = useRef("");
 
@@ -988,6 +1002,24 @@ export function RunScreen({ id }: { id: string }) {
     } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
   }
 
+  async function terminalizeRun() {
+    setBusy("terminal-status"); setMessage(""); setActionError("");
+    try {
+      await api(`/api/runs/${id}/status`, patchBody({ status: terminalStatus }));
+      await run.reload();
+      setMessage(`Run status set to ${terminalStatus}.`);
+    } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
+  }
+
+  async function archiveRun() {
+    setBusy("archive"); setMessage(""); setActionError("");
+    try {
+      await api(`/api/runs/${id}/archive`, jsonBody({}));
+      await run.reload();
+      setMessage("Run archived.");
+    } catch (reason) { setActionError(errorText(reason)); } finally { setBusy(""); }
+  }
+
 
   const lastEventDate = new Date(str(runView.last_event_at, ""));
   const lastEventText = Number.isNaN(lastEventDate.valueOf()) ? "Unavailable" : lastEventDate.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
@@ -999,6 +1031,8 @@ export function RunScreen({ id }: { id: string }) {
     {!isMerge && <a className="button vela-button" href={`#/samples/${id}${routeQuery({ step: undefined, return: `run/${id}`, project: runView.project_id })}`}><FileImage size={15} />Samples</a>}
     {runView.project_id ? <a className="button vela-button" href={`#/transfers${routeQuery({ mode: "export", project: runView.project_id })}`}><Download size={15} />Export project</a> : <button disabled title="This run is not attached to an exportable project"><Download size={15} />Export unavailable</button>}
     {!isMerge && <button className="vela-button vela-button-primary" onClick={() => void refreshRun()} disabled={busy === "refresh"}><RefreshCw size={15} />{busy === "refresh" ? "Refreshing..." : "Refresh import"}</button>}
+    {!isMerge && !runView.archived_at && !isTerminal && <><Dropdown aria-label="Terminal status" value={terminalStatus} onChange={setTerminalStatus} options={TERMINAL_RUN_STATUS_OPTIONS} /><button className="vela-button" onClick={() => void terminalizeRun()} disabled={busy === "terminal-status"}>{busy === "terminal-status" ? "Saving..." : "Set terminal status"}</button></>}
+    {!isMerge && !runView.archived_at && isTerminal && <button className="vela-button" onClick={() => void archiveRun()} disabled={busy === "archive"}><Archive size={15} />{busy === "archive" ? "Archiving..." : "Archive run"}</button>}
   </>}>
     <ActionMessage message={message} error={actionError} />
     {!isMerge && <ObjectImageStrip assets={sampleRows.slice().reverse()} label="Latest training samples" showTrainingDetails />}

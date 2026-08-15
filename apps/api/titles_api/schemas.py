@@ -377,6 +377,10 @@ class RunCreate(BaseModel):
     normalized_config: dict[str, Any] = {}
 
 
+class RunTerminalStatusUpdate(BaseModel):
+    status: Literal["completed", "failed", "interrupted", "canceled"]
+
+
 class TrainingRunDatasetInputCreate(BaseModel):
     dataset_version_id: str
     subset_id: str | None = None

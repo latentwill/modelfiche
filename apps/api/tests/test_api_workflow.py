@@ -78,6 +78,41 @@ def test_run_metrics_endpoint_returns_sorted_loss_points(client: TestClient):
     }
 
 
+
+def test_operator_can_terminalize_and_archive_a_legacy_run(client: TestClient):
+    profile = client.get("/api/profiles").json()[0]
+    headers = {"X-Profile-ID": profile["id"]}
+    project = client.post("/api/projects", headers=headers, json={"title": "Legacy run"}).json()
+    run = client.post(
+        "/api/runs",
+        headers=headers,
+        json={"project_id": project["id"], "name": "lotus-rocks-kef-v001", "status": "running"},
+    ).json()
+
+    completed = client.patch(
+        f"/api/runs/{run['id']}/status",
+        headers=headers,
+        json={"status": "completed"},
+    )
+
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["exit_code"] == 0
+    assert completed.json()["finished_at"] is not None
+    with app_module.SessionLocal() as session:
+        row = session.get(models.TrainingRun, run["id"])
+        assert row is not None
+        assert row.raw_state["terminalized_by"] == "operator"
+        activity = session.query(models.ActivityEvent).filter_by(
+            action="run.terminalized", subject_id=run["id"]
+        ).one()
+        assert activity.details == {"previous_status": "running", "status": "completed"}
+
+    archived = client.post(f"/api/runs/{run['id']}/archive", headers=headers)
+
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+
 def test_manual_run_metrics_endpoint_is_idempotent_and_updates_loss_summary(client: TestClient):
     profile = client.get("/api/profiles").json()[0]
     headers = {"X-Profile-ID": profile["id"]}

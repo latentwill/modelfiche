@@ -15,20 +15,23 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
-function mockRunApi(metrics: unknown, samples: unknown[] = [], latestLossName: string | null = "train/objective", refreshStates: string[] = []) {
+function mockRunApi(metrics: unknown, samples: unknown[] = [], latestLossName: string | null = "train/objective", refreshStates: string[] = [], runStatus = "completed") {
   let refreshPollCount = 0;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
     const path = String(input);
     const metricRecord = metrics && typeof metrics === "object" ? metrics as Record<string, unknown> : {};
     let body: unknown;
     if (path === "/api/runs/run-1") {
-      body = { id: "run-1", name: "Portrait training", base_model: "Flux", trainer: "AI Toolkit", status: "completed", project_id: "", final_loss: 9.99 };
+      body = { id: "run-1", name: "Portrait training", base_model: "Flux", trainer: "AI Toolkit", status: runStatus, project_id: "", final_loss: 9.99 };
     } else if (path === "/api/runs/run-1/live") {
-      body = { run_id: "run-1", status: "completed", current_step: 120, latest_loss: latestLossName ? { name: latestLossName, step: 120, value: metricRecord.final_value } : null, learning_rate: { name: "learning_rate", step: 120, value: 0.0001 }, elapsed_seconds: 75, last_event_at: "2026-07-13T10:00:00Z", uploads: { uploaded: 2, pending: 1 }, sample_count: samples.length };
+      body = { run_id: "run-1", status: runStatus, current_step: 120, latest_loss: latestLossName ? { name: latestLossName, step: 120, value: metricRecord.final_value } : null, learning_rate: { name: "learning_rate", step: 120, value: 0.0001 }, elapsed_seconds: 75, last_event_at: "2026-07-13T10:00:00Z", uploads: { uploaded: 2, pending: 1 }, sample_count: samples.length };
     } else if (path === "/api/runs/run-1/refresh") {
       body = { run_id: "run-1", job_id: "job-1", state: "queued" };
+    } else if (path === "/api/runs/run-1/status") {
+      body = { id: "run-1", status: "completed" };
     } else if (path === "/api/jobs/job-1") {
       body = { id: "job-1", state: refreshStates[Math.min(refreshPollCount++, Math.max(refreshStates.length - 1, 0))] ?? "succeeded" };
     } else if (path === "/api/runs/run-1/samples") {
@@ -141,5 +144,28 @@ describe("RunScreen loss metrics", () => {
     await waitFor(() => expect(screen.getByText(/Local image copies are ready/)).toBeInTheDocument(), { timeout: 3000 });
     expect(fetchMock).toHaveBeenCalledWith("/api/jobs/job-1", expect.any(Object));
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/runs/run-1/samples")).toHaveLength(2);
+  });
+
+  it("offers a direct terminal status action for active runs", async () => {
+    vi.stubGlobal("EventSource", class {
+      addEventListener() {}
+      close() {}
+    });
+    const fetchMock = mockRunApi(
+      { run_id: "run-1", metric_name: "train/objective", points: [], final_value: null },
+      [],
+      "train/objective",
+      [],
+      "running",
+    );
+
+    render(<RunScreen id="run-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Set terminal status" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/runs/run-1/status",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "completed" }) }),
+    ));
   });
 });
