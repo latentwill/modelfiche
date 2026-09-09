@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 144" fill="none" aria-hidden="true">
+  <title>Loss graph reader</title>
+  <rect x="8" y="8" width="240" height="128" rx="2" stroke="#B8C5ED"/>
+  <path d="M22 26h44M22 35h32M22 48v72h210" stroke="#6573A4" stroke-width="1"/>
+  <path d="M27 108c16-5 19-8 29-2 12 7 18-24 30-20 13 4 17-28 29-19 13 10 15-20 27-19 17 2 14-17 32-14 17 3 18-10 37-10" stroke="#1237B8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M22 62h210M22 86h210" stroke="#B8C5ED" stroke-width="1" stroke-dasharray="2 4"/>
+</svg>

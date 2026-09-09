@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 64" fill="none" aria-hidden="true">
+  <title>Crop and registration marks</title>
+  <g stroke="#1237B8" stroke-width="1.5" stroke-linecap="square">
+    <path d="M2 14V2h12M114 2h12v12M2 50v12h12M126 50v12h-12"/>
+    <path d="M20 2v9M20 53v9M2 20h9M117 20h9M64 0v12M64 52v12M0 32h12M116 32h12"/>
+  </g>
+  <g stroke="#B8C5ED" stroke-width="1">
+    <circle cx="64" cy="32" r="8"/><path d="M52 32h24M64 20v24"/>
+  </g>
+</svg>

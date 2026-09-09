@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 40" fill="none" aria-hidden="true">
+  <title>Fiche frame dividers</title>
+  <path d="M0 4h256M0 36h256" stroke="#B8C5ED"/>
+  <path d="M0 20h256" stroke="#1237B8" stroke-width="2" stroke-dasharray="1 5" stroke-linecap="round"/>
+  <path d="M16 10v20M80 10v20M176 10v20M240 10v20" stroke="#082689"/>
+  <path d="M28 14h40M92 14h72M188 14h40M28 26h40M92 26h72M188 26h40" stroke="#6573A4" stroke-width="1"/>
+</svg>

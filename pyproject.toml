@@ -1,0 +1,46 @@
+[project]
+name = "titles-dam"
+version = "0.1.0"
+description = "Local-first digital asset manager for image model training"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.13",
+  "boto3>=1.35",
+  "cryptography>=43",
+  "fastapi>=0.115",
+  "httpx>=0.27",
+  "Pillow>=10.4",
+  "pydantic-settings>=2.5",
+  "psycopg[binary]>=3.2",
+  "sqlalchemy>=2.0",
+  "typer>=0.12",
+  "uvicorn[standard]>=0.30",
+  "pyyaml>=6.0",
+  "tensorboard>=2.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+compat-wandb = ["wandb==0.28.0"]
+
+[project.scripts]
+mfiche = "titles_cli.main:app"
+titles-api = "titles_api.__main__:main"
+titles-wandb-ingress = "titles_api.wandb_ingress_main:main"
+titles-worker = "titles_worker.main:main"
+modelfiche-run-sync = "titles_cli.run_sync:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "apps/api/titles_api",
+  "apps/cli/titles_cli",
+  "apps/worker/titles_worker",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["apps/api", "apps/cli", "apps/worker"]
+testpaths = ["apps/api/tests", "apps/worker/tests", "apps/cli/tests", "tests"]

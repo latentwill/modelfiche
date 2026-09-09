@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 640" fill="none" aria-hidden="true">
+  <title>Narrow sidebar background</title>
+  <path d="M0 0h96v640H0z" fill="#05104A" fill-opacity=".72"/>
+  <path d="M18 0v640M78 0v640" stroke="#8FA5EF" stroke-opacity=".18"/>
+  <path d="M0 64h96M0 128h96M0 192h96M0 256h96M0 320h96M0 384h96M0 448h96M0 512h96M0 576h96" stroke="#87A9FF" stroke-opacity=".13" stroke-dasharray="1 7"/>
+  <g fill="#F7F5EC" opacity=".7"><circle cx="30" cy="26" r="1"/><circle cx="66" cy="95" r="1"/><circle cx="44" cy="402" r="1.2"/><circle cx="75" cy="554" r=".8"/></g>
+</svg>

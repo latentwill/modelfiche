@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+  <title>Dark coordinate crosshairs</title>
+  <g stroke="#87A9FF" stroke-opacity=".8"><path d="M64 6v116M6 64h116"/><circle cx="64" cy="64" r="35"/><circle cx="64" cy="64" r="4" fill="#F7F5EC"/></g>
+  <path d="M64 17v9M64 102v9M17 64h9M102 64h9" stroke="#F7F5EC"/>
+</svg>
