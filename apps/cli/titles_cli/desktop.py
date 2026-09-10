@@ -148,7 +148,7 @@ def serve() -> None:
                            "import faulthandler,runpy,sys; faulthandler.dump_traceback_later(30, repeat=True); runpy.run_module(sys.argv[1], run_name='__main__')", module]
             if os.environ.get("MODELFICHE_STARTUP_DIAGNOSTICS") == "1":
                 print(f"Starting {name}: {command!r}", file=sys.stderr, flush=True)
-            processes[name] = subprocess.Popen(command, cwd=support, stdout=log, stderr=subprocess.STDOUT,
+            processes[name] = subprocess.Popen(command, cwd=support, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             deadline = time.monotonic() + 120
             while name in urls and not _http_ready(urls[name]):
