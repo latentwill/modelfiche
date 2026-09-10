@@ -23,6 +23,8 @@ def test_all_packaged_state_lives_in_user_data(bundle_environment):
     for name in ("ASSET_ROOT", "CACHE_ROOT", "CONFIG_ROOT", "EXPORT_ROOT", "WANDB_UPLOAD_ROOT"):
         assert os.environ["TITLES_" + name].startswith(str(root))
     assert json.loads(os.environ["TITLES_CORS_ORIGINS"])[0] == "http://127.0.0.1:19400"
+    from titles_cli.client import LocalContext
+    assert LocalContext.load().api_url == "http://127.0.0.1:19400"
     assert status_bundle() == {"ok": False, "running": False, "ready": False, "services": {}}
 
 

@@ -41,7 +41,7 @@ jobs:
           apps/cli/tests/test_server_lifecycle.py
           apps/cli/tests/test_desktop.py
       - name: Frontend tests
-        run: pnpm --dir apps/web test
+        run: pnpm --dir apps/web exec vitest run --maxWorkers=2 --minWorkers=2
       - name: Build portable app
         shell: pwsh
         run: |
@@ -76,4 +76,4 @@ jobs:
       - name: Publish verified Windows assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --title "Modelfiche ${GITHUB_REF_NAME} — Windows" --notes-file docs/releases/v0.1.0.md
+        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --title "Modelfiche ${GITHUB_REF_NAME} — Windows" --notes-file "docs/releases/$GITHUB_REF_NAME.md"

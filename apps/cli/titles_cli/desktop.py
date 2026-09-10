@@ -38,6 +38,7 @@ def configure_bundle() -> Path:
         "TITLES_WANDB_INGRESS_HOST": "127.0.0.1",
         "TITLES_WANDB_INGRESS_BASE_URL": f"http://127.0.0.1:{ingress}",
         "TITLES_CLI_ORIGIN": f"http://127.0.0.1:{port}",
+        "TITLES_API_URL": f"http://127.0.0.1:{port}",
         "TITLES_CORS_ORIGINS": json.dumps([f"http://127.0.0.1:{port}", f"http://localhost:{port}"]),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONUTF8": "1",
