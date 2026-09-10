@@ -275,7 +275,14 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
         try:
             if os.name == "nt":
                 escaped = str(source).replace("%", "%%")
-                temporary.write_bytes((f'@rem Modelfiche CLI launcher\r\n@echo off\r\n"{escaped}" %*\r\n').encode("utf-8"))
+                shim = (
+                    '@rem Modelfiche CLI launcher\r\n@echo off\r\nsetlocal DisableDelayedExpansion\r\n'
+                    "for /f \"tokens=2 delims=:\" %%a in ('chcp') do set \"_mfiche_cp=%%a\"\r\n"
+                    'chcp 65001 >nul\r\n'
+                    f'"{escaped}" %*\r\n'
+                    'set "_mfiche_exit=%errorlevel%"\r\nchcp %_mfiche_cp% >nul\r\nexit /b %_mfiche_exit%\r\n'
+                )
+                temporary.write_bytes(shim.encode("utf-8"))
             else:
                 os.symlink(source, temporary)
             os.replace(temporary, target)

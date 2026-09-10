@@ -211,6 +211,3 @@ def _hash_file(path: Path) -> tuple[str, int]:
             digest.update(chunk)
             size += len(chunk)
     return digest.hexdigest(), size
-
-
-

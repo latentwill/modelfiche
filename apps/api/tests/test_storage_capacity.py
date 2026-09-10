@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 import pytest
@@ -97,5 +99,8 @@ def test_settings_creates_owner_only_storage_roots(tmp_path: Path) -> None:
     )
     settings.ensure_runtime_dirs()
 
-    assert settings.asset_root.stat().st_mode & 0o777 == 0o700
-    assert settings.cache_root.stat().st_mode & 0o777 == 0o700
+    assert settings.asset_root.is_dir()
+    assert settings.cache_root.is_dir()
+    if os.name != "nt":
+        assert settings.asset_root.stat().st_mode & 0o777 == 0o700
+        assert settings.cache_root.stat().st_mode & 0o777 == 0o700

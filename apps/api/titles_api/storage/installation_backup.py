@@ -288,8 +288,6 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as stream:
+    # Windows _commit requires a writable file descriptor.
+    with path.open("r+b") as stream:
         os.fsync(stream.fileno())
-
-
-

@@ -201,6 +201,3 @@ class ThumbnailCache:
     def _validate_key(key: str) -> None:
         if not key or "/" in key or "\\" in key or key in {".", ".."}:
             raise ValueError("thumbnail key must be an opaque non-path value")
-
-
-

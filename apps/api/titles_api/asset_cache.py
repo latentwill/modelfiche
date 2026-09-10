@@ -192,8 +192,3 @@ class AssetCache:
             temp_path.unlink(missing_ok=True)
             if not committed:
                 self.thumbnail_cache.release_thumbnail(grant.grant_id)
-
-
-
-
-

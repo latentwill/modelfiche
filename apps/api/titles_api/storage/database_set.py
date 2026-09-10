@@ -147,8 +147,6 @@ def _sha256(path: Path) -> str:
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as stream:
+    # Windows _commit requires a writable file descriptor.
+    with path.open("r+b") as stream:
         os.fsync(stream.fileno())
-
-
-

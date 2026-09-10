@@ -47,7 +47,7 @@ Create a backup while the app is running:
 .\mfiche.exe --json backup create
 ```
 
-See [Installation and operations](OPERATIONS.md) for backup/restore and remote access. Training packets target the trainer's environment, usually Linux; the Windows application does not install or run the GPU trainer.
+See [Installation and operations](https://github.com/latentwill/modelfiche/blob/main/docs/OPERATIONS.md) for backup/restore and remote access. Training packets target the trainer's environment, usually Linux; the Windows application does not install or run the GPU trainer.
 
 ## Troubleshooting
 
