@@ -26,6 +26,12 @@ Agent or shell
 
 The CLI must never write directly to SQLite or the asset directory. This keeps UI, CLI, and future authenticated web behavior consistent.
 
+The Windows package exposes the same command tree as `mfiche.exe`. Its daemon
+commands manage the packaged launcher, API, worker, and W&B ingress; the built
+web UI is served by the API. `status` requires every service to be healthy and
+returns exit code 8 when the stack is stopped or unhealthy. `stop` waits for
+service shutdown. The source checkout continues to run the development frontend.
+
 Required daemon commands:
 
 ```text

@@ -6,6 +6,12 @@ provider admission, and durable jobs remain server-side.
 
 ## Install and connect
 
+The Windows ZIP includes `mfiche.exe`. In PowerShell, run
+`.\mfiche.exe --json doctor` from the extracted application folder. `start`,
+`status`, and `stop` control the packaged launcher and its local services.
+Settings can install a forwarding `mfiche.cmd` in `%USERPROFILE%\.local\bin`;
+add that directory to your user `PATH`. See the [Windows guide](WINDOWS.md).
+
 The macOS application embeds the command at:
 
 ```bash

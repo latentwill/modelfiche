@@ -23,6 +23,14 @@ the operation is retryable; reuse a request ID only for the same logical
 request. Verify terminal state and resulting resources before reporting success.
 ```
 
+## Windows package
+
+Use the extracted package's `mfiche.exe` for its matching command contract.
+In PowerShell, invoke `.\mfiche.exe --json capabilities` and
+`.\mfiche.exe --json workspace list`. The same global flags and explicit
+workspace rules apply. `start`, `status`, and `stop` control the bundled services.
+Keep the application folder intact; data lives in `%LOCALAPPDATA%\Modelfiche`.
+
 ## Bootstrap sequence
 
 Resolve the command once, then inspect runtime capabilities:
