@@ -138,14 +138,19 @@ def serve() -> None:
         for name, module in modules.items():
             log = (support / "logs" / (name + ".log")).open("ab")
             logs.append(log)
-            processes[name] = subprocess.Popen([sys.executable, "-m", module], cwd=support, stdout=log, stderr=subprocess.STDOUT,
+            command = [sys.executable, "-u", "-X", "faulthandler", "-m", module]
+            if os.environ.get("MODELFICHE_STARTUP_DIAGNOSTICS") == "1":
+                command = [sys.executable, "-u", "-X", "faulthandler", "-c",
+                           "import faulthandler,runpy,sys; faulthandler.dump_traceback_later(30, repeat=True); runpy.run_module(sys.argv[1], run_name='__main__')", module]
+            processes[name] = subprocess.Popen(command, cwd=support, stdout=log, stderr=subprocess.STDOUT,
                                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             deadline = time.monotonic() + 120
             while name in urls and not _http_ready(urls[name]):
                 if stopping.is_set() or stop_path.exists():
                     return
                 if any(p.poll() is not None for p in processes.values()) or time.monotonic() > deadline:
-                    raise RuntimeError(f"{name} could not start. See {support / 'logs' / (name + '.log')}")
+                    codes = {key: child.poll() for key, child in processes.items()}
+                    raise RuntimeError(f"{name} could not start (exit codes: {codes}). See {support / 'logs' / (name + '.log')}")
                 time.sleep(0.2)
         state = {"ok": True, "running": True, "ready": True, "web_url": origin + "/", "api_url": origin,
                  "services": {name: {"pid": p.pid, "url": urls.get(name)} for name, p in processes.items()}}

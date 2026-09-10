@@ -85,6 +85,7 @@ internal sealed class Launcher : Form {
             job = new Job();
             var info = Program.Python("titles_cli.desktop", new[] { "--handshake" });
             info.CreateNoWindow = true; info.RedirectStandardOutput = true; info.RedirectStandardError = true; info.RedirectStandardInput = true;
+            info.StandardOutputEncoding = info.StandardErrorEncoding = Encoding.UTF8;
             process = Process.Start(info); job.Add(process);
             process.OutputDataReceived += (s, e) => {
                 if (e.Data == null) return;

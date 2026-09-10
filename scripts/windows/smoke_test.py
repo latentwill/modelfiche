@@ -41,7 +41,7 @@ while ingress == port:
     ingress = free_port()
 origin = f"http://127.0.0.1:{port}"
 env = {**os.environ, "TITLES_APP_SUPPORT": str(support), "TITLES_API_PORT": str(port),
-       "TITLES_WANDB_INGRESS_PORT": str(ingress), "MODELFICHE_LAUNCHER_SCREENSHOT": str(VALIDATION / "native-launcher.png")}
+       "TITLES_WANDB_INGRESS_PORT": str(ingress), "MODELFICHE_STARTUP_DIAGNOSTICS": "1", "MODELFICHE_LAUNCHER_SCREENSHOT": str(VALIDATION / "native-launcher.png")}
 for key in ("PYTHONPATH", "PYTHONHOME", "MODELFICHE_BUNDLE_ROOT"):
     env.pop(key, None)
 headers = {"Origin": origin}
