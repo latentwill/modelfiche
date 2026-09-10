@@ -6,6 +6,8 @@ runtime instructions.
 
 ## Operator guides
 
+- [Windows app](WINDOWS.md) — download, launch, update, and troubleshoot the Windows package.
+
 - [Installation and operations](OPERATIONS.md) — app setup, remote access,
   storage, credentials, backups, restore, and release builds.
 

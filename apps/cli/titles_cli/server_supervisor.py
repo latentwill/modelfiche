@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -163,7 +164,7 @@ def main() -> None:
         logs.append(web_log)
         processes["web"] = subprocess.Popen(
             [
-                "pnpm",
+                shutil.which("pnpm") or "pnpm",
                 "--dir",
                 "apps/web",
                 "dev",

@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+from ..platform_io import fsync_directory as _fsync_directory
 from pathlib import Path
 import sqlite3
 import struct
@@ -212,9 +213,4 @@ def _hash_file(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
-def _fsync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+

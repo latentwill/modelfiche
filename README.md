@@ -80,6 +80,15 @@ Dataset → Training run → Checkpoint → Evaluation → Reviewed model versio
 
 ## 🚀 Get started
 
+### Windows app
+
+Download **Modelfiche-0.1.0-windows-x64.zip** from
+[Releases](https://github.com/latentwill/modelfiche/releases/latest), choose
+**Extract All**, then open **Modelfiche.exe**. The app opens in your browser;
+keep its launcher window open while you work. No Python or Node.js installation is needed. Supports Windows 10/11 on Intel/AMD 64-bit PCs.
+
+[Windows setup, CLI, and troubleshooting](docs/WINDOWS.md)
+
 ### macOS app
 
 Open the project's [Releases](https://github.com/latentwill/modelfiche/releases)

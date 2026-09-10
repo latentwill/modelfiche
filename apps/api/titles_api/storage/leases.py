@@ -1,10 +1,11 @@
 from __future__ import annotations
-import fcntl
 import os
 from pathlib import Path
 
 from dataclasses import dataclass
 from threading import RLock
+
+from ..platform_io import lock_file
 
 
 class LeaseFenceError(RuntimeError):
@@ -25,7 +26,7 @@ class SupervisorLock:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file(fd)
         except OSError as exc:
             os.close(fd)
             raise LeaseFenceError("installation supervisor lock is held by another process") from exc
@@ -38,7 +39,7 @@ class SupervisorLock:
     def close(self) -> None:
         if self._fd >= 0:
             try:
-                fcntl.flock(self._fd, fcntl.LOCK_UN)
+                lock_file(self._fd, unlock=True)
             finally:
                 os.close(self._fd)
                 self._fd = -1

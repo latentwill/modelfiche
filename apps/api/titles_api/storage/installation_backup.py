@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+from ..platform_io import fsync_directory as _fsync_directory
 from pathlib import Path, PurePosixPath
 import shutil
 import sqlite3
+from contextlib import closing
 import tarfile
 import tempfile
 import uuid
@@ -188,7 +190,7 @@ class InstallationBackupStore:
 
     @staticmethod
     def _sqlite_backup(source: Path, destination: Path) -> None:
-        with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as source_db, sqlite3.connect(destination) as target_db:
+        with closing(sqlite3.connect(f"file:{source}?mode=ro", uri=True)) as source_db, closing(sqlite3.connect(destination)) as target_db:
             source_db.backup(target_db, pages=256)
         InstallationBackupStore._verify_sqlite(destination)
         destination.with_name(f"{destination.name}-wal").unlink(missing_ok=True)
@@ -196,7 +198,7 @@ class InstallationBackupStore:
 
     @staticmethod
     def _verify_sqlite(path: Path) -> None:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as database:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as database:
             result = database.execute("PRAGMA integrity_check").fetchone()
             if result is None or result[0] != "ok":
                 raise ValueError("backup database failed integrity check")
@@ -290,9 +292,4 @@ def _fsync_file(path: Path) -> None:
         os.fsync(stream.fileno())
 
 
-def _fsync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+

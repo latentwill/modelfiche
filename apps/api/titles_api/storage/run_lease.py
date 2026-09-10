@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import socket
@@ -8,6 +7,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
+
+from ..platform_io import lock_file
 
 
 class RunLeaseBusy(RuntimeError):
@@ -25,8 +26,8 @@ class RunLease:
         path.parent.mkdir(parents=True, exist_ok=True)
         stream = path.open("a+", encoding="utf-8")
         try:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+            lock_file(stream.fileno())
+        except OSError as exc:
             stream.close()
             raise RunLeaseBusy(f"another Titles runtime owns {path}") from exc
         owned_lease_id = lease_id or str(uuid.uuid4())
@@ -48,7 +49,7 @@ class RunLease:
         self._stream.truncate()
         self._stream.flush()
         os.fsync(self._stream.fileno())
-        fcntl.flock(self._stream.fileno(), fcntl.LOCK_UN)
+        lock_file(self._stream.fileno(), unlock=True)
         self._stream.close()
 
     def __enter__(self) -> "RunLease":

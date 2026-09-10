@@ -148,7 +148,7 @@ def import_local_folder(body: LocalImportRequest, db: DB) -> dict[str, Any]:
                 db.add(asset)
                 db.flush()
                 location = repository.attach_verified_local_location(asset_id=asset.id, uri=str(target), size=len(data), sha256=digest, mime_type=asset.mime_type or "application/octet-stream")
-                location.relative_path = str(target.relative_to(get_settings().asset_root.resolve()))
+                location.relative_path = target.relative_to(get_settings().asset_root.resolve()).as_posix()
                 if image_metadata:
                     db.add(models.ImageMetadata(
                         asset_id=asset.id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import stat
+import os
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -14,8 +15,9 @@ def test_secret_store_permissions_reload_clear_and_env_precedence(tmp_path: Path
     store = FalSecretStore(tmp_path / "config")
     store.save("saved-secret")
 
-    assert stat.S_IMODE(store.root.stat().st_mode) == 0o700
-    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(store.root.stat().st_mode) == 0o700
+        assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
     assert FalSecretStore(tmp_path / "config").resolve({}).key == "saved-secret"
     assert store.resolve({"FAL_API_KEY": "api-env"}).key == "api-env"
     credential = store.resolve({"FAL_KEY": "primary-env", "FAL_API_KEY": "api-env"})

@@ -227,9 +227,11 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
         backup_root = Path(os.getenv("TITLES_BACKUP_ROOT", str(app_support.parent / f"{app_support.name}-backups"))) if app_support else None
         latest_backup = max(backup_root.glob("modelfiche-*.tar.gz"), key=lambda path: path.stat().st_mtime, default=None) if backup_root and backup_root.exists() else None
         embedded_cli = Path(os.environ["TITLES_CLI_PATH"]).expanduser() if os.getenv("TITLES_CLI_PATH") else None
-        user_cli = Path.home() / ".local" / "bin" / "mfiche"
+        user_cli = Path.home() / ".local" / "bin" / ("mfiche.cmd" if os.name == "nt" else "mfiche")
         path_cli = shutil.which("mfiche")
         cli_path = str(user_cli) if user_cli.is_file() and os.access(user_cli, os.X_OK) else path_cli
+        if cli_path is None and embedded_cli and embedded_cli.is_file():
+            cli_path = str(embedded_cli)
         return {
             "ok": database_ok,
             "version": __version__,
@@ -263,14 +265,19 @@ def create_app(launch_contract: LocalLaunchContract) -> FastAPI:
         source = Path(source_value).expanduser().resolve() if source_value else None
         if source is None or not source.is_file() or not os.access(source, os.X_OK):
             raise HTTPException(status_code=409, detail="the packaged mfiche executable is unavailable")
-        target = Path.home() / ".local" / "bin" / "mfiche"
+        target = Path.home() / ".local" / "bin" / ("mfiche.cmd" if os.name == "nt" else "mfiche")
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-        if target.exists() and not target.is_symlink():
+        managed_windows_shim = os.name == "nt" and target.is_file() and target.read_bytes().startswith(b"@rem Modelfiche CLI launcher\r\n")
+        if target.exists() and not target.is_symlink() and not managed_windows_shim:
             raise HTTPException(status_code=409, detail=f"{target} already exists and was not created by Modelfiche")
         temporary = target.with_name(f".{target.name}.{os.getpid()}.install")
         temporary.unlink(missing_ok=True)
         try:
-            os.symlink(source, temporary)
+            if os.name == "nt":
+                escaped = str(source).replace("%", "%%")
+                temporary.write_bytes((f'@rem Modelfiche CLI launcher\r\n@echo off\r\n"{escaped}" %*\r\n').encode("utf-8"))
+            else:
+                os.symlink(source, temporary)
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)

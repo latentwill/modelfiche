@@ -85,7 +85,7 @@ class FalSecretStore:
         path.parent.chmod(0o700)
         fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         try:
-            os.fchmod(fd, mode)
+            os.chmod(temporary, mode)
             with os.fdopen(fd, "wb") as stream:
                 stream.write(content)
                 stream.flush()

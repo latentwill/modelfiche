@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from .platform_io import fsync_directory as _fsync_directory
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -195,9 +196,4 @@ class AssetCache:
 
 
 
-def _fsync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+

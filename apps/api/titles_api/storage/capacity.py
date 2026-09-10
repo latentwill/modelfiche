@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,7 +61,7 @@ class CapacityLedger:
         self._root_quotas = normalized
         self._temporary_quota_bytes = temporary_quota_bytes
         self._shared_headroom_bytes = shared_headroom_bytes
-        self._disk_free = disk_free or (lambda path: os.statvfs(path).f_bavail * os.statvfs(path).f_frsize)
+        self._disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self._global_transfer_limit = global_transfer_limit
         self._per_source_transfer_limit = per_source_transfer_limit
         self._reservations: dict[str, CapacityReservation] = {}

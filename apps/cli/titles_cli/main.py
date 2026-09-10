@@ -3997,11 +3997,8 @@ def _pid_is_alive(path: Path) -> tuple[int | None, bool]:
         pid = int(path.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return None, False
-    try:
-        os.kill(pid, 0)
-    except (OSError, ValueError):
-        return pid, False
-    return pid, True
+    from titles_api.platform_io import process_alive
+    return pid, process_alive(pid)
 
 
 def _url_is_ready(url: str, *, timeout: float = 0.5) -> bool:
@@ -4013,6 +4010,9 @@ def _url_is_ready(url: str, *, timeout: float = 0.5) -> bool:
 
 
 def _terminate_pid(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        return
     try:
         os.killpg(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
@@ -4065,6 +4065,13 @@ def _stack_state(root_path: Path) -> dict[str, Any]:
 
 @server_app.command("start")
 def server_start(ctx: typer.Context) -> None:
+    if os.getenv("MODELFICHE_BUNDLE_ROOT"):
+        from .desktop import start_bundle
+        state = start_bundle()
+        emit(state, json_output=rt(ctx).json_output)
+        if not state["ok"]:
+            raise typer.Exit(code=8)
+        return
     root_path = project_root()
     _load_runtime_environment(root_path)
     var = root_path / "var"
@@ -4139,6 +4146,13 @@ def server_start(ctx: typer.Context) -> None:
 
 @server_app.command("status")
 def server_status(ctx: typer.Context) -> None:
+    if os.getenv("MODELFICHE_BUNDLE_ROOT"):
+        from .desktop import status_bundle
+        state = status_bundle()
+        emit(state, json_output=rt(ctx).json_output)
+        if not state["ok"]:
+            raise typer.Exit(code=8)
+        return
     state = _stack_state(project_root())
     emit(state, json_output=rt(ctx).json_output)
     if not state["ok"]:
@@ -4147,6 +4161,13 @@ def server_status(ctx: typer.Context) -> None:
 
 @server_app.command("stop")
 def server_stop(ctx: typer.Context) -> None:
+    if os.getenv("MODELFICHE_BUNDLE_ROOT"):
+        from .desktop import stop_bundle
+        state = stop_bundle()
+        emit(state, json_output=rt(ctx).json_output)
+        if not state["ok"]:
+            raise typer.Exit(code=8)
+        return
     var = project_root() / "var"
     pid_paths = _service_pid_paths(var)
     pids: list[int] = []

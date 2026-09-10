@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
+from ..platform_io import fsync_directory as _fsync_directory
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -56,7 +58,7 @@ class ThumbnailCache:
         self.tmp.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._quota_bytes = quota_bytes
         self._headroom_bytes = headroom_bytes
-        self._disk_free = disk_free or (lambda path: os.statvfs(path).f_bavail * os.statvfs(path).f_frsize)
+        self._disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self._entries: dict[str, _Entry] = {}
         self._grants: dict[str, ThumbnailGrant] = {}
         self._order = 0
@@ -201,9 +203,4 @@ class ThumbnailCache:
             raise ValueError("thumbnail key must be an opaque non-path value")
 
 
-def _fsync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+

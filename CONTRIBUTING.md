@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Requirements: macOS or Linux, Python 3.11+, `uv`, Node.js, and `pnpm`.
+Requirements: Windows, macOS, or Linux, Python 3.11+, `uv`, Node.js, and `pnpm`.
 
 ```bash
 uv sync --extra dev --extra compat-wandb
@@ -99,3 +99,10 @@ Include:
 
 Do not commit credentials, generated runtime databases, provider responses,
 local logs, release artifacts, or private training data.
+
+## Windows distribution
+
+See [docs/WINDOWS.md](docs/WINDOWS.md) for the native build and extracted-package
+smoke test. Tagged releases build on Windows and publish only after validation.
+The descriptor-relative LocalRoot contract tests require POSIX; Windows tests
+exercise the portable browser import, cache, credentials, leases, and backups.

@@ -95,7 +95,7 @@ def write_secret_text(path: Path, content: str) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.fchmod(descriptor, 0o600)
+        os.chmod(destination, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(content)
     except BaseException:

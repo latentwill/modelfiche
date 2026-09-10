@@ -12,6 +12,7 @@ const operatorWorkflows = [
 ];
 
 const references = [
+  { title: "Windows app", body: "Portable download, launcher, data folders, CLI, updates, and troubleshooting.", href: `${REPOSITORY}/blob/main/docs/WINDOWS.md` },
   { title: "CLI guide", body: "Installation, discovery, output, exit codes, and operator workflows.", href: `${REPOSITORY}/blob/main/docs/CLI.md` },
   { title: "Agent guide", body: "JSON-first control flow, idempotency, safety rules, and copy-ready recipes.", href: `${REPOSITORY}/blob/main/docs/AGENT_GUIDE.md` },
   { title: "Training and W&B", body: "Trainer packets, signing, outbound checkpoint handoff, and optional live telemetry.", href: `${REPOSITORY}/blob/main/docs/WANDB_COMPATIBILITY.md` },

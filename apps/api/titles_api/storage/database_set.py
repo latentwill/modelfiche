@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from ..platform_io import fsync_directory as _fsync_directory
 from pathlib import Path
 import shutil
 import sqlite3
+from contextlib import closing
 import uuid
 
 
@@ -97,7 +99,7 @@ class DatabaseSetRestorer:
         if not self.database_path.exists():
             return
         try:
-            with sqlite3.connect(self.database_path) as db:
+            with closing(sqlite3.connect(self.database_path)) as db:
                 db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
         except sqlite3.DatabaseError:
             # A corrupt/foreign sidecar must be quarantined, never replayed with the replacement.
@@ -106,7 +108,7 @@ class DatabaseSetRestorer:
     def _verify_installed(self, expected_sha256: str) -> None:
         if _sha256(self.database_path) != expected_sha256:
             raise RuntimeError("installed restored database digest mismatch")
-        with sqlite3.connect(f"file:{self.database_path}?mode=ro", uri=True) as db:
+        with closing(sqlite3.connect(f"file:{self.database_path}?mode=ro", uri=True)) as db:
             result = db.execute("PRAGMA integrity_check").fetchone()
             if result is None or result[0] != "ok":
                 raise RuntimeError("installed restored database failed integrity check")
@@ -149,9 +151,4 @@ def _fsync_file(path: Path) -> None:
         os.fsync(stream.fileno())
 
 
-def _fsync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+

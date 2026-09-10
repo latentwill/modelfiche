@@ -5,6 +5,16 @@ For the product overview and visual tour, see the [README](../README.md).
 
 ## Install
 
+### Windows application
+
+Download the portable ZIP, extract it, and open **Modelfiche.exe**. The native
+launcher opens your browser and manages the local services. Use **Stop and close**
+when finished. Data lives in `%LOCALAPPDATA%\Modelfiche`, with logs in its `logs`
+subfolder. Run `.\mfiche.exe` from the extracted folder for CLI commands.
+
+See the [Windows guide](WINDOWS.md) for requirements, updates, troubleshooting,
+and build instructions.
+
 ### macOS application
 
 Download `Modelfiche-<version>-macos-<architecture>.dmg`, drag Modelfiche into
