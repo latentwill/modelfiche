@@ -88,8 +88,10 @@ server
 ```
 
 Root shortcuts `mfiche start`, `mfiche status`, and `mfiche stop` delegate to
-the matching `mfiche server` commands. When `.env.1password` exists, `start`
-automatically resolves it with `op run` before it launches the stack.
+the matching `mfiche server` commands. In a source checkout, when
+`.env.1password` exists, `start` automatically resolves it with `op run`
+before it launches the stack. The Windows bundle uses its native launcher
+and inherits environment variables from the calling shell.
 
 ## Output contract
 
@@ -168,9 +170,12 @@ mfiche --json doctor
 mfiche stop
 ```
 
-`start` waits for API and frontend readiness, then supervises the API, worker,
-and web process as one stack. It does not silently detach a partially healthy
-stack.
+In a source checkout, `start` waits for API and frontend readiness, then
+supervises the API, worker, and web process as one stack. In the Windows
+bundle, the native launcher supervises the API, worker, and W&B-compatible
+ingress; the API also serves the bundled web interface. `start` waits for
+readiness, `status` checks the services, and `stop` closes the launcher and
+its services.
 
 Inspect nonsecret operator settings and run safe configuration checks:
 
