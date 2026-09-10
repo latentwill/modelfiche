@@ -6,6 +6,9 @@ runtime instructions.
 
 ## Operator guides
 
+- [Installation and operations](OPERATIONS.md) — app setup, remote access,
+  storage, credentials, backups, restore, and release builds.
+
 - [CLI guide](CLI.md) — install `mfiche`, discover commands, run common
   workflows, interpret output, and recover from errors.
 - [Agent guide](AGENT_GUIDE.md) — deterministic JSON-first automation contract,
