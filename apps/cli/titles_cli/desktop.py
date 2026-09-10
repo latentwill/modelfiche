@@ -96,6 +96,10 @@ def serve() -> None:
     # granting permission to spawn services. This removes the orphan-process race.
     if "--handshake" in sys.argv and sys.stdin.readline().strip() != "start":
         raise SystemExit(1)
+    if os.name == "nt":
+        import ctypes
+        # Report loader/crash failures through exit codes, not hidden OS dialogs.
+        ctypes.WinDLL("kernel32").SetErrorMode(0x0001 | 0x0002 | 0x8000)
     support = configure_bundle()
     os.chdir(support)
     ready_path = support / "desktop.json"
@@ -142,6 +146,8 @@ def serve() -> None:
             if os.environ.get("MODELFICHE_STARTUP_DIAGNOSTICS") == "1":
                 command = [sys.executable, "-u", "-X", "faulthandler", "-c",
                            "import faulthandler,runpy,sys; faulthandler.dump_traceback_later(30, repeat=True); runpy.run_module(sys.argv[1], run_name='__main__')", module]
+            if os.environ.get("MODELFICHE_STARTUP_DIAGNOSTICS") == "1":
+                print(f"Starting {name}: {command!r}", file=sys.stderr, flush=True)
             processes[name] = subprocess.Popen(command, cwd=support, stdout=log, stderr=subprocess.STDOUT,
                                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             deadline = time.monotonic() + 120

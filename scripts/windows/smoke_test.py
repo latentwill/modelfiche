@@ -81,6 +81,8 @@ def launch():
         except (OSError, ValueError):
             pass
         time.sleep(0.5)
+    p.kill()
+    p.wait(timeout=10)
     raise AssertionError("Native launcher did not become ready; see validation logs")
 
 
@@ -103,6 +105,12 @@ def close_window(pid):
 
 
 try:
+    support.mkdir(exist_ok=True)
+    probe_code = "import sys,subprocess; print(sys.executable, flush=True); r=subprocess.run([sys.executable, '-u', '-c', 'print(123)'], capture_output=True, timeout=15); print(r.returncode, r.stdout, r.stderr, flush=True); import titles_api.app; print('API import OK', flush=True)"
+    probe = subprocess.run([str(bundle / "runtime/python.exe"), "-u", "-X", "faulthandler", "-c", probe_code], cwd=support, env=env, capture_output=True, text=True, timeout=60)
+    (VALIDATION / "runtime-probe.log").write_text(probe.stdout + probe.stderr, encoding="utf-8")
+    assert probe.returncode == 0, (probe.stdout, probe.stderr)
+    record("Embedded Python, nested subprocess, and full API import")
     process, state = launch()
     assert b'<html' in request("/").lower()
     assert len(state["services"]) == 4
