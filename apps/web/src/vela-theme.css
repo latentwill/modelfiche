@@ -3498,7 +3498,10 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   .vela-theme .vela-create-button { width: 44px; min-width: 44px; }
   .vela-theme .vela-profile-select.is-compact { min-width: 0; margin: 0; }
   .vela-theme .vela-profile-select.is-compact .vela-dropdown-button { width: 44px; min-width: 44px; }
-  .vela-theme :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select, .vela-dropdown-button) { font-size: 16px; }
+  .vela-theme input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  .vela-theme textarea,
+  .vela-theme select,
+  .vela-theme .vela-dropdown-button { font-size: 16px; }
   .vela-theme .vela-workspace-switcher .vela-dropdown-button { font-size: 12px; padding-inline: 4px; }
   .vela-theme .vela-topbar .vela-create-menu { position: fixed; inset: 60px 8px auto 8px; width: auto; }
   .vela-theme .vela-search-results { max-height: 55dvh; overflow-y: auto; }
