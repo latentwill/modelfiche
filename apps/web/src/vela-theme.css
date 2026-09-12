@@ -1207,9 +1207,10 @@ html[data-theme="dark"] .vela-reader-symbol-dark { display: block; }
   .vela-workspace-label,
   .vela-entity-breadcrumb { display: none; }
   .vela-workspace-switcher {
-    flex: 0 0 min(42vw, 150px);
-    width: min(42vw, 150px);
-    min-width: 110px;
+    flex: 0 1 160px;
+    width: 160px;
+    min-width: 0;
+    max-width: 100%;
   }
 }
 .vela-search,
@@ -3502,7 +3503,13 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   .vela-theme textarea,
   .vela-theme select,
   .vela-theme .vela-dropdown-button { font-size: 16px; }
-  .vela-theme .vela-workspace-switcher .vela-dropdown-button { font-size: 12px; padding-inline: 4px; }
+  .vela-theme .vela-workspace-switcher .vela-dropdown-button {
+    padding-inline: 9px;
+    border-color: var(--mf-border);
+    border-bottom-color: var(--mf-border-strong);
+    background: var(--mf-surface);
+    font-size: 12px;
+  }
   .vela-theme .vela-topbar .vela-create-menu { position: fixed; inset: 60px 8px auto 8px; width: auto; }
   .vela-theme .vela-search-results { max-height: 55dvh; overflow-y: auto; }
   .vela-theme .gallery-primary-filters { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -3519,4 +3526,11 @@ html[data-theme="dark"] .vela-theme :is(.gallery-assets-panel, .project-image-pa
   .vela-theme .vela-workspace-switcher .vela-dropdown { min-width: 0; }
   .vela-theme .vela-workspace-switcher .vela-dropdown-button { gap: 4px; }
   .vela-theme .vela-field > .gallery-checkbox { font-size: 16px; }
+}
+@media (max-width: 420px) {
+  .vela-theme .vela-workspace-switcher .vela-dropdown-button {
+    gap: 2px;
+    padding-inline: 8px;
+    font-size: 10px;
+  }
 }
