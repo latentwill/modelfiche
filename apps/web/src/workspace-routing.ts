@@ -9,7 +9,9 @@ export function parseWorkspaceHash(hash: string): ParsedWorkspaceRoute {
   const [rawPath, rawQuery = ""] = raw.split("?", 2);
   const parts = rawPath.split("/").filter(Boolean);
   if (parts[0] === "w" && parts[1]) {
-    const workspaceSlug = decodeURIComponent(parts[1]);
+    // A malformed copied URL should remain navigable instead of crashing the app.
+    let workspaceSlug = parts[1];
+    try { workspaceSlug = decodeURIComponent(parts[1]); } catch { /* The API can report an unknown workspace. */ }
     const path = parts.slice(2).join("/") || "dashboard";
     return { workspaceSlug, route: `${path}${rawQuery ? `?${rawQuery}` : ""}`, legacy: false };
   }

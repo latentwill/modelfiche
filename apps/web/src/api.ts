@@ -1,4 +1,5 @@
 import { routeWorkspaceSlug } from "./workspace-routing";
+import { readPreference, removePreference, writePreference } from "./preferences";
 
 export type Entity = Record<string, unknown> & { id: string };
 
@@ -17,16 +18,13 @@ export const API_BASE = configuredBase ?? "";
 export const WORKSPACE_STORAGE_KEY = "titles.activeWorkspaceId";
 
 export function activeWorkspaceId(): string {
-  try {
-    return localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "";
-  } catch {
-    return "";
-  }
+  return readPreference(WORKSPACE_STORAGE_KEY) ?? "";
 }
 
 export function setActiveWorkspaceId(workspaceId: string) {
-  localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
-  localStorage.removeItem("titles.activeProfileId");
+  if (workspaceId === activeWorkspaceId()) return;
+  writePreference(WORKSPACE_STORAGE_KEY, workspaceId);
+  removePreference("titles.activeProfileId");
 }
 export async function establishRemoteSession(clientId: string, clientSecret: string): Promise<void> {
   await api("/api/remote-session", {
@@ -41,23 +39,46 @@ export async function establishRemoteSession(clientId: string, clientSecret: str
 
 
 
+function detailMessage(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map(detailMessage).filter(Boolean).join("; ");
+  if (detail && typeof detail === "object") {
+    const value = detail as Record<string, unknown>;
+    const message = detailMessage(value.message ?? value.msg ?? value.detail);
+    const location = Array.isArray(value.loc) ? value.loc.filter(part => !["body", "query", "path"].includes(String(part))).join(" · ") : "";
+    return message && location ? `${location}: ${message}` : message;
+  }
+  return "";
+}
+
+async function responseBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return undefined;
+  if (!(response.headers.get("content-type") ?? "").includes("json")) return text;
+  try { return JSON.parse(text); } catch {
+    if (response.ok) throw new ApiError("The server returned an unreadable response. Try again.", response.status);
+    return undefined;
+  }
+}
+
+function responseError(response: Response, body: unknown): ApiError {
+  const detail = body && typeof body === "object" && "detail" in body ? body.detail : body;
+  // HTML proxy responses may contain implementation details; use the status instead.
+  const message = typeof detail === "string" && /<[^>]+>/.test(detail) ? "" : detailMessage(detail);
+  return new ApiError(message || `${response.status} ${response.statusText || "Request failed"}. Try again.`, response.status, body);
+}
+
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
   headers.set("accept", "application/json");
-  const profileId = localStorage.getItem("titles.activeProfileId");
+  const profileId = readPreference("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
   const workspaceSlug = routeWorkspaceSlug();
   if (workspaceSlug) headers.set("x-workspace-id", workspaceSlug);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  const contentType = response.headers.get("content-type") ?? "";
-  const text = await response.text();
-  const body = text ? (contentType.includes("json") ? JSON.parse(text) : text) : undefined;
-  if (!response.ok) {
-    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
-    const message = detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`;
-    throw new ApiError(message, response.status, body);
-  }
+  const body = await responseBody(response);
+  if (!response.ok) throw responseError(response, body);
   return body as T;
 }
 
@@ -65,30 +86,20 @@ export async function apiUnscoped<T = unknown>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { accept: "application/json" },
   });
-  const contentType = response.headers.get("content-type") ?? "";
-  const text = await response.text();
-  const body = text ? (contentType.includes("json") ? JSON.parse(text) : text) : undefined;
-  if (!response.ok) {
-    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
-    throw new ApiError(detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`, response.status, body);
-  }
+  const body = await responseBody(response);
+  if (!response.ok) throw responseError(response, body);
   return body as T;
 }
 
 export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string }> {
   const headers = new Headers({ accept: "application/octet-stream" });
-  const profileId = localStorage.getItem("titles.activeProfileId");
+  const profileId = readPreference("titles.activeProfileId");
   if (profileId) headers.set("x-profile-id", profileId);
   const workspaceSlug = routeWorkspaceSlug();
   if (workspaceSlug) headers.set("x-workspace-id", workspaceSlug);
   const response = await fetch(`${API_BASE}${path}`, { headers });
   if (!response.ok) {
-    const text = await response.text();
-    let body: unknown = text;
-    try { body = text ? JSON.parse(text) : undefined; } catch { /* Preserve the response text. */ }
-    const detail = typeof body === "object" && body && "detail" in body ? body.detail : undefined;
-    const message = detail !== undefined ? String(detail) : `${response.status} ${response.statusText}`;
-    throw new ApiError(message, response.status, body);
+    throw responseError(response, await responseBody(response));
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? "modelfiche-support.zip";

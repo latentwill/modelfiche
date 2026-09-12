@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, ty
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Clipboard, LoaderCircle, UserRound } from "lucide-react";
 import { api, idOf, listOf, str } from "./api";
 import { useResource } from "./hooks";
+import { readPreference, removePreference, writePreference } from "./preferences";
 
 export function Page(props: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
   return <main className="vela-main"><header className="vela-page-header"><div><h1 id="vela-route-heading">{props.title}</h1>{props.subtitle && <p>{props.subtitle}</p>}</div>{props.actions && <div className="vela-page-actions">{props.actions}</div>}<img className="mf-observation-plate mf-observation-plate-light" src="/assets/microfiche-header-ornament.webp" alt="" aria-hidden="true" /><img className="mf-observation-plate mf-observation-plate-dark" src="/assets/dark-astronomy-header-ornament.webp" alt="" aria-hidden="true" /></header>{props.children}</main>;
@@ -11,8 +12,8 @@ export function Panel(props: { title?: string; children: ReactNode; className?: 
   return <section className={`vela-panel panel ${props.className ?? ""}`}>{props.title && <div className="vela-section-heading"><h2>{props.title}</h2></div>}{props.children}</section>;
 }
 
-export function Notice({ error, loading, empty, emptyText, emptyHint }: { error?: string; loading?: boolean; empty?: boolean; emptyText?: string; emptyHint?: string }) {
-  if (error) return <div role="alert" className="vela-notice vela-notice-error"><strong>Unable to load</strong><span>{error}</span></div>;
+export function Notice({ error, loading, empty, emptyText, emptyHint, onRetry }: { error?: string; loading?: boolean; empty?: boolean; emptyText?: string; emptyHint?: string; onRetry?: () => void }) {
+  if (error) return <div role="alert" className="vela-notice vela-notice-error"><strong>Unable to load</strong><span>{error}</span>{onRetry && <button type="button" onClick={onRetry}>Try again</button>}</div>;
   if (loading) return <div className="vela-skeleton" role="status" aria-live="polite" aria-busy="true" aria-label="Loading"><span /><span /><span /></div>;
   if (empty) return <div className="vela-empty" role="status" aria-live="polite"><span>{emptyText ?? "No records yet"}</span><small>{emptyHint ?? "This area will update when matching work is available."}</small></div>;
   return null;
@@ -53,8 +54,13 @@ export function useFocusWorkspace(options: FocusWorkspaceOptions): void {
     const focusables = () => Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isRendered);
     const restoreTarget = options.restoreFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     previousFocus.current = restoreTarget;
-    const parent = container.parentElement;
-    const siblings = parent ? Array.from(parent.children).filter(node => node !== container) as HTMLElement[] : [];
+    const siblings: HTMLElement[] = [];
+    let branch: HTMLElement = container;
+    while (branch.parentElement) {
+      siblings.push(...Array.from(branch.parentElement.children).filter(node => node !== branch && node instanceof HTMLElement) as HTMLElement[]);
+      if (branch.parentElement === document.body) break;
+      branch = branch.parentElement;
+    }
     const prior = siblings.map(element => ({ element, inert: Boolean((element as HTMLElement & { inert?: boolean }).inert), hidden: element.getAttribute("aria-hidden") }));
     for (const element of siblings) {
       (element as HTMLElement & { inert?: boolean }).inert = true;
@@ -72,6 +78,7 @@ export function useFocusWorkspace(options: FocusWorkspaceOptions): void {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (event.defaultPrevented) return;
         event.preventDefault();
         closing.current = true;
         dismissRef.current();
@@ -94,10 +101,10 @@ export function useFocusWorkspace(options: FocusWorkspaceOptions): void {
         first.focus();
       }
     };
-    container.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown);
     document.addEventListener("focusin", onFocusIn);
     return () => {
-      container.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("focusin", onFocusIn);
       for (const { element, inert, hidden } of prior) {
         (element as HTMLElement & { inert?: boolean }).inert = inert;
@@ -258,6 +265,7 @@ export function Dropdown({
     if (value === undefined) setInternalValue(option.value);
     setInvalid(false);
     onChange?.(option.value);
+    rootRef.current?.dispatchEvent(new Event("modelfiche:form-change", { bubbles: true }));
     close(true);
   };
 
@@ -300,6 +308,7 @@ export function Dropdown({
           else openAt();
         } else if (event.key === "Escape" && open) {
           event.preventDefault();
+          event.stopPropagation();
           close(true);
         } else if (event.key === "Tab") {
           close();
@@ -350,7 +359,7 @@ export function ProfileSelect({ compact = false, workspaceName = "" }: { compact
   const resource = useResource<unknown>("/api/profiles");
   const serverActive = useResource<Record<string, unknown>>("/api/profiles/active");
   const profiles = listOf<Record<string, unknown>>(resource.data).filter(profile => profile.is_active !== false);
-  const [active, setActive] = useState(() => localStorage.getItem("titles.activeProfileId") ?? "");
+  const [active, setActive] = useState(() => readPreference("titles.activeProfileId") ?? "");
   const [error, setError] = useState("");
   const controlId = useId();
   const label = `Active profile${workspaceName ? ` in ${workspaceName}` : ""}`;
@@ -373,9 +382,9 @@ export function ProfileSelect({ compact = false, workspaceName = "" }: { compact
         try {
           if (profileId) {
             await api(`/api/profiles/${profileId}/active`, { method: "PUT" });
-            localStorage.setItem("titles.activeProfileId", profileId);
+            writePreference("titles.activeProfileId", profileId);
           } else {
-            localStorage.removeItem("titles.activeProfileId");
+            removePreference("titles.activeProfileId");
           }
           location.reload();
         } catch (reason) {
@@ -394,8 +403,27 @@ export function Field(props: { label: string; children: ReactNode; hint?: string
 
 export function Form(props: { onSubmit: (form: FormData) => void | Promise<void>; children: ReactNode; submit?: string; submitDisabled?: boolean; repeatable?: boolean }) {
   const [error, setError] = useState(""); const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setError(""); setSaved(false); setSaving(true); try { await props.onSubmit(new FormData(event.currentTarget)); setSaved(true); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setSaving(false); } };
-  return <form className="vela-form" onSubmit={event => void submit(event)}>{props.children}{error && <div role="alert" className="vela-notice vela-notice-error">{error}</div>}<button className="vela-button vela-button-primary" type="submit" disabled={saving || props.submitDisabled}>{saving ? <><LoaderCircle className="vela-spin" size={15} /> Working...</> : saved && !props.repeatable ? <><Check size={15} /> Saved</> : props.submit ?? "Save"}</button></form>;
+  const pending = useRef(false);
+  const revision = useRef(0);
+  const formRef = useRef<HTMLFormElement>(null);
+  const changed = () => { revision.current += 1; setSaved(false); };
+  useEffect(() => {
+    const form = formRef.current;
+    form?.addEventListener("modelfiche:form-change", changed);
+    return () => form?.removeEventListener("modelfiche:form-change", changed);
+  }, []);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (pending.current || props.submitDisabled) return;
+    pending.current = true;
+    const submittedRevision = revision.current;
+    const form = new FormData(event.currentTarget);
+    setError(""); setSaved(false); setSaving(true);
+    try { await props.onSubmit(form); setSaved(revision.current === submittedRevision); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { pending.current = false; setSaving(false); }
+  };
+  return <form ref={formRef} className="vela-form" aria-busy={saving} onChangeCapture={changed} onSubmit={event => void submit(event)}>{props.children}{error && <div role="alert" className="vela-notice vela-notice-error">{error}</div>}<button className="vela-button vela-button-primary" type="submit" disabled={saving || props.submitDisabled}>{saving ? <><LoaderCircle className="vela-spin" size={15} aria-hidden="true" /> Working...</> : saved && !props.repeatable ? <><Check size={15} aria-hidden="true" /> Saved</> : props.submit ?? "Save"}</button><span className="sr-only" role="status">{saved ? "Changes saved." : ""}</span></form>;
 }
 
 export function Json({ value }: { value: unknown }) { return <pre className="vela-code">{JSON.stringify(value, null, 2)}</pre>; }

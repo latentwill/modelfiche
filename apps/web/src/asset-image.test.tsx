@@ -90,3 +90,30 @@ describe("AssetImage", () => {
     expect(image.getAttribute("src")).not.toBe(loadingSrc);
   });
 });
+
+describe("image retry isolation", () => {
+  it("retries an unavailable image without following its enclosing link", async () => {
+    const navigate = vi.fn();
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: "failure", failure: { redacted_message: "Image unavailable", action: { kind: "stop" } } }), { headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: "descriptor", descriptor: { delivery_url: "/delivery/recovered" } }), { headers: { "content-type": "application/json" } }));
+    const view = render(<a href="#/image/retry-isolation" onClick={navigate}><AssetImage assetRevisionId="retry-isolation" alt="Retry study" /></a>);
+    fireEvent.click(await view.findByRole("button", { name: "Retry Retry study" }));
+    expect(navigate).not.toHaveBeenCalled();
+    await waitFor(() => expect(view.getByRole("img")).toHaveAttribute("src", "/delivery/recovered"));
+  });
+  it("ignores a pending retry after changing the image", async () => {
+    let completeRetry!: (value: Response) => void;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: "failure", failure: { redacted_message: "Image unavailable", action: { kind: "stop" } } }), { headers: { "content-type": "application/json" } }))
+      .mockImplementationOnce(() => new Promise(resolve => { completeRetry = resolve; }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: "descriptor", descriptor: { delivery_url: "/delivery/current" } }), { headers: { "content-type": "application/json" } }));
+    const view = render(<AssetImage assetRevisionId="retry-old" alt="Study" />);
+    fireEvent.click(await view.findByRole("button", { name: "Retry Study" }));
+    view.rerender(<AssetImage assetRevisionId="retry-current" alt="Study" />);
+    await waitFor(() => expect(view.getByRole("img")).toHaveAttribute("src", "/delivery/current"));
+    completeRetry(new Response(JSON.stringify({ kind: "descriptor", descriptor: { delivery_url: "/delivery/stale" } }), { headers: { "content-type": "application/json" } }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(view.getByRole("img")).toHaveAttribute("src", "/delivery/current");
+  });
+});

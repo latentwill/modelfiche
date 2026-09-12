@@ -63,7 +63,7 @@ describe("workspace navigation", () => {
     expect(createItems.indexOf("Image")).toBeLessThan(createItems.indexOf("Grid"));
     expect(screen.getByRole("menuitem", { name: "S3 import" })).toHaveAttribute("href", "#/w/workspace-1/import?source=s3&project=project-1");
     expect(screen.getByRole("menuitem", { name: "Local folder import" })).toHaveAttribute("href", "#/w/workspace-1/import?source=local&project=project-1");
-    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/w/workspace-1/transfers?mode=import");
+    expect(screen.getByRole("menuitem", { name: "Queue import (Transfers)" })).toHaveAttribute("href", "#/w/workspace-1/transfers?mode=import&project=project-1");
     expect(screen.queryByRole("menuitem", { name: "Import" })).not.toBeInTheDocument();
   });
   it("links sidebar overflow to the complete model and grid catalogs", async () => {
@@ -235,6 +235,6 @@ describe("workspace navigation", () => {
     fireEvent.click(await screen.findByRole("button", { name: "JSON" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
     expect(JSON.parse(String(writeText.mock.calls[0]?.[0]))).toMatchObject({ id: "project-1", title: "Project One" });
-    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 });

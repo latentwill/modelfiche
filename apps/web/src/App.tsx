@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useState } from "react";
 import { activeWorkspaceId, api, apiUnscoped, ApiError, establishRemoteSession, routeQuery, setActiveWorkspaceId } from "./api";
 import { useCanonicalWorkspaceLinks, useHashRoute } from "./hooks";
 import { canonicalWorkspaceHref, legacyEntityReference, parseWorkspaceHash } from "./workspace-routing";
 import { WorkbenchShell, useThemeController } from "./shell";
 import { Field, Form, Panel } from "./ui";
+import { RouteBoundary } from "./route-boundary";
 
 const ImportScreen = lazy(() => import("./screens-core").then(module => ({ default: module.ImportScreen })));
 const JobScreen = lazy(() => import("./screens-core").then(module => ({ default: module.JobScreen })));
@@ -122,6 +123,9 @@ export function App() {
   const section = parts[0] || "dashboard";
   const id = parts[1] || "";
   const params = new URLSearchParams(rawQuery);
+  // Object editors must never retain a previous object's draft or mutation state.
+  // Gallery query changes keep the mounted viewer so its focus and filters survive.
+  const screenKey = [section, id, params.get("project"), params.get("mode"), params.get("create"), params.get("source")].join("/");
   const routedSection = section === "evals" ? "grids" : section;
   const { theme, toggleTheme } = useThemeController();
   if (accessState === "checking") {
@@ -134,7 +138,7 @@ export function App() {
     return <div className="vela-theme"><main className="vela-main" aria-busy="true">Resolving workspace…</main></div>;
   }
   if (routeGate === "error") {
-    return <div className="vela-theme"><main className="vela-main"><Panel title="Workspace unavailable"><div className="vela-notice vela-notice-error" role="alert">{routeError}</div></Panel></main></div>;
+    return <div className="vela-theme"><main className="vela-main"><Panel title="Workspace unavailable"><div className="vela-notice vela-notice-error" role="alert">{routeError}</div><a className="button" href="#/dashboard">Return to dashboard</a></Panel></main></div>;
   }
   let content;
   if (routedSection === "image") {
@@ -142,12 +146,12 @@ export function App() {
     galleryParams.set("asset", id);
     content = <GalleryScreen projectId={params.get("project") ?? ""} params={galleryParams} />;
   }
-  else if (routedSection === "samples") content = <SampleViewerScreen runId={id} initialStep={params.get("step") ?? ""} />;
-  else if (routedSection === "eval") content = <EvalScreen id={id} projectId={params.get("project") ?? ""} />;
-  else if (routedSection === "eval-comparison") content = <EvalComparisonScreen id={id} />;
-  else if (routedSection === "grid") content = <GridScreen id={id} projectId={params.get("project") ?? ""} />;
-  else content = <WorkbenchShell section={routedSection} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}>{renderScreen(routedSection, id, params)}</WorkbenchShell>;
-  return <div className="vela-theme"><Suspense fallback={<main className="vela-main" aria-busy="true">Loading view…</main>}>{content}</Suspense></div>;
+  else if (routedSection === "samples") content = <SampleViewerScreen key={screenKey} runId={id} initialStep={params.get("step") ?? ""} />;
+  else if (routedSection === "eval") content = <EvalScreen key={screenKey} id={id} projectId={params.get("project") ?? ""} />;
+  else if (routedSection === "eval-comparison") content = <EvalComparisonScreen key={screenKey} id={id} />;
+  else if (routedSection === "grid") content = <GridScreen key={screenKey} id={id} projectId={params.get("project") ?? ""} />;
+  else content = <WorkbenchShell key={parsedRoute.workspaceSlug} section={routedSection} id={id} params={params} theme={theme} onToggleTheme={toggleTheme}><RouteBoundary route={rawRoute}><Fragment key={screenKey}>{renderScreen(routedSection, id, params)}</Fragment></RouteBoundary></WorkbenchShell>;
+  return <div className="vela-theme"><RouteBoundary route={`${parsedRoute.workspaceSlug}/${rawRoute}`}><Suspense fallback={<main className="vela-main" aria-busy="true">Loading view…</main>}><Fragment key={parsedRoute.workspaceSlug}>{content}</Fragment></Suspense></RouteBoundary></div>;
 }
 
 function renderScreen(section: string, id: string, params: URLSearchParams) {

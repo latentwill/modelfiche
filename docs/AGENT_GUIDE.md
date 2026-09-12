@@ -344,3 +344,17 @@ be sensitive even when credential patterns are removed.
 
 See [CLI.md](CLI.md) for operator workflows and [../CLI_SPEC.md](../CLI_SPEC.md)
 for the stable behavior contract.
+
+## Browser navigation and review
+
+The global + menu carries the selected project into import and generation
+forms. Workspace search remains available on mobile and supports arrow-key
+selection. Gallery's search and project controls stay visible; optional image
+sets, dataset membership, model, rating, and display controls live under
+**More filters and display**.
+
+Gallery filters, page, and page size are written to the workspace-scoped URL.
+Use that URL to bookmark or share a review context. Closing an image returns to
+its filtered results or the originating object. Object navigation starts a
+separate editor state; save captions and add notes before leaving the object.
+A failed form submission preserves its input and permits retry.

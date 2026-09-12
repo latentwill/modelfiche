@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api, idOf, jsonBody, listOf, query, routeQuery, setActiveWorkspaceId, str } from "./api";
+import { readPreference, writePreference } from "./preferences";
 import { ActiveTrainingNavigation } from "./active-training";
 import { activityDisplayText, activityLabel, activityObjectHref, previewAssetId } from "./activity";
 import { galleryOpenHref } from "./gallery-routing";
@@ -134,7 +135,7 @@ export function WorkbenchShell({ section, id, params, children, theme: controlle
   useEffect(() => {
     if (workspaceId) setActiveWorkspaceId(workspaceId);
   }, [workspaceId]);
-  useEffect(() => { setMobileNavOpen(false); setMobileInspectorOpen(false); }, [section, id]);
+  useEffect(() => { setMobileNavOpen(false); setMobileInspectorOpen(false); }, [section, id, selectedWorkspaceSlug, params.toString()]);
   useEffect(() => {
     const update = (event: Event) => {
       const next = (event as CustomEvent<Row>).detail;
@@ -157,9 +158,9 @@ export function WorkbenchShell({ section, id, params, children, theme: controlle
   return <div className="vela-shell" data-nav-collapsed={leftCollapsed} data-inspector-collapsed={rightCollapsed}>
     <Sidebar section={section} id={id} activeProjectId={projectId} projects={scopedProjects} workspaceSlug={selectedWorkspaceSlug} theme={theme} collapsed={leftCollapsed} mobileOpen={mobileNavOpen} restoreFocusRef={navOpenerRef} onMobileClose={closeNavigation} onCollapse={() => setLeftCollapsed(!leftCollapsed)} />
     <div className="vela-workspace">
-      <Topbar section={section} id={id} projectId={projectId} workspaces={availableWorkspaces} workspaceSlug={selectedWorkspaceSlug} theme={theme} onToggleTheme={toggleTheme} navOpenerRef={navOpenerRef} inspectorOpenerRef={inspectorOpenerRef} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
-      <a className="vela-skip-link" href="#vela-route-heading">Skip to main content</a>
-      <div className="vela-route-stage" id="vela-route-main" role="main" tabIndex={-1}>
+      <Topbar navigationOpen={mobileNavOpen} inspectorOpen={mobileInspectorOpen} section={section} id={id} projectId={projectId} workspaces={availableWorkspaces} workspaceSlug={selectedWorkspaceSlug} theme={theme} onToggleTheme={toggleTheme} navOpenerRef={navOpenerRef} inspectorOpenerRef={inspectorOpenerRef} onOpenNavigation={() => { setLeftCollapsed(false); setMobileInspectorOpen(false); setMobileNavOpen(true); }} onOpenInspector={() => { setRightCollapsed(false); setMobileNavOpen(false); setMobileInspectorOpen(true); }} />
+      <a className="vela-skip-link" href="#vela-route-main" onClick={event => { event.preventDefault(); document.getElementById("vela-route-main")?.focus(); }}>Skip to main content</a>
+      <div className="vela-route-stage" id="vela-route-main" tabIndex={-1}>
         {isCreateRoute(section, params) && <div className="vela-creating-scope" role="status">Creating in: <strong>{str(workspace?.name, "Unknown workspace")}</strong></div>}
         {children}
       </div>
@@ -178,8 +179,18 @@ function isCreateRoute(section: string, params: URLSearchParams): boolean {
     || (section === "dashboard" && params.get("create") === "project")
   );
 }
-function Topbar({ section, id, projectId, workspaces, workspaceSlug, theme, onToggleTheme, navOpenerRef, inspectorOpenerRef, onOpenNavigation, onOpenInspector }: { section: string; id: string; projectId: string; workspaces: Row[]; workspaceSlug: string; theme: ThemeMode; onToggleTheme: () => void; navOpenerRef: RefObject<HTMLButtonElement | null>; inspectorOpenerRef: RefObject<HTMLButtonElement | null>; onOpenNavigation: () => void; onOpenInspector: () => void }) {
+function Topbar({ navigationOpen, inspectorOpen, section, id, projectId, workspaces, workspaceSlug, theme, onToggleTheme, navOpenerRef, inspectorOpenerRef, onOpenNavigation, onOpenInspector }: { navigationOpen: boolean; inspectorOpen: boolean; section: string; id: string; projectId: string; workspaces: Row[]; workspaceSlug: string; theme: ThemeMode; onToggleTheme: () => void; navOpenerRef: RefObject<HTMLButtonElement | null>; inspectorOpenerRef: RefObject<HTMLButtonElement | null>; onOpenNavigation: () => void; onOpenInspector: () => void }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const createRef = useRef<HTMLDivElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!createOpen) return;
+    const dismiss = (event: PointerEvent) => { if (!createRef.current?.contains(event.target as Node)) setCreateOpen(false); };
+    document.addEventListener("pointerdown", dismiss);
+    createRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [createOpen]);
+  useEffect(() => setCreateOpen(false), [section, id, workspaceSlug]);
   const workspace = str(workspaces.find(item => workspaceSlugOf(item) === workspaceSlug)?.name, "Workspace");
   const entity = useResource<Row>(entityPath(section, id));
   const inferredProjectId = section === "project" ? id : projectId || str(entity.data?.project_id, "");
@@ -191,10 +202,10 @@ function Topbar({ section, id, projectId, workspaces, workspaceSlug, theme, onTo
     const parts = [entityName || projectName || fallback, workspace, "Modelfiche"].filter(Boolean);
     document.title = parts.join(" - ");
   }, [entityName, fallback, projectName, workspace]);
-  const s3ImportHref = workspaceHref("import", { source: "s3", project: projectId }, workspaceSlug);
-  const localImportHref = workspaceHref("import", { source: "local", project: projectId }, workspaceSlug);
+  const s3ImportHref = workspaceHref("import", { source: "s3", project: inferredProjectId }, workspaceSlug);
+  const localImportHref = workspaceHref("import", { source: "local", project: inferredProjectId }, workspaceSlug);
   return <header className="vela-topbar">
-    <button ref={navOpenerRef} className="vela-icon-button vela-responsive-nav" type="button" aria-label="Open navigation" aria-controls="vela-navigation" aria-expanded={false} onClick={onOpenNavigation}><Menu size={18} /></button>
+    <button ref={navOpenerRef} className="vela-icon-button vela-responsive-nav" type="button" aria-label="Open navigation" aria-controls="vela-navigation" aria-expanded={navigationOpen} onClick={onOpenNavigation}><Menu size={18} /></button>
     <div className="vela-breadcrumbs"><span className="vela-workspace-label">Workspace:</span><div className="vela-workspace-switcher"><Dropdown aria-label="Workspace" value={workspaceSlug} options={workspaces.map(item => ({ value: workspaceSlugOf(item), label: str(item.name, "Workspace") }))} onChange={value => {
       if (!value || value === workspaceSlug) return;
       if (hasDirtyForm() && !window.confirm("Discard this form and switch workspaces?")) return;
@@ -204,22 +215,31 @@ function Topbar({ section, id, projectId, workspaces, workspaceSlug, theme, onTo
       window.location.hash = workspaceHref("dashboard", {}, value);
     }} /></div><span className="vela-entity-breadcrumb">{projectName && <>&nbsp; / &nbsp;<strong>{projectName}</strong></>}{entityName && entityName !== projectName && <>&nbsp; / &nbsp;{entityName}</>}{fallback && <>&nbsp; / &nbsp;{fallback}</>}</span></div>
     <GlobalSearch />
-    <div className="vela-create-wrap" onKeyDown={event => { if (event.key === "Escape") setCreateOpen(false); }}>
-      <button className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} aria-hidden="true" /></button>
+    <div ref={createRef} className="vela-create-wrap" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setCreateOpen(false); }} onKeyDown={event => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCreateOpen(false); createButtonRef.current?.focus(); }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      if (!createOpen) { setCreateOpen(true); return; }
+      const items = Array.from(createRef.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? []);
+      const current = items.indexOf(document.activeElement as HTMLElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }}>
+      <button ref={createButtonRef} className="vela-create-button" type="button" aria-label="Create or import" aria-haspopup="menu" aria-expanded={createOpen} onClick={() => setCreateOpen(!createOpen)}><Plus size={20} aria-hidden="true" /></button>
       {createOpen && <div className="vela-create-menu" role="menu">
         <CreateLink href={workspaceHref("dashboard", { create: "project" }, workspaceSlug)} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Project</CreateLink>
-        <CreateLink href={workspaceHref("generate", { workflow: "image" }, workspaceSlug)} icon={<ImagePlus size={15} />} onSelect={() => setCreateOpen(false)}>Image</CreateLink>
-        <CreateLink href={workspaceHref("transfers", { mode: "import", type: "dataset" }, workspaceSlug)} icon={<Images size={15} />} onSelect={() => setCreateOpen(false)}>Dataset</CreateLink>
-        <CreateLink href={workspaceHref("models", {}, workspaceSlug)} icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
-        <CreateLink href={workspaceHref("grids", {}, workspaceSlug)} icon={<LayoutDashboard size={15} />} onSelect={() => setCreateOpen(false)}>Grid</CreateLink>
+        <CreateLink href={workspaceHref("generate", { workflow: "image", project: inferredProjectId }, workspaceSlug)} icon={<ImagePlus size={15} />} onSelect={() => setCreateOpen(false)}>Image</CreateLink>
+        <CreateLink href={workspaceHref("transfers", { mode: "import", type: "dataset", project: inferredProjectId }, workspaceSlug)} icon={<Images size={15} />} onSelect={() => setCreateOpen(false)}>Dataset</CreateLink>
+        <CreateLink href={workspaceHref("models", { project: inferredProjectId }, workspaceSlug)} icon={<Box size={15} />} onSelect={() => setCreateOpen(false)}>Model</CreateLink>
+        <CreateLink href={workspaceHref("grids", { project: inferredProjectId }, workspaceSlug)} icon={<LayoutDashboard size={15} />} onSelect={() => setCreateOpen(false)}>Grid</CreateLink>
         <CreateLink href={s3ImportHref} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>S3 import</CreateLink>
         <CreateLink href={localImportHref} icon={<Folder size={15} />} onSelect={() => setCreateOpen(false)}>Local folder import</CreateLink>
-        <CreateLink href={workspaceHref("transfers", { mode: "import" }, workspaceSlug)} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Queue import (Transfers)</CreateLink>
+        <CreateLink href={workspaceHref("transfers", { mode: "import", project: inferredProjectId }, workspaceSlug)} icon={<ArrowDownToLine size={15} />} onSelect={() => setCreateOpen(false)}>Queue import (Transfers)</CreateLink>
       </div>}
     </div>
     <ProfileSelect compact workspaceName={workspace} />
     <button className="vela-icon-button vela-theme-toggle" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"} title={`Use ${theme === "dark" ? "light" : "dark"} mode`} onClick={onToggleTheme}>{theme === "dark" ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}</button>
-    <button ref={inspectorOpenerRef} className="vela-icon-button vela-responsive-inspector" type="button" aria-label="Open metadata and notes" aria-controls="vela-metadata" aria-expanded={false} onClick={onOpenInspector}><PanelRightOpen size={18} /></button>
+    <button ref={inspectorOpenerRef} className="vela-icon-button vela-responsive-inspector" type="button" aria-label="Open metadata and notes" aria-controls="vela-metadata" aria-expanded={inspectorOpen} onClick={onOpenInspector}><PanelRightOpen size={18} /></button>
   </header>;
 }
 
@@ -242,9 +262,15 @@ function hasDirtyForm(): boolean {
 function GlobalSearch() {
   const [value, setValue] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
-  const resource = useResource<Row>(value.trim().length >= 2 ? `/api/search${query({ q: value.trim(), limit: 8 })}` : null);
-  const results: Array<Row & { preview_asset_id: string }> = rows(resource.data?.results).map((result: Row) => ({ ...result, preview_asset_id: str(result.preview_asset_id, "") }));
-  const open = value.trim().length >= 2;
+  const [focused, setFocused] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(value.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [value]);
+  const resource = useResource<Row>(searchQuery.length >= 2 ? `/api/search${query({ q: searchQuery, limit: 8 })}` : null);
+  const results: Array<Row & { preview_asset_id: string }> = (value.trim() === searchQuery ? rows(resource.data?.results) : []).map((result: Row) => ({ ...result, preview_asset_id: str(result.preview_asset_id, "") }));
+  const open = focused && value.trim().length >= 2;
   useEffect(() => { setActiveIndex(-1); }, [value]);
   const selectResult = (index: number) => {
     const result = results[index];
@@ -252,19 +278,19 @@ function GlobalSearch() {
     window.location.hash = searchHref(result).replace(/^#/, "");
     setValue("");
   };
-  const resultContent = resource.loading
+  const resultContent = resource.loading || value.trim() !== searchQuery
     ? <span role="status" aria-live="polite">Searching workspace...</span>
     : resource.error
       ? <span role="alert">{resource.error}</span>
       : results.length
         ? results.map((result, index) => <a id={`global-search-option-${index}`} role="option" aria-selected={activeIndex === index} href={searchHref(result)} key={`${str(result.type)}-${idOf(result)}`} onMouseEnter={() => setActiveIndex(index)} onClick={() => setValue("")}>{result.preview_asset_id && <AssetImage assetRevisionId={result.preview_asset_id} alt="" loading="lazy" />}<span><strong>{str(result.title)}</strong><small>{str(result.type)} · {str(result.subtitle)}</small></span></a>)
         : <span role="status" aria-live="polite">No matching workspace objects</span>;
-  return <div className="vela-global-search"><Search size={16} aria-hidden="true" /><label className="sr-only" htmlFor="global-search">Search workspace</label><input id="global-search" className="vela-search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls="global-search-results" aria-activedescendant={activeIndex >= 0 ? `global-search-option-${activeIndex}` : undefined} value={value} onChange={event => setValue(event.target.value)} onKeyDown={event => {
+  return <div className="vela-global-search" onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}><Search size={16} aria-hidden="true" /><label className="sr-only" htmlFor="global-search">Search workspace</label><input id="global-search" className="vela-search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls="global-search-results" aria-activedescendant={open && activeIndex >= 0 && results[activeIndex] ? `global-search-option-${activeIndex}` : undefined} value={value} onChange={event => setValue(event.target.value)} onKeyDown={event => {
     if (event.key === "Escape") { setValue(""); setActiveIndex(-1); }
     else if (event.key === "ArrowDown" && results.length) { event.preventDefault(); setActiveIndex(index => (index + 1) % results.length); }
-    else if (event.key === "ArrowUp" && results.length) { event.preventDefault(); setActiveIndex(index => (index - 1 + results.length) % results.length); }
+    else if (event.key === "ArrowUp" && results.length) { event.preventDefault(); setActiveIndex(index => index < 0 ? results.length - 1 : (index - 1 + results.length) % results.length); }
     else if (event.key === "Enter" && activeIndex >= 0) { event.preventDefault(); selectResult(activeIndex); }
-  }} placeholder="Search projects, runs, model files..." />{open && <div className="vela-search-results" id="global-search-results" role="listbox" aria-label="Workspace search results">{resultContent}</div>}</div>;
+  }} placeholder="Search workspace…" />{value && <button type="button" className="vela-search-clear" aria-label="Clear search" onClick={() => { setValue(""); document.getElementById("global-search")?.focus(); }}><X size={14} /></button>}{open && <div className="vela-search-results" id="global-search-results" role="listbox" aria-label="Workspace search results">{resultContent}</div>}</div>;
 }
 function Sidebar({ section, id, activeProjectId, projects, workspaceSlug, theme, collapsed, mobileOpen, restoreFocusRef, onMobileClose, onCollapse }: { section: string; id: string; activeProjectId: string; projects: Row[]; workspaceSlug: string; theme: ThemeMode; collapsed: boolean; mobileOpen: boolean; restoreFocusRef: RefObject<HTMLButtonElement | null>; onMobileClose: () => void; onCollapse: () => void }) {
   const sources = useResource<unknown>("/api/import-sources");
@@ -280,7 +306,7 @@ function Sidebar({ section, id, activeProjectId, projects, workspaceSlug, theme,
       <VelaNavLink href={workspaceHref("dashboard", {}, workspaceSlug)} active={section === "dashboard" || section === "projects"} icon={<LayoutDashboard size={16} />}>Dashboard</VelaNavLink>
       <VelaNavLink href={workspaceHref("gallery", {}, workspaceSlug)} active={section === "gallery" || section === "image"} icon={<Images size={16} />}>Gallery</VelaNavLink>
       <div className="vela-nav-group">Projects</div>
-      <Notice empty={!shownProjects.length} />
+      <Notice empty={!shownProjects.length} emptyText="No projects yet" emptyHint="Choose + → Project to begin." />
       {shownProjects.map(project => <ProjectTree key={idOf(project)} project={project} workspaceSlug={workspaceSlug} section={section} activeId={id} activeProjectId={activeProjectId} />)}
       <div className="vela-nav-group">Operations</div>
       <VelaNavLink href={workspaceHref("generation-queue", {}, workspaceSlug)} active={section === "generation-queue"} icon={<List size={16} />}>Queue</VelaNavLink>
@@ -357,8 +383,8 @@ function ContextInspector({ section, id, projectId, collapsed, mobileOpen, resto
     <img className="mf-rail-ornament mf-rail-ornament-dark" src="/assets/dark-celestial-catalogue-labels.svg" alt="" aria-hidden="true" />
     <div className="vela-inspector-heading"><h2 id="vela-metadata-title">Metadata</h2><button type="button" className="vela-icon-button vela-desktop-rail-control" aria-label={collapsed ? "Expand metadata" : "Collapse metadata"} aria-controls="vela-metadata" aria-expanded={!collapsed} onClick={onCollapse}>{collapsed ? <ChevronLeft size={17} /> : <PanelRightClose size={17} />}</button><button type="button" className="vela-icon-button vela-mobile-close" aria-label="Close metadata and notes" onClick={onMobileClose}><X size={18} /></button></div>
     <section className="vela-inspector-card"><div className="vela-context-title"><div><h3>{title}</h3>{section !== "project" && <Status value={str(entity.data?.state ?? entity.data?.status, section === "dashboard" ? "workspace" : "selected")} />}</div>{entity.data && <CopyMetadataButton value={entity.data} />}</div><Notice error={entity.error} loading={entity.loading} />{entity.data ? <MetadataRows value={entity.data} /> : <p className="vela-muted-copy">Select an object to inspect its metadata and history.</p>}</section>
-    {subject && ["project", "dataset", "model"].includes(subject.type) && <NotesPanel subjectType={subject.type} subjectId={subject.id} />}
-    <section className="vela-inspector-card"><div className="vela-section-heading"><h2>{projectId ? "Project activity" : "Workspace activity"}</h2></div><Notice error={activity.error} loading={activity.loading} empty={!activityItems.length} /><div className="vela-activity-list">{activityItems.map(item => {
+    {subject && ["project", "dataset", "model"].includes(subject.type) && <NotesPanel key={`${subject.type}/${subject.id}`} subjectType={subject.type} subjectId={subject.id} />}
+    <section className="vela-inspector-card"><div className="vela-section-heading"><h2>{projectId ? "Project activity" : "Workspace activity"}</h2></div><Notice error={activity.error} loading={activity.loading} empty={!activityItems.length} emptyText="No activity yet" emptyHint="Imports, reviews, and updates will appear here." onRetry={activity.reload} /><div className="vela-activity-list">{activityItems.map(item => {
       const rawEvent = str(item.action ?? item.event_type);
       const eventLabel = activityLabel(rawEvent);
       const objectHref = contextualActivityHref(item.object_href, projectId);
@@ -414,7 +440,7 @@ function projectForRoute(section: string, id: string, params: URLSearchParams) {
 function inspectorSubject(section: string, id: string) { const map: Record<string, string> = { project: "project", dataset: "dataset", model: "model", run: "training_run", checkpoint: "checkpoint", eval: "eval_run", grid: "grid_definition", image: "asset", jobs: "import_job" }; return id && map[section] ? { type: map[section], id } : null; }
 function entityPath(section: string, id: string): string | null { if (section === "dashboard" || section === "projects") return "/api/dashboard"; if (section === "settings") return "/api/operator-settings"; if (!id) return null; const map: Record<string, string> = { project: "projects", dataset: "datasets", model: "models", run: "runs", checkpoint: "checkpoints", eval: "eval-runs", grid: "grids", image: "assets", jobs: "jobs" }; return map[section] ? `/api/${map[section]}/${id}` : null; }
 function entityTitle(section: string, row: Row | null) { return str(row?.title ?? row?.name, routeLabel(section)); }
-function routeLabel(section: string) { return ({ dashboard: "Dashboard", projects: "Dashboard", project: "Project", gallery: "Gallery", image: "Image", datasets: "Datasets", dataset: "Dataset", runs: "Training run", run: "Training run", checkpoint: "Checkpoint", models: "Models", model: "Model", evals: "Eval generator", eval: "Eval viewer", grids: "Grid generator", grid: "Grid viewer", transfers: "Transfers", import: "Transfers", jobs: "Transfer job", settings: "Settings", reviews: "Reviews" } as Record<string, string>)[section] ?? section; }
+function routeLabel(section: string) { return ({ dashboard: "Dashboard", projects: "Dashboard", project: "Project", gallery: "Gallery", image: "Image", generate: "Image generator", "generation-queue": "Generation queue", "training-new": "New training run", datasets: "Datasets", dataset: "Dataset", runs: "Training run", run: "Training run", checkpoint: "Checkpoint", models: "Models", model: "Model", evals: "Eval generator", eval: "Eval viewer", grids: "Grid generator", grid: "Grid viewer", transfers: "Transfers", import: "Transfers", jobs: "Transfer job", settings: "Settings", reviews: "Reviews" } as Record<string, string>)[section] ?? section; }
 function formatDate(value: unknown) { const date = new Date(str(value, "")); return Number.isNaN(date.valueOf()) ? str(value) : date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
 function searchHref(result: Row) { const type = str(result.type); const route = ({ project: "project", asset: "image", dataset: "dataset", run: "run", model: "model" } as Record<string, string>)[type] ?? "gallery"; return `#/${route}/${idOf(result)}${routeQuery({ project: result.project_id })}`; }
-function useStoredBoolean(key: string) { const [value, setValue] = useState(() => localStorage.getItem(key) === "true"); const update = (next: boolean) => { localStorage.setItem(key, String(next)); setValue(next); }; return [value, update] as const; }
+function useStoredBoolean(key: string) { const [value, setValue] = useState(() => readPreference(key) === "true"); const update = (next: boolean) => { writePreference(key, String(next)); setValue(next); }; return [value, update] as const; }

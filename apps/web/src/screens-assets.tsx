@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { readPreference, writePreference } from "./preferences";
+import { canonicalWorkspaceHref } from "./workspace-routing";
 import { Chart, registerables, type ChartConfiguration } from "chart.js";
 import { assembleChartjs } from "flint-chart/chartjs";
 import {
@@ -1371,8 +1373,7 @@ type GalleryFilters = {
 };
 
 function galleryFiltersFromParams(params: URLSearchParams, projectId: string, defaults?: GalleryFilters): Partial<GalleryFilters> {
-  const isExplicitGalleryScope = ["project", "model", "dataset", "eval", "category", "kind", "decision", "rating", "q", "sort", "include_dataset_assets", "asset", "return"].some(key => params.has(key));
-  if (isExplicitGalleryScope && defaults) {
+  if (defaults) {
     return {
       ...defaults,
       project_id: params.get("project") ?? projectId,
@@ -1440,19 +1441,22 @@ export function isGalleryShortcutTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, .vela-dropdown, [contenteditable=true]"));
 }
 
+function galleryPage(value: string | null) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? Math.min(number, 1_000_000) : 1;
+}
+function galleryPageSize(value: string | null) {
+  const number = Number(value);
+  return [50, 100, 250].includes(number) ? number : 50;
+}
+
 export function GalleryScreen({ projectId = "", params = new URLSearchParams() }: { projectId?: string; params?: URLSearchParams }) {
   const projects = useResource<unknown>("/api/projects?limit=100");
-  const [page, setPage] = useState(() => Math.max(1, Number(params.get("page")) || Number(localStorage.getItem("titles.gallery.page")) || 1));
+  const [page, setPage] = useState(() => galleryPage(params.get("page")));
   const [debouncedQuery, setDebouncedQuery] = useState(() => params.get("q") ?? "");
-  const [pageSize, setPageSize] = useState(() => Number(params.get("pageSize")) || Number(localStorage.getItem("titles.gallery.pageSize")) || 50);
+  const [pageSize, setPageSize] = useState(() => galleryPageSize(params.get("pageSize") ?? readPreference("titles.gallery.pageSize")));
   const defaultFilters: GalleryFilters = { project_id: projectId, model_id: "", dataset_id: "", eval_run_id: "", category: "", kind: "image", decision: "", rating: "", q: "", include_dataset_assets: false, sort: "origin_time_desc" };
-  const [filters, setFilters] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("titles.gallery.filters") ?? "null") as Partial<typeof defaultFilters> | null;
-      const routeFilters = galleryFiltersFromParams(params, projectId, defaultFilters);
-      return { ...defaultFilters, ...(saved ?? {}), ...routeFilters };
-    } catch { return defaultFilters; }
-  });
+  const [filters, setFilters] = useState<GalleryFilters>(() => ({ ...defaultFilters, ...galleryFiltersFromParams(params, projectId, defaultFilters) }));
   const models = useResource<unknown>(`/api/models${query({ project_id: filters.project_id })}`);
   const datasets = useResource<unknown>(`/api/datasets${query({ project_id: filters.project_id })}`);
   const [size, setSize] = useState(170);
@@ -1466,51 +1470,58 @@ export function GalleryScreen({ projectId = "", params = new URLSearchParams() }
   const assets = rows(resource.data);
   const total = Number(resource.data?.total ?? assets.length);
   const isFiltered = Object.entries(filters).some(([key, value]) => value !== defaultFilters[key as keyof typeof defaultFilters]);
-  const resetKey = JSON.stringify([filters, pageSize]);
-  const previousResetKey = useRef(resetKey);
   const selectedAssetId = params.get("asset") ?? "";
   const returnTarget = safeReturnTarget(params.get("return"));
   const closeHref = returnTarget ? `#/${returnTarget}` : galleryHash(filters, page, pageSize);
   const routeSignature = params.toString();
   useEffect(() => {
-    const nextPage = Number(params.get("page"));
-    const nextPageSize = Number(params.get("pageSize"));
-    if (Number.isFinite(nextPage) && nextPage > 0) setPage(nextPage);
-    if (Number.isFinite(nextPageSize) && nextPageSize > 0) setPageSize(nextPageSize);
-    const routeFilters = galleryFiltersFromParams(params, projectId, defaultFilters);
-    if (Object.keys(routeFilters).length) setFilters(current => ({ ...current, ...routeFilters }));
+    setPage(galleryPage(params.get("page")));
+    setDebouncedQuery(params.get("q") ?? "");
+    setPageSize(galleryPageSize(params.get("pageSize") ?? readPreference("titles.gallery.pageSize")));
+    setFilters({ ...defaultFilters, ...galleryFiltersFromParams(params, projectId, defaultFilters) });
   }, [routeSignature, projectId]);
+  const rememberRoute = (nextFilters: GalleryFilters, nextPage: number, nextSize: number) => {
+    const href = canonicalWorkspaceHref(galleryHash(nextFilters, nextPage, nextSize, selectedAssetId, returnTarget));
+    history.replaceState(history.state, "", href);
+  };
+  const updateFilters = (next: GalleryFilters) => { setFilters(next); setPage(1); rememberRoute(next, 1, pageSize); };
+  const updatePage = (next: number) => { setPage(next); rememberRoute(filters, next, pageSize); };
+  const updatePageSize = (next: number) => {
+    setPageSize(next); setPage(1); writePreference("titles.gallery.pageSize", String(next)); rememberRoute(filters, 1, next);
+  };
   useEffect(() => {
-    if (previousResetKey.current !== resetKey) {
-      previousResetKey.current = resetKey;
-      setPage(1);
-    }
-  }, [resetKey]);
-  useEffect(() => { localStorage.setItem("titles.gallery.filters", JSON.stringify(filters)); }, [filters]);
-  useEffect(() => { localStorage.setItem("titles.gallery.pageSize", String(pageSize)); }, [pageSize]);
-  useEffect(() => { localStorage.setItem("titles.gallery.page", String(page)); }, [page]);
-  return <Page title="Gallery" subtitle="Training samples, grids, and generated assets; dataset members are opt-in" actions={<a className="button vela-button vela-button-primary" href={`#/transfers${routeQuery({ mode: "import", project: projectId })}`}><Upload size={15} />Import assets</a>}>
-    <Panel title="Filters">
+    if (!resource.data || resource.loading || resource.error || filters.q !== debouncedQuery) return;
+    const lastPage = Math.max(1, Math.ceil(total / pageSize));
+    if (page > lastPage) updatePage(lastPage);
+  }, [resource.data, resource.loading, resource.error, total, page, pageSize, filters.q, debouncedQuery]);
+  const extraFilterCount = [filters.model_id, filters.dataset_id, filters.eval_run_id, filters.category, filters.decision, filters.rating, filters.include_dataset_assets, filters.sort !== "origin_time_desc"].filter(Boolean).length;
+  return <Page title="Gallery" subtitle="Browse and review images. Open any image for ratings, comments, and metadata.">
+    <Panel title="Filters" className="gallery-filters-panel">
       <Notice error={projects.error} loading={projects.loading} />
-      <div className="form-grid">
-        <Field label="Project"><Dropdown aria-label="Project" value={filters.project_id} onChange={value => setFilters({ ...filters, project_id: value, model_id: "", dataset_id: "" })} options={[{ value: "", label: "All projects" }, ...rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} /></Field>
-        <Field label="Model"><Dropdown aria-label="Model" value={filters.model_id} onChange={value => setFilters({ ...filters, model_id: value })} options={[{ value: "", label: "All models" }, ...rows(models.data).map(model => ({ value: idOf(model), label: str(model.name) }))]} /></Field>
-        <Field label="Dataset"><Dropdown aria-label="Dataset" value={filters.dataset_id} onChange={value => setFilters({ ...filters, dataset_id: value })} options={[{ value: "", label: "All datasets" }, ...rows(datasets.data).map(dataset => ({ value: idOf(dataset), label: str(dataset.name) }))]} /></Field>
-        <Field label="Image set"><Dropdown aria-label="Image set" value={filters.category} onChange={value => setFilters({ ...filters, category: value, include_dataset_assets: value === "dataset_image" ? true : filters.include_dataset_assets })} options={[{ value: "", label: "All image sets" }, { value: "eval_output", label: "Grid outputs" }, { value: "sample", label: "Training samples" }, { value: "dataset_image", label: "Dataset images" }]} /></Field>
-        <Field label="Search"><input value={filters.q} onChange={event => setFilters({ ...filters, q: event.target.value })} placeholder="Filename" /></Field>
-        <Field label="Decision"><Dropdown aria-label="Decision" value={filters.decision} onChange={value => setFilters({ ...filters, decision: value })} options={[{ value: "", label: "Any" }, { value: "candidate", label: "Candidate" }, { value: "approved", label: "Approved" }, { value: "hold", label: "Hold" }, { value: "reject", label: "Reject" }]} /></Field>
-        <Field label="Rating"><Dropdown aria-label="Rating" value={filters.rating} onChange={value => setFilters({ ...filters, rating: value })} options={[{ value: "", label: "Any" }, ...[1, 2, 3, 4, 5].map(value => ({ value: String(value), label: `${value} star${value === 1 ? "" : "s"}` }))]} /></Field>
-        <Field label="Sort"><Dropdown aria-label="Sort" value={filters.sort} onChange={value => setFilters({ ...filters, sort: value })} options={[{ value: "origin_time_desc", label: "Newest generated or modified" }, { value: "origin_time_asc", label: "Oldest generated or modified" }]} /></Field>
-        <Field label="Dataset images"><label><input type="checkbox" checked={filters.include_dataset_assets} onChange={event => setFilters({ ...filters, include_dataset_assets: event.target.checked })} /> Include dataset members</label></Field>
-        <Field label={`Thumbnail size · ${size}px`}><input aria-label="Thumbnail size" type="range" min="120" max="260" value={size} onChange={event => setSize(Number(event.target.value))} /></Field>
+      <div className="form-grid gallery-primary-filters">
+        <Field label="Search"><input value={filters.q} onChange={event => updateFilters({ ...filters, q: event.target.value })} placeholder="Filename" /></Field>
+        <Field label="Project"><Dropdown aria-label="Project" value={filters.project_id} onChange={value => updateFilters({ ...filters, project_id: value, model_id: "", dataset_id: "" })} options={[{ value: "", label: "All projects" }, ...rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))]} /></Field>
       </div>
-      <div className="actions"><button onClick={() => setFilters(defaultFilters)} disabled={!isFiltered} title={!isFiltered ? "No additional filters are active" : undefined}><X size={14} />Clear filters</button><span className="vela-meta" aria-live="polite">{total} matching assets</span></div>
+      <details className="gallery-more-filters">
+        <summary>More filters and display{extraFilterCount > 0 && <span className="vela-meta">{extraFilterCount} active</span>}</summary>
+        <div className="form-grid">
+        <Field label="Model"><Dropdown aria-label="Model" value={filters.model_id} onChange={value => updateFilters({ ...filters, model_id: value })} options={[{ value: "", label: "All models" }, ...rows(models.data).map(model => ({ value: idOf(model), label: str(model.name) }))]} /></Field>
+        <Field label="Dataset"><Dropdown aria-label="Dataset" value={filters.dataset_id} onChange={value => updateFilters({ ...filters, dataset_id: value })} options={[{ value: "", label: "All datasets" }, ...rows(datasets.data).map(dataset => ({ value: idOf(dataset), label: str(dataset.name) }))]} /></Field>
+        <Field label="Image set"><Dropdown aria-label="Image set" value={filters.category} onChange={value => updateFilters({ ...filters, category: value, include_dataset_assets: value === "dataset_image" ? true : filters.include_dataset_assets })} options={[{ value: "", label: "All image sets" }, { value: "eval_output", label: "Grid outputs" }, { value: "sample", label: "Training samples" }, { value: "dataset_image", label: "Dataset images" }]} /></Field>
+        <Field label="Decision"><Dropdown aria-label="Decision" value={filters.decision} onChange={value => updateFilters({ ...filters, decision: value })} options={[{ value: "", label: "Any" }, { value: "candidate", label: "Candidate" }, { value: "approved", label: "Approved" }, { value: "hold", label: "Hold" }, { value: "reject", label: "Reject" }]} /></Field>
+        <Field label="Rating"><Dropdown aria-label="Rating" value={filters.rating} onChange={value => updateFilters({ ...filters, rating: value })} options={[{ value: "", label: "Any" }, ...[1, 2, 3, 4, 5].map(value => ({ value: String(value), label: `${value} star${value === 1 ? "" : "s"}` }))]} /></Field>
+        <Field label="Sort"><Dropdown aria-label="Sort" value={filters.sort} onChange={value => updateFilters({ ...filters, sort: value })} options={[{ value: "origin_time_desc", label: "Newest generated or modified" }, { value: "origin_time_asc", label: "Oldest generated or modified" }]} /></Field>
+        <Field label="Dataset images"><span className="gallery-checkbox"><input type="checkbox" checked={filters.include_dataset_assets} onChange={event => updateFilters({ ...filters, include_dataset_assets: event.target.checked })} /> Include dataset members</span></Field>
+        <Field label={`Thumbnail size · ${size}px`}><input aria-label="Thumbnail size" type="range" min="120" max="260" value={size} onChange={event => setSize(Number(event.target.value))} /></Field>
+        </div>
+      </details>
+      <div className="actions"><button onClick={() => updateFilters(defaultFilters)} disabled={!isFiltered} title={!isFiltered ? "No additional filters are active" : undefined}><X size={14} />Clear filters</button><span className="vela-meta" aria-live="polite">{resource.loading ? "Loading images…" : `${total} matching ${total === 1 ? "image" : "images"}`}</span></div>
     </Panel>
     <Panel title="Assets" className="gallery-assets-panel">
       <ActionMessage message={actionNotice} />
-      <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !assets.length} />
+      <Notice error={resource.error} loading={resource.loading} empty={!resource.loading && !assets.length} emptyText={isFiltered ? "No images match these filters" : "No images to review yet"} emptyHint={isFiltered ? "Clear filters or try a different search." : "Use + to import images, or include dataset members in More filters."} onRetry={resource.reload} />
       {!!assets.length && <div style={{ "--asset-size": `${size}px` } as CSSProperties}><AssetGrid assets={assets} hrefForAsset={asset => galleryHash(filters, page, pageSize, str(asset.asset_revision_id ?? asset.asset_id ?? asset.id), returnTarget)} /></div>}
-      {total > 0 && <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage} onPageSize={setPageSize} />}
+      {total > 0 && <Pagination page={page} pageSize={pageSize} total={total} onPage={updatePage} onPageSize={updatePageSize} />}
     </Panel>
     {selectedAssetId && <GalleryImageOverlay id={selectedAssetId} items={assets} filters={filters} page={page} pageSize={pageSize} closeHref={closeHref} returnTarget={returnTarget} onDeleted={resource.reload} onDeleteNotice={setActionNotice} />}
   </Page>;
@@ -1563,7 +1574,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (isGalleryShortcutTarget(event.target)) return;
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isGalleryShortcutTarget(event.target)) return;
       if (event.key === "ArrowLeft" && previous) { event.preventDefault(); location.hash = hrefFor(previous).slice(1); }
       if (event.key === "ArrowRight" && next) { event.preventDefault(); location.hash = hrefFor(next).slice(1); }
       if (/^[1-5]$/.test(event.key) && !ratingBusy) { event.preventDefault(); void rate(Number(event.key)); }
@@ -1586,7 +1597,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
   const workflow = workflowReference(metadata);
   const providerName = str(metadata.provider, relationName("provider"));
   const providerLabel = providerName.toLowerCase() === "comfyui" ? "ComfyUI" : providerName;
-  return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby="image-review-title"><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void overlay.current?.requestFullscreen(); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a ref={closeButton} className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
+  return <div ref={overlay} className={`review-overlay vela-focus-workspace gallery-review-overlay ${fullscreen ? "is-fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby="image-review-title"><header className="viewer-topbar"><a href={closeHref}>Gallery</a><div className="viewer-actions"><button title={fullscreen ? "Exit full screen" : "Use full screen"} aria-label={fullscreen ? "Exit Full Screen" : "Full Screen"} onClick={() => { const operation = document.fullscreenElement ? document.exitFullscreen() : overlay.current?.requestFullscreen?.(); void operation?.catch(() => setRatingError("Full screen is unavailable in this browser. You can continue reviewing here.")); }}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}<span>{fullscreen ? "Exit Full Screen" : "Full Screen"}</span></button><a ref={closeButton} className="button" aria-label="Close image review" href={closeHref}><X size={16} /> Close</a></div></header>
     <main className="image-review-stage"><div className="image-review-main"><nav className="image-nav" aria-label="Image navigation"><a aria-disabled={!previous} href={previous ? hrefFor(previous) : undefined}><ChevronLeft size={16} /> Previous</a><a aria-disabled={!next} href={next ? hrefFor(next) : undefined}>Next <ChevronRight size={16} /></a></nav><div className="image-review-visual"><div className="image-review-media"><AssetImage className="fit" assetRevisionId={id} variant="content" alt={promptPresentation.alt} /></div>{prompt && (promptPresentation.format === "json" ? <pre className="image-review-prompt caption-json">{promptPresentation.rendered}</pre> : <p className="image-review-prompt">{prompt}</p>)}<div className="filmstrip">{navigationItems.slice(Math.max(0, index - 4), index + 5).map(item => <a className={idOf(item) === id ? "active" : ""} href={hrefFor(item)} key={idOf(item)}><AssetImage assetRevisionId={idOf(item)} alt={str(item.name)} /></a>)}</div></div></div>
       <aside {...metadataSelection} id="storage_details" className="image-review-inspector vela-copyable-metadata">
         <header className="image-review-inspector-header">
@@ -1614,7 +1625,7 @@ function GalleryImageOverlay({ id, items, filters, page, pageSize, closeHref, re
         <section className="image-review-comments" aria-labelledby="image-comments-heading">
           <div className="image-review-section-heading"><h3 id="image-comments-heading">Comments</h3><span>{rows(comments.data).length} previous</span></div>
           <div className="comments">{rows(comments.data).map(comment => <article key={idOf(comment)}><strong>{str(comment.profile_name, "Operator")}</strong><p>{str(comment.body)}</p></article>)}</div>
-          <Form submit="Add comment" onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form>
+          <Form key={`${id}/${rows(comments.data).length}`} submit="Add comment" repeatable onSubmit={async form => { await api("/api/comments", jsonBody({ subject_type: "asset", subject_id: id, body: form.get("body") })); await comments.reload(); }}><Field label="Comment"><textarea name="body" required /></Field></Form>
         </section>
       </aside></main>
   </div>;
@@ -1645,7 +1656,7 @@ export function AssetGrid({ assets, hrefForAsset }: { assets: Row[]; hrefForAsse
     const loraScale = loraScaleFromMetadata(metadata);
     return <article className="asset-card" key={idOf(asset) || index}>
       <a className="asset-card-preview" href={hrefForAsset ? hrefForAsset(asset) : galleryOpenHref(asset)}><AssetImage assetRevisionId={assetId} alt={name} loading="lazy" maxPixels={256} /><span className="asset-card-name">{name}</span></a>
-      <small className="asset-card-footer"><span>{originLine || "Unknown"}</span><span>{modelLine || "Unknown"}</span><span>LoRA scale · {loraScale ?? "Not recorded"}</span></small>
+      <small className="asset-card-footer"><span>{originLine || "Unknown"}</span>{modelLine && <span>{modelLine}</span>}{loraScale !== null && loraScale !== undefined && <span>LoRA scale · {loraScale}</span>}</small>
     </article>;
   })}</div>;
 }

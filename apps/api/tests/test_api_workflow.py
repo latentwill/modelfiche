@@ -290,6 +290,7 @@ def test_project_dataset_draft_and_profile_attribution(client: TestClient):
 
 
 def test_dataset_draft_caption_generation_updates_only_draft(client: TestClient, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-caption-key")
     profile = client.get("/api/profiles").json()[0]
     project = client.post("/api/projects", headers={"X-Profile-ID": profile["id"]}, json={"title": "Caption"}).json()
     path = Path(get_settings().asset_root) / "caption.png"
@@ -479,3 +480,12 @@ def test_projects_hide_archived_records_unless_explicitly_requested(client: Test
     assert active["id"] in default_ids
     assert archived["id"] not in default_ids
     assert {active["id"], archived["id"]} <= all_ids
+
+
+def test_asset_kind_filter_without_project(client: TestClient):
+    image = client.post("/api/assets", json={"kind": "image", "name": "portrait.png", "mime_type": "image/png"}).json()
+    model = client.post("/api/assets", json={"kind": "model", "name": "weights.safetensors"}).json()
+    result = client.get("/api/assets", params={"kind": "image"})
+    assert result.status_code == 200
+    assert {item["id"] for item in result.json()} == {image["id"]}
+    assert model["id"] not in {item["id"] for item in result.json()}

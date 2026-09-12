@@ -14,15 +14,12 @@ from titles_api import models
 from titles_api.wandb_ingress import IngressRateLimiter, create_wandb_ingress_app
 
 
-GOLDEN = json.loads(Path("tests/compat/wandb/0.28.0/golden.json").read_text())
+# Query text from the pinned SDK's sanitized loopback protocol recording.
+QUERIES = json.loads((Path(__file__).parent / "fixtures/wandb-0.28.0-queries.json").read_text())
 
 
 def _query(operation: str) -> str:
-    return next(
-        entry["body"]["query"]
-        for entry in GOLDEN
-        if entry.get("graphql_operation") == operation
-    )
+    return QUERIES[operation]
 
 
 def _token(private_key: Ed25519PrivateKey, claims: dict[str, object]) -> str:

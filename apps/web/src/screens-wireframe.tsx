@@ -18,18 +18,18 @@ export function DashboardScreen({ createProject = false }: { createProject?: boo
   const displayed = visible.length ? visible : rows(projects.data);
   const runRows = rows(runs.data);
   return <main className="vela-main">
-    <section className="vela-hero"><div><h1>Dashboard</h1><p>Workspace overview: projects, model files, runs, and grid activity.</p></div><div className="vela-hero-art" aria-hidden="true"><img className="vela-reader-symbol vela-reader-symbol-light" src="/assets/modelfiche-reader-symbol-light.png" alt="" /><img className="vela-reader-symbol vela-reader-symbol-dark" src="/assets/modelfiche-reader-symbol-dark.png" alt="" /></div></section>
+    <section className="vela-hero"><div><h1 id="vela-route-heading">Dashboard</h1><p>Workspace overview: projects, model files, runs, and grid activity.</p></div><div className="vela-hero-art" aria-hidden="true"><img className="vela-reader-symbol vela-reader-symbol-light" src="/assets/modelfiche-reader-symbol-light.png" alt="" /><img className="vela-reader-symbol vela-reader-symbol-dark" src="/assets/modelfiche-reader-symbol-dark.png" alt="" /></div></section>
     {createProject && <section className="vela-section"><ProjectCreatePanel onCreated={projects.reload} /></section>}
     <ActiveTrainingPanel />
     <section className="vela-section">
       <div className="vela-section-heading"><h2>Available projects</h2><a className="vela-text-button" href={`#/projects${routeQuery({})}`} aria-label="View all projects">View all</a></div>
-      <Notice error={projects.error} loading={projects.loading} empty={!displayed.length} />
+      <Notice error={projects.error} loading={projects.loading} empty={!displayed.length} emptyText="Your workspace starts with a project" emptyHint="Choose + → Project, then import images or a training run." onRetry={projects.reload} />
       <div className="vela-project-grid">{displayed.map(project => <ProjectSummaryCard key={idOf(project)} project={project} />)}</div>
     </section>
     <section className="vela-section">
       <div className="vela-panel">
         <div className="vela-section-heading"><h2>Recent runs</h2><a className="vela-text-button" href={`#/runs${routeQuery({})}`} aria-label="View all recent runs">View all</a></div>
-        <Notice error={runs.error} loading={runs.loading} empty={!runRows.length} />
+        <Notice error={runs.error} loading={runs.loading} empty={!runRows.length} emptyText="No training runs yet" emptyHint="Import an existing run or prepare training from a project dataset." onRetry={runs.reload} />
         <div className="vela-run-list">{runRows.map(run => { const previewId = previewAssetId(run.preview_asset_id); return <a className="vela-run-row" href={`#/run/${idOf(run)}${routeQuery({ project: run.project_id })}`} key={idOf(run)}>{previewId ? <AssetImage assetRevisionId={previewId} alt="" style={{ width: "28px", height: "28px", objectFit: "cover", borderRadius: "50%" }} /> : <span className="vela-run-mark" aria-hidden="true" />}<span className="vela-run-copy"><h3>{str(run.name, "Training run")}<span className="vela-run-tag">{str(run.status, "unknown")}</span></h3><p>{str(run.base_model, "Base model not recorded")}</p></span><span className="vela-run-time">{formatDate(run.updated_at ?? run.created_at)}</span></a>; })}</div>
       </div>
     </section>
@@ -64,6 +64,7 @@ export function TransfersScreen({ mode = "", params = new URLSearchParams() }: {
   const transfers = useResource<unknown>("/api/transfers");
   const [filter, setFilter] = useState("all");
   const [panel, setPanel] = useState(mode);
+  useEffect(() => setPanel(mode), [mode]);
   const importRows = rows(jobs.data).filter(job => String(job.kind).includes("import")).map(job => {
     const payload = job.payload && typeof job.payload === "object" ? job.payload as Row : {};
     const prefix = str(payload.prefix, "S3 source");
@@ -89,7 +90,7 @@ function TransferImport({ params }: { params: URLSearchParams }) {
     const detection = await api<Row>(`/api/import-sources/${sourceId}/detect`, jsonBody({ prefix }));
     const created = await api<Row>("/api/import-jobs", jsonBody({ source_id: sourceId, project_id: form.get("project_id"), prefix, kind: detection.kind }));
     setMessage(`${str(detection.kind, "Unknown")} detected at ${Math.round(Number(detection.confidence ?? 0) * 100)}% confidence. Import queued as ${str(created.id)}.`);
-  }}><div className="form-grid"><Field label="S3 source"><Dropdown name="source_id" options={rows(sources.data).map(source => ({ value: idOf(source), label: str(source.name) }))} required placeholder="Select..." /></Field><Field label="Target project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select..." /></Field><Field label="Prefix"><input name="prefix" required /></Field></div></Form>{message && <div className="vela-notice" role="status"><strong>Import queued</strong><span>{message}</span></div>}<a href={`#/import${query({ source: "s3", project: params.get("project") })}`}>Open full S3 browser</a></Panel>;
+  }}><div className="form-grid"><Field label="S3 source"><Dropdown name="source_id" options={rows(sources.data).map(source => ({ value: idOf(source), label: str(source.name) }))} required placeholder="Select..." /></Field><Field label="Target project"><Dropdown name="project_id" defaultValue={params.get("project") ?? ""} options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select..." /></Field><Field label="Prefix"><input name="prefix" required /></Field></div></Form>{message && <div className="vela-notice" role="status"><strong>Import queued</strong><span>{message}</span></div>}<a href={`#/import${query({ source: "s3", project: params.get("project") })}`}>Open full S3 browser</a></Panel>;
 }
 
 function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>; params: URLSearchParams }) {
@@ -110,7 +111,7 @@ function TransferExport({ onCreated, params }: { onCreated: () => Promise<void>;
       include_reviews: form.get("include_reviews") === "on",
     }));
     setMessage(`Export ${str(created.name)} queued.`); await onCreated();
-  }}><div className="form-grid"><Field label="Package name"><input key={targetName || "manual"} name="name" defaultValue={targetName} required /></Field>{target ? <Field label="Export scope"><input readOnly value={`${target.label}: ${targetName}`} /></Field> : <Field label="Export project"><Dropdown name="project_id" options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select project..." /></Field>}</div><label><input name="include_files" type="checkbox" defaultChecked /> Include available hydrated files</label><label><input name="include_reviews" type="checkbox" defaultChecked /> Include comments, ratings, and review metadata</label></Form>}{message && <div className="vela-notice" role="status"><strong>Export queued</strong><span>{message}</span></div>}</Panel>;
+  }}><div className="form-grid"><Field label="Package name"><input key={targetName || "manual"} name="name" defaultValue={targetName} required /></Field>{target ? <Field label="Export scope"><input readOnly value={`${target.label}: ${targetName}`} /></Field> : <Field label="Export project"><Dropdown name="project_id" defaultValue={params.get("project") ?? ""} options={rows(projects.data).map(project => ({ value: idOf(project), label: str(project.title ?? project.name) }))} required placeholder="Select project..." /></Field>}</div><label><input name="include_files" type="checkbox" defaultChecked /> Include available hydrated files</label><label><input name="include_reviews" type="checkbox" defaultChecked /> Include comments, ratings, and review metadata</label></Form>}{message && <div className="vela-notice" role="status"><strong>Export queued</strong><span>{message}</span></div>}</Panel>;
 }
 
 

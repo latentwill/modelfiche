@@ -33,6 +33,12 @@ export function DocsScreen() {
       </div>
     </section>
 
+    <Panel title="Navigate and review">
+      <p>Use the + menu to create or import within your current project. Search the workspace from the top bar on desktop or mobile; use the arrow keys to choose a result and Enter to open it.</p>
+      <p>Gallery keeps search and project controls visible. Open More filters and display for image sets, dataset members, ratings, and thumbnail size. Filter and page changes are saved in the URL, so you can bookmark a view and return from image review to the same results.</p>
+      <p>Press Escape to close a menu before closing its drawer or image review. Failed saves keep your input so you can retry. A saved form returns to its save action when you edit it again.</p>
+    </Panel>
+
     <div className="docs-columns">
       <Panel title="Command line">
         <div className="docs-panel-heading"><Terminal size={20} /><p>Discover the installed command contract before automating a workflow.</p></div>

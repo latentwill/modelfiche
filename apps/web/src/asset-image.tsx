@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ImgHTMLAttributes } from "react";
 
 import { api } from "./api";
+import { routeWorkspaceSlug } from "./workspace-routing";
 
 export type AssetImageVariant = "thumbnail" | "content";
 type DeliveryDescriptor = { delivery_url: string; asset_revision_id: string; variant: { kind: AssetImageVariant }; expires_at?: string };
@@ -21,7 +22,7 @@ const unavailablePlaceholder = `data:image/svg+xml,${encodeURIComponent('<svg xm
 const loadingPlaceholder = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="#f2f4fa"/><g fill="none" stroke="#b8c5ed" stroke-width="1" opacity=".7"><path d="M0 20h160M0 40h160M0 60h160M0 80h160M0 100h160M20 0v120M40 0v120M60 0v120M80 0v120M100 0v120M120 0v120M140 0v120"/></g><g fill="none" stroke="#1237b8"><circle cx="80" cy="60" r="22" stroke-dasharray="2 5"/><path d="M80 29v62M49 60h62M9 22V9h13M138 9h13v13M9 98v13h13M151 98v13h-13"/></g><circle cx="80" cy="60" r="3" fill="#1237b8"/></svg>')}`;
 
 function descriptorKey(assetRevisionId: string, variant: AssetImageVariant, maxPixels: number) {
-  return `${assetRevisionId}:${variant}:${variant === "thumbnail" ? maxPixels : "original"}`;
+  return `${routeWorkspaceSlug()}:${assetRevisionId}:${variant}:${variant === "thumbnail" ? maxPixels : "original"}`;
 }
 
 function variantRequest(variant: AssetImageVariant, maxPixels: number) {
@@ -72,7 +73,7 @@ async function resolveDelivery(assetRevisionId: string, variant: AssetImageVaria
   const request = descriptorFor(assetRevisionId, variant, maxPixels).then(descriptor => {
     descriptorCache.set(key, { src: descriptor.delivery_url, expiresAt: cacheExpiry(descriptor) });
     return descriptor.delivery_url;
-  }).finally(() => descriptorRequests.delete(key));
+  }).finally(() => { if (descriptorRequests.get(key) === request) descriptorRequests.delete(key); });
   descriptorRequests.set(key, request);
   return request;
 }
@@ -80,7 +81,11 @@ async function resolveDelivery(assetRevisionId: string, variant: AssetImageVaria
 export { resolveDelivery as resolveAssetDelivery };
 
 /** Resolve the server-owned delivery descriptor before assigning an image URL. */
-export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels = 512, alt = "", className, ...props }: AssetImageProps) {
+export function AssetImage(props: AssetImageProps) {
+  return <ResolvedAssetImage key={descriptorKey(props.assetRevisionId, props.variant ?? "thumbnail", props.maxPixels ?? 512)} {...props} />;
+}
+
+function ResolvedAssetImage({ assetRevisionId, variant = "thumbnail", maxPixels = 512, alt = "", className, ...props }: AssetImageProps) {
   const [delivery, setDelivery] = useState<{ src: string; error?: string }>();
   const [visible, setVisible] = useState(props.loading !== "lazy");
   const imageRef = useRef<HTMLImageElement>(null);
@@ -103,7 +108,7 @@ export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels =
     retryActiveRef.current = true;
     retryCountRef.current = 0;
     setDelivery(undefined);
-    if (!visible || !assetRevisionId) return () => { active = false; };
+    if (!visible || !assetRevisionId) return () => { active = false; retryActiveRef.current = false; };
     void resolveDelivery(assetRevisionId, variant, maxPixels).then(src => {
       if (active) setDelivery({ src });
     }).catch(reason => {
@@ -144,5 +149,5 @@ export function AssetImage({ assetRevisionId, variant = "thumbnail", maxPixels =
         if (retryActiveRef.current) setDelivery({ src: "", error: reason instanceof Error ? reason.message : String(reason) });
       });
     }, delay);
-  }} />{deliveryState === "unavailable" && <button type="button" className="vela-button" onClick={retryDelivery}>Retry</button>}</span>;
+  }} />{deliveryState === "unavailable" && <button type="button" className="vela-button" aria-label={`Retry ${alt || "image"}`} title={delivery?.error} onClick={event => { event.preventDefault(); event.stopPropagation(); retryDelivery(); }}>Retry</button>}</span>;
 }
