@@ -219,7 +219,8 @@ def test_global_credential_creates_one_stable_idempotent_training_launch(
         launches = db.query(models.TrainingLaunch).all()
         exports = db.query(models.Job).filter_by(kind="export.package").all()
         assert len(runs) == len(launches) == len(exports) == 1
-        assert launches[0].source_fingerprint is None
+        assert launches[0].source_fingerprint.startswith("source-v1:")
+        assert len(launches[0].source_fingerprint) == len("source-v1:") + 64
         assert runs[0].status == "pending"
         assert runs[0].wandb_run_id == manifest["telemetry"]["run_id"]
         assert exports[0].payload["dataset_version_ids"] == [
